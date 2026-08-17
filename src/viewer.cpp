@@ -9,6 +9,10 @@
 #include <QScrollBar>
 #include <QShortcut>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 ViewerWidget::ViewerWidget(QWidget* parent)
     : QFrame(parent)
 {
@@ -25,6 +29,7 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     m_scrollArea = new QScrollArea(this);
     m_scrollArea->setWidgetResizable(true);
     m_scrollArea->setAlignment(Qt::AlignCenter);
+    m_scrollArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     layout->addWidget(m_scrollArea);
 
     m_pageLabel = new QLabel(m_scrollArea);
@@ -170,6 +175,9 @@ float ViewerWidget::fitToWidthZoom() const {
         return 1.0f;
 
     int viewportWidth = m_scrollArea->viewport()->width();
+    if (viewportWidth <= 0)
+        return 1.0f;
+
     return static_cast<float>(viewportWidth) / info.width;
 }
 
@@ -181,8 +189,13 @@ float ViewerWidget::fitToPageZoom() const {
     if (info.width <= 0 || info.height <= 0)
         return 1.0f;
 
-    float zx = static_cast<float>(m_scrollArea->viewport()->width()) / info.width;
-    float zy = static_cast<float>(m_scrollArea->viewport()->height()) / info.height;
+    int vw = m_scrollArea->viewport()->width();
+    int vh = m_scrollArea->viewport()->height();
+    if (vw <= 0 || vh <= 0)
+        return 1.0f;
+
+    float zx = static_cast<float>(vw) / info.width;
+    float zy = static_cast<float>(vh) / info.height;
     return qMin(zx, zy);
 }
 
@@ -292,6 +305,29 @@ void ViewerWidget::onInfo() {
 
 void ViewerWidget::keyPressEvent(QKeyEvent* event) {
     QFrame::keyPressEvent(event);
+}
+
+bool ViewerWidget::nativeEvent(const QByteArray& eventType, void* message, qintptr* result) {
+    Q_UNUSED(eventType)
+    Q_UNUSED(result)
+
+#ifdef Q_OS_WIN
+    if (eventType == "windows_generic_MSG" || eventType == "windows_dispatcher_MSG") {
+        auto* msg = static_cast<MSG*>(message);
+        if (msg->message == WM_SIZE) {
+            int w = LOWORD(msg->lParam);
+            int h = HIWORD(msg->lParam);
+            if (w > 0 && h > 0) {
+                resize(w, h);
+                return false;
+            }
+        }
+    }
+#else
+    Q_UNUSED(message)
+#endif
+
+    return QFrame::nativeEvent(eventType, message, result);
 }
 
 void ViewerWidget::resizeEvent(QResizeEvent* event) {

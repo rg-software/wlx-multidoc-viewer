@@ -2,6 +2,7 @@
 build/
 cmake-build-*/
 out/
+vcpkg_installed/
 
 # IDE files
 .vscode/
@@ -26,3 +27,6 @@ qrc_*.cpp
 # OS files
 .DS_Store
 Thumbs.db
+
+# CMake user presets
+CMakePresets.user.json

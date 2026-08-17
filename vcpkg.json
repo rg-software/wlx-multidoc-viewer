@@ -1,0 +1,11 @@
+{
+  "name": "wlx-multidoc-viewer",
+  "version-semver": "1.0.0",
+  "description": "WLX plugin for Total/Double Commander supporting PDF, DjVu, and other formats",
+  "builtin-baseline": "94a541197763a4f449a1b91478df48c0584a6256",
+  "dependencies": [
+    "qtbase",
+    "libmupdf",
+    "djvulibre"
+  ]
+}

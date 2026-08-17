@@ -1,0 +1,65 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "vcpkg-base",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": {
+          "type": "FILEPATH",
+          "value": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        },
+        "VCPKG_OVERLAY_PORTS": "${sourceDir}/overlay-ports",
+        "VCPKG_VISUAL_STUDIO_PATH": "C:/Program Files/Microsoft Visual Studio/2022/Community"
+      }
+    },
+    {
+      "name": "windows-x64-debug",
+      "displayName": "Windows x64 Debug (vcpkg)",
+      "inherits": "vcpkg-base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+      }
+    },
+    {
+      "name": "windows-x64-release",
+      "displayName": "Windows x64 Release (vcpkg)",
+      "inherits": "vcpkg-base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+      }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-x64-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-x64-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release"
+    }
+  ]
+}

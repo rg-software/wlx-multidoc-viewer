@@ -22,6 +22,7 @@ public:
     DocumentEngine* engine() const { return m_engine.get(); }
 
 protected:
+    bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
     void keyPressEvent(QKeyEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 

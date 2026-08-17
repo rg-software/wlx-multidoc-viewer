@@ -1,0 +1,44 @@
+# DjVuLibre CMake config file
+get_filename_component(_IMPORT_PREFIX "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
+get_filename_component(_IMPORT_PREFIX "${_IMPORT_PREFIX}/../../../" ABSOLUTE)
+
+if(NOT TARGET djvulibre::djvulibre)
+    add_library(djvulibre::djvulibre UNKNOWN IMPORTED)
+
+    set_target_properties(djvulibre::djvulibre PROPERTIES
+        INTERFACE_COMPILE_DEFINITIONS "DJVUAPI=;DDJVUAPI=;MINILISPAPI="
+        INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include"
+    )
+
+    # Debug library
+    find_library(_djvulibre_debug NAMES djvulibre
+        PATHS "${_IMPORT_PREFIX}/debug/lib"
+        NO_DEFAULT_PATH
+    )
+    # Release library
+    find_library(_djvulibre_release NAMES djvulibre
+        PATHS "${_IMPORT_PREFIX}/lib"
+        NO_DEFAULT_PATH
+    )
+
+    if(_djvulibre_debug AND _djvulibre_release)
+        set_target_properties(djvulibre::djvulibre PROPERTIES
+            IMPORTED_LOCATION_DEBUG "${_djvulibre_debug}"
+            IMPORTED_LOCATION_RELEASE "${_djvulibre_release}"
+            IMPORTED_LOCATION "${_djvulibre_release}"
+        )
+    elseif(_djvulibre_release)
+        set_target_properties(djvulibre::djvulibre PROPERTIES
+            IMPORTED_LOCATION "${_djvulibre_release}"
+        )
+    elseif(_djvulibre_debug)
+        set_target_properties(djvulibre::djvulibre PROPERTIES
+            IMPORTED_LOCATION "${_djvulibre_debug}"
+            IMPORTED_LOCATION_DEBUG "${_djvulibre_debug}"
+        )
+    endif()
+endif()
+
+unset(_IMPORT_PREFIX)
+unset(_djvulibre_debug)
+unset(_djvulibre_release)
