@@ -1,32 +1,26 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Tech stack: C++17, CMake 3.20+, vcpkg (standalone at C:\vcpkg)
+  Platforms: Windows (Win32 API, VS 2022) and Linux (Qt6 Widgets, GCC/Ninja)
+  Dependencies: Qt6 (Core+Gui on Windows, Widgets on Linux), MuPDF (unofficial-libmupdf), DjVuLibre 3.5.28 (custom overlay port)
+  All libraries statically linked on Windows (x64-windows-static-md triplet)
+  Domain: WLX lister plugin for Total Commander / Double Commander
+  WLX API: DCPCALL exports, HANDLE for opaque windows, detect string max 260 chars
+  Engine interface: DocumentEngine with open/renderPage(QImage)/close — platform-agnostic
+  Conventions: fz_try/fz_catch for MuPDF errors, no exceptions in engine code, no toolbar (TC provides navigation)
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
-
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+rules:
+  proposal:
+    - Keep proposals under 300 words
+    - Always mention both platforms when behavior is shared
+  specs:
+    - Scenarios must be platform-agnostic ("the viewer SHALL")
+    - Use SHALL/MUST for normative requirements
+    - Every requirement needs at least one scenario
+  design:
+    - Always include a "platform-specific code" section listing what differs per platform
+    - Prefer shared logic over #ifdef blocks
+  tasks:
+    - Group shared work first, platform-specific work in separate groups
+    - Each task must be verifiable in one build cycle

@@ -20,12 +20,15 @@ static bool ensureQApplication() {
 
 #define SUPPORTED_EXTENSIONS \
     "EXT=\"PDF\"|EXT=\"XPS\"|EXT=\"OXPS\"|" \
-    "EXT=\"EPUB\"|EXT=\"MOBI\"|EXT=\"FB2\"|EXT=\"FB2Z\"|" \
-    "EXT=\"CBZ\"|EXT=\"CBR\"|EXT=\"CB7\"|EXT=\"CBT\"|" \
+    "EXT=\"EPUB\"|EXT=\"MOBI\"|EXT=\"FB2\"|" \
+    "EXT=\"CBZ\"|EXT=\"CBR\"|EXT=\"CB7\"|" \
     "EXT=\"HTML\"|EXT=\"HTM\"|EXT=\"MD\"|EXT=\"TXT\"|" \
-    "EXT=\"JPEG\"|EXT=\"JPG\"|EXT=\"PNG\"|EXT=\"TIFF\"|EXT=\"TIF\"|" \
-    "EXT=\"GIF\"|EXT=\"BMP\"|EXT=\"WEBP\"|EXT=\"AVIF\"|" \
+    "EXT=\"JPEG\"|EXT=\"JPG\"|EXT=\"PNG\"|EXT=\"TIFF\"|" \
+    "EXT=\"GIF\"|EXT=\"BMP\"|EXT=\"WEBP\"|" \
     "EXT=\"DJVU\"|EXT=\"DJV\""
+
+static_assert(sizeof(SUPPORTED_EXTENSIONS) <= 260,
+    "Detect string exceeds WLX buffer limit of 260 chars");
 
 DCPCALL HANDLE ListLoad(HANDLE ParentWin, char* FileToLoad, int ShowFlags) {
     Q_UNUSED(ShowFlags)
