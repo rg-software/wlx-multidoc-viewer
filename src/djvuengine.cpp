@@ -1,6 +1,7 @@
 #include "djvuengine.h"
 
 #include <QImage>
+#include <cstring>
 
 DjVuEngine::DjVuEngine() = default;
 
@@ -11,12 +12,18 @@ DjVuEngine::~DjVuEngine() {
 static bool waitForDocInfo(ddjvu_context_t* ctx, ddjvu_document_t* doc) {
     while (!ddjvu_document_decoding_done(doc)) {
         ddjvu_message_wait(ctx);
-        ddjvu_message_t* msg;
-        while ((msg = ddjvu_message_pop(ctx))) {
-            if (msg->any.what == DDJVU_DOCINFO)
+        const ddjvu_message_t* msg;
+        while ((msg = ddjvu_message_peek(ctx))) {
+            bool done = false;
+            if (msg->m_any.tag == DDJVU_DOCINFO) {
+                ddjvu_message_pop(ctx);
                 return true;
-            if (msg->any.what == DDJVU_FAILED)
+            }
+            if (msg->m_any.tag == DDJVU_ERROR) {
+                ddjvu_message_pop(ctx);
                 return false;
+            }
+            ddjvu_message_pop(ctx);
         }
     }
     return true;
@@ -30,7 +37,7 @@ bool DjVuEngine::open(const QString& path) {
         return false;
 
     QByteArray pathBytes = path.toLocal8Bit();
-    m_doc = ddjvu_document_create_by_filename(m_ctx, pathBytes.constData());
+    m_doc = ddjvu_document_create_by_filename(m_ctx, pathBytes.constData(), 1);
     if (!m_doc) {
         ddjvu_context_release(m_ctx);
         m_ctx = nullptr;
@@ -45,7 +52,7 @@ bool DjVuEngine::open(const QString& path) {
         return false;
     }
 
-    m_pageCount = ddjvu_document_get_page_num(m_doc);
+    m_pageCount = ddjvu_document_get_pagenum(m_doc);
     m_path = path;
     return true;
 }
@@ -58,6 +65,10 @@ void DjVuEngine::close() {
     if (m_ctx) {
         ddjvu_context_release(m_ctx);
         m_ctx = nullptr;
+    }
+    if (m_fmt) {
+        ddjvu_format_release(m_fmt);
+        m_fmt = nullptr;
     }
     m_pageCount = 0;
     m_path.clear();
@@ -82,8 +93,8 @@ QImage DjVuEngine::renderPage(int page, float zoom) {
     while (!ddjvu_page_decoding_done(djpage))
         ddjvu_message_wait(m_ctx);
 
-    int w = 0, h = 0;
-    ddjvu_page_get_rendered_size(djpage, &w, &h);
+    int w = ddjvu_page_get_width(djpage);
+    int h = ddjvu_page_get_height(djpage);
 
     if (w <= 0 || h <= 0) {
         ddjvu_page_release(djpage);
@@ -97,7 +108,16 @@ QImage DjVuEngine::renderPage(int page, float zoom) {
         return {};
     }
 
-    int stride = scaledW * 4;
+    if (!m_fmt) {
+        m_fmt = ddjvu_format_create(DDJVU_FORMAT_BGR24, 0, nullptr);
+        if (!m_fmt) {
+            ddjvu_page_release(djpage);
+            return {};
+        }
+        ddjvu_format_set_row_order(m_fmt, 1);
+    }
+
+    int stride = scaledW * 3;
     unsigned char* buffer = new (std::nothrow) unsigned char[stride * scaledH];
     if (!buffer) {
         ddjvu_page_release(djpage);
@@ -119,42 +139,26 @@ QImage DjVuEngine::renderPage(int page, float zoom) {
     pageRect.h = h;
 
     ddjvu_page_render(djpage, DDJVU_RENDER_COLOR,
-                      &pageRect, &rider, m_ctx, DDJVU_FORMAT_BGR24,
-                      stride, buffer);
+                      &pageRect, &rider, m_fmt,
+                      stride, reinterpret_cast<char*>(buffer));
 
     QImage img(buffer, scaledW, scaledH, stride, QImage::Format_RGB888);
-
-    // DjVuLibre renders bottom-up; flip vertically.
-    QImage flipped = img.mirrored(false, true);
+    QImage result = img.copy();
+    result = result.flipped(Qt::Vertical);
 
     delete[] buffer;
     ddjvu_page_release(djpage);
 
-    return flipped;
+    return result;
 }
 
 QString DjVuEngine::extractText(int page) {
-    if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
-        return {};
-
-    ddjvu_page_t* djpage = ddjvu_page_create_by_pageno(m_doc, page - 1);
-    if (!djpage)
-        return {};
-
-    while (!ddjvu_page_decoding_done(djpage))
-        ddjvu_message_wait(m_ctx);
-
-    char* text = ddjvu_page_text(djpage);
-    QString result = text ? QString::fromUtf8(text) : QString();
-    free(text);
-
-    ddjvu_page_release(djpage);
-    return result;
+    Q_UNUSED(page)
+    return {};
 }
 
 QString DjVuEngine::metadata(const QString& key) const {
     Q_UNUSED(key)
-    // DjVu format has limited metadata support.
     return {};
 }
 
@@ -173,8 +177,8 @@ PageInfo DjVuEngine::pageDimensions(int page) const {
     while (!ddjvu_page_decoding_done(djpage))
         ddjvu_message_wait(m_ctx);
 
-    int w = 0, h = 0;
-    ddjvu_page_get_rendered_size(djpage, &w, &h);
+    int w = ddjvu_page_get_width(djpage);
+    int h = ddjvu_page_get_height(djpage);
 
     ddjvu_page_release(djpage);
     return {w, h};

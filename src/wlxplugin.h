@@ -14,7 +14,7 @@ typedef int BOOL;
 #define MAX_PATH 260
 #endif
 
-#define DCPCALL __attribute__((visibility("default")))
+#define DCPCALL extern "C" __attribute__((visibility("default")))
 #define LISTPLUGIN_OK 0
 #define LISTPLUGIN_ERROR -1
 

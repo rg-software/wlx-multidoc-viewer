@@ -4,12 +4,13 @@ project(wlx-multidoc-viewer LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(MUPDF REQUIRED IMPORTED_TARGET mupdf)
-pkg_check_modules(DJVU REQUIRED IMPORTED_TARGET ddjvu)
+pkg_check_modules(DJVU REQUIRED IMPORTED_TARGET ddjvuapi)
 
 add_library(wlx-multidoc-viewer SHARED
     src/plugin.cpp

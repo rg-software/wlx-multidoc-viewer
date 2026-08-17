@@ -3,7 +3,7 @@
 
 #include "document.h"
 
-#include <djvulibre/ddjvuapi.h>
+#include <libdjvu/ddjvuapi.h>
 #include <QString>
 #include <QVector>
 
@@ -26,6 +26,7 @@ public:
 private:
     ddjvu_context_t* m_ctx = nullptr;
     ddjvu_document_t* m_doc = nullptr;
+    ddjvu_format_t* m_fmt = nullptr;
     int m_pageCount = 0;
     QString m_path;
 };

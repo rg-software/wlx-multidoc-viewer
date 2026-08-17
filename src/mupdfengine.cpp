@@ -12,15 +12,9 @@ MuPdfEngine::~MuPdfEngine() {
 bool MuPdfEngine::open(const QString& path) {
     close();
 
-    fz_try(m_ctx) {
-        m_ctx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
-        if (!m_ctx)
-            return false;
-    }
-    fz_catch(m_ctx) {
-        m_ctx = nullptr;
+    m_ctx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
+    if (!m_ctx)
         return false;
-    }
 
     fz_register_document_handlers(m_ctx);
 
@@ -186,8 +180,7 @@ QVector<OutlineItem> MuPdfEngine::outline() const {
             while (node) {
                 OutlineItem item;
                 item.title = QString::fromUtf8(node->title);
-                item.pageNo = fz_page_number_from_location(
-                    m_ctx, m_doc, node->dest) + 1;
+                item.pageNo = node->page.page + 1;
                 if (node->down)
                     walk(node->down, item.children);
                 out.append(item);
