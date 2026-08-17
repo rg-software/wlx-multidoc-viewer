@@ -1,11 +1,11 @@
 ## Purpose
 
-Lets users switch between paged mode (one page fills the viewport) and continuous mode (pages stack vertically with smooth scrolling) to suit their reading preference.
+Lets users switch between paged mode (one page fills the viewport) and continuous mode (pages stack vertically with smooth scrolling) to suit their reading preference — on both Windows and Linux.
 
 ## ADDED Requirements
 
 ### Requirement: Paged mode
-The viewer SHALL support a paged mode where exactly one page is visible at a time, filling the viewport.
+The viewer SHALL support a paged mode where exactly one page is visible at a time, scaled to fit the viewport.
 
 #### Scenario: Paged mode displays single page
 - **WHEN** the viewer is in paged mode
@@ -30,9 +30,9 @@ The viewer SHALL support a continuous mode where pages are rendered sequentially
 The viewer SHALL allow switching between paged and continuous mode via a keyboard shortcut.
 
 #### Scenario: Toggle to continuous mode
-- **WHEN** the user presses Ctrl+N (or platform equivalent)
+- **WHEN** the user presses the mode toggle shortcut
 - **THEN** the viewer switches to continuous mode and re-renders
 
 #### Scenario: Toggle to paged mode
-- **WHEN** the user presses Ctrl+N while in continuous mode
+- **WHEN** the user presses the mode toggle shortcut while in continuous mode
 - **THEN** the viewer switches to paged mode showing the current page

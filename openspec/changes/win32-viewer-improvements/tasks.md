@@ -1,32 +1,39 @@
-## 1. Page Navigation
+## 1. Shared Viewer Logic
 
-- [ ] 1.1 Add page state members to ViewerWin32: `m_currentPage`, `m_pageCount`, update on `loadDocument`
-- [ ] 1.2 Add keyboard handler for Right/Left/Home/End/PageUp/PageDown to navigate pages
-- [ ] 1.3 Add page bounds checking: prevent navigation past first/last page
-- [ ] 1.4 Render current page and update a text-based page indicator ("1/5") via DrawText in WM_PAINT
+- [ ] 1.1 Create `src/viewerstate.h` with page state (currentPage, pageCount, zoom, fitToWidth, pagedMode), navigation methods, and zoom calculation formulas
+- [ ] 1.2 Implement page navigation: nextPage(), prevPage(), firstPage(), lastPage() with bounds checking
+- [ ] 1.3 Implement zoom calculation: fitToWidthZoom(pageW, viewportW), fitToPageZoom(pageW, pageH, viewportW, viewportH), zoomIn(), zoomOut()
+- [ ] 1.4 Implement mode toggle: setPagedMode(bool), isPagedMode()
 
-## 2. Correct Resize & Zoom
+## 2. DPI-Aware Engine Rendering
 
-- [ ] 2.1 Fix `onSize` to compute zoom from `page_dimensions` and viewport size, not from raw pixel math
-- [ ] 2.2 Ensure aspect ratio is preserved: use `min(vw/pw, vh/ph)` for fit-to-page, `vw/pw` for fit-to-width
-- [ ] 2.3 Add DPI detection: call `GetDpiForWindow` (Win10 1607+) with fallback to `GetDeviceCaps`, multiply render zoom by `dpi/96.0`
-- [ ] 2.4 Re-render and invalidate on every `WM_SIZE` event
+- [ ] 2.1 Add DPI scale factor parameter to `DocumentEngine::renderPage()` (default 1.0 for backward compat)
+- [ ] 2.2 In MuPdfEngine, multiply the CTM by the DPI scale factor before rendering
+- [ ] 2.3 In DjVuEngine, apply DPI scale to the render call
+- [ ] 2.4 Verify QImage→HBITMAP conversion (Win32) and QImage display (Qt) preserve quality at scaled DPI
 
-## 3. Sharp Text Rendering
+## 3. Win32 Viewer Integration
 
-- [ ] 3.1 Verify MuPDF engine uses `fz_scale(zoom * dpiScale, zoom * dpiScale)` in the CTM passed to `fz_new_pixmap_from_page`
-- [ ] 3.2 Verify DjVu engine applies DPI scale to the render call
-- [ ] 3.3 Confirm QImage→HBITMAP conversion preserves 24-bit RGB without quantization artifacts
+- [ ] 3.1 Include `viewerstate.h` in ViewerWin32, replace ad-hoc state with ViewerState methods
+- [ ] 3.2 Fix `onSize` to use shared fitToWidthZoom/fitToPageZoom formulas
+- [ ] 3.3 Add keyboard handler delegating to ViewerState navigation methods
+- [ ] 3.4 Add DPI detection: GetDpiForWindow with fallback, pass dpi/96.0 to engine renderPage
+- [ ] 3.5 Add page indicator: DrawText "current/total" in WM_PAINT
+- [ ] 3.6 Implement paged mode: single page paint, scroll-past-bottom advances page
+- [ ] 3.7 Implement continuous mode: composite visible pages vertically, scroll offset into composite
 
-## 4. Paged Mode
+## 4. Qt Viewer Integration
 
-- [ ] 4.1 Implement paged mode: single page scaled to fit viewport (aspect-preserving)
-- [ ] 4.2 Handle scroll-past-bottom to advance to next page
-- [ ] 4.3 Handle scroll-past-top to go back to previous page
+- [ ] 4.1 Include `viewerstate.h` in ViewerWidget, replace ad-hoc state with ViewerState methods
+- [ ] 4.2 Fix `resizeEvent` to use shared fitToWidthZoom/fitToPageZoom formulas
+- [ ] 4.3 Add keyboard handler delegating to ViewerState navigation methods
+- [ ] 4.4 Add DPI detection: QScreen::logicalDotsPerInch, pass dpi/96.0 to engine renderPage
+- [ ] 4.5 Add page indicator: update QLabel with "current/total" on navigation
+- [ ] 4.6 Implement paged mode: single page in scroll area, scroll-past-bottom advances page
+- [ ] 4.7 Implement continuous mode: render visible pages into a composite QWidget, scroll through it
 
-## 5. Continuous Mode
+## 5. Build & Verify
 
-- [ ] 5.1 Add continuous mode state flag and Ctrl+N toggle
-- [ ] 5.2 In continuous mode, render all visible pages (viewport + 1 page buffer) into a composite bitmap
-- [ ] 5.3 Set scroll range to total composite height, paint composite at scroll offset
-- [ ] 5.4 Rebuild composite on scroll or resize, only re-render pages that intersect the viewport
+- [ ] 5.1 Add viewerstate.h to CMakeLists.txt (header-only or compiled into both targets)
+- [ ] 5.2 Build and test on Windows: navigation, resize, DPI, modes
+- [ ] 5.3 Build and test on Linux: navigation, resize, DPI, modes

@@ -1,6 +1,6 @@
 ## Purpose
 
-Ensures pages render sharply and without distortion at any window size, with proper DPI awareness and zoom calculations that keep content readable.
+Ensures pages render sharply and without distortion at any window size, with proper DPI awareness and zoom calculations that keep content readable — on both Windows and Linux.
 
 ## ADDED Requirements
 
@@ -9,11 +9,11 @@ The viewer SHALL render the page without stretching, squashing, or aspect ratio 
 
 #### Scenario: Window wider than page
 - **WHEN** the viewer window is wider than the rendered page at current zoom
-- **THEN** the page is displayed at its natural aspect ratio, centered horizontally
+- **THEN** the page is displayed at its natural aspect ratio, centered
 
 #### Scenario: Window narrower than page
 - **WHEN** the viewer window is narrower than the rendered page at current zoom
-- **THEN** the page is displayed at its natural aspect ratio with horizontal scroll enabled
+- **THEN** the page is displayed at its natural aspect ratio with scroll enabled
 
 ### Requirement: Fit-to-width zoom
 The viewer SHALL support a fit-to-width mode where the page width matches the viewport width.
@@ -27,7 +27,7 @@ The viewer SHALL support a fit-to-width mode where the page width matches the vi
 - **THEN** the page height scales proportionally to the width
 
 ### Requirement: DPI-aware rendering
-The viewer SHALL render text and vector content at the native display DPI, not at 96 DPI.
+The engines SHALL render text and vector content at the native display DPI, not at 96 DPI.
 
 #### Scenario: High-DPI display
 - **WHEN** the display is set to 150% scaling (144 DPI)

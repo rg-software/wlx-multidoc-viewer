@@ -1,6 +1,6 @@
 ## Purpose
 
-Provides keyboard and scroll-based page navigation for multi-page documents in the Win32 viewer, letting users move forward, backward, and jump to specific pages.
+Provides keyboard and scroll-based page navigation for multi-page documents, letting users move forward, backward, and jump to specific pages — on both Windows (Win32 viewer) and Linux (Qt viewer).
 
 ## ADDED Requirements
 
@@ -35,7 +35,7 @@ The viewer SHALL NOT allow navigation beyond the first or last page.
 - **THEN** the viewer remains on the last page
 
 ### Requirement: Page indicator
-The viewer SHALL display the current page number and total page count in the status area.
+The viewer SHALL display the current page number and total page count.
 
 #### Scenario: Page indicator updates on navigation
 - **WHEN** the user navigates to a different page
