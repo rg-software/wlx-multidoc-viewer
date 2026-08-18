@@ -83,10 +83,10 @@ void ViewerWidget::closeDocument() {
 }
 
 float ViewerWidget::dpiScale() const {
-    QScreen* screen = screen();
-    if (!screen)
+    QScreen* s = screen();
+    if (!s)
         return 1.0f;
-    return screen->logicalDotsPerInchX() / 96.0f;
+    return s->logicalDotsPerInchX() / 96.0f;
 }
 
 void ViewerWidget::updatePage() {

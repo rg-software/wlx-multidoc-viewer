@@ -46,19 +46,12 @@ DCPCALL HANDLE ListLoad(HANDLE ParentWin, char* FileToLoad, int ShowFlags) {
 #else
     ensureQApplication();
 
-    auto* viewer = new ViewerWidget(nullptr);
+    auto* parent = static_cast<QWidget*>(ParentWin);
+    if (!parent)
+        return nullptr;
 
+    auto* viewer = new ViewerWidget(parent);
     viewer->show();
-
-    HWND hViewer = reinterpret_cast<HWND>(viewer->winId());
-    HWND hParent = static_cast<HWND>(ParentWin);
-    SetParent(hViewer, hParent);
-
-    RECT rc;
-    GetClientRect(hParent, &rc);
-    SetWindowPos(hViewer, nullptr, 0, 0, rc.right, rc.bottom,
-                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-    viewer->resize(rc.right, rc.bottom);
 
     if (!viewer->loadDocument(QString::fromLocal8Bit(FileToLoad))) {
         delete viewer;
