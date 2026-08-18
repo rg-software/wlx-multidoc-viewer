@@ -17,7 +17,7 @@ public:
     bool isOpen() const override;
 
     int pageCount() const override;
-    QImage renderPage(int page, float zoom) override;
+    QImage renderPage(int page, float zoom, float dpiScale = 1.0f) override;
     QString extractText(int page) override;
     QString metadata(const QString& key) const override;
     QVector<OutlineItem> outline() const override;

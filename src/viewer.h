@@ -2,12 +2,11 @@
 #define VIEWER_H
 
 #include "document.h"
+#include "viewerstate.h"
 
 #include <QFrame>
 #include <QScrollArea>
 #include <QLabel>
-#include <QToolBar>
-#include <QAction>
 #include <QPixmap>
 #include <memory>
 
@@ -19,7 +18,6 @@ public:
 
     bool loadDocument(const QString& path);
     void closeDocument();
-    DocumentEngine* engine() const { return m_engine.get(); }
 
 protected:
     bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
@@ -35,25 +33,24 @@ private slots:
     void onZoomOut();
     void onZoomOriginal();
     void onFitToggle();
+    void onFitWidth();
+    void onFitPage();
     void onGoToPage();
     void onInfo();
+    void onModeToggle();
 
 private:
     void updatePage();
     void updateCounter();
     void updateZoomForFit();
-    float fitToWidthZoom() const;
-    float fitToPageZoom() const;
+    float dpiScale() const;
 
     std::unique_ptr<DocumentEngine> m_engine;
-    QToolBar* m_toolbar = nullptr;
+    ViewerState m_state;
+
     QScrollArea* m_scrollArea = nullptr;
     QLabel* m_pageLabel = nullptr;
     QLabel* m_counterLabel = nullptr;
-
-    int m_currentPage = 1;
-    float m_zoom = 1.0f;
-    bool m_fitToWidth = true;
 };
 
 #endif // VIEWER_H

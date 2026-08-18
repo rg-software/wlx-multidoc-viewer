@@ -59,7 +59,7 @@ int MuPdfEngine::pageCount() const {
     return m_pageCount;
 }
 
-QImage MuPdfEngine::renderPage(int page, float zoom) {
+QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale) {
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -67,11 +67,13 @@ QImage MuPdfEngine::renderPage(int page, float zoom) {
     fz_pixmap* pixmap = nullptr;
     QImage result;
 
+    float effectiveZoom = zoom * dpiScale;
+
     fz_try(m_ctx) {
         fzpage = fz_load_page(m_ctx, m_doc, page - 1);
 
         fz_rect bounds = fz_bound_page(m_ctx, fzpage);
-        fz_matrix ctm = fz_scale(zoom, zoom);
+        fz_matrix ctm = fz_scale(effectiveZoom, effectiveZoom);
 
         pixmap = fz_new_pixmap_from_page(m_ctx, fzpage, ctm, fz_device_rgb(m_ctx), 0);
 

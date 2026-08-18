@@ -82,7 +82,7 @@ int DjVuEngine::pageCount() const {
     return m_pageCount;
 }
 
-QImage DjVuEngine::renderPage(int page, float zoom) {
+QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale) {
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -101,8 +101,9 @@ QImage DjVuEngine::renderPage(int page, float zoom) {
         return {};
     }
 
-    int scaledW = static_cast<int>(w * zoom);
-    int scaledH = static_cast<int>(h * zoom);
+    float effectiveZoom = zoom * dpiScale;
+    int scaledW = static_cast<int>(w * effectiveZoom);
+    int scaledH = static_cast<int>(h * effectiveZoom);
     if (scaledW <= 0 || scaledH <= 0) {
         ddjvu_page_release(djpage);
         return {};

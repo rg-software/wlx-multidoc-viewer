@@ -26,7 +26,7 @@ public:
     virtual bool isOpen() const = 0;
 
     virtual int pageCount() const = 0;
-    virtual QImage renderPage(int page, float zoom) = 0;
+    virtual QImage renderPage(int page, float zoom, float dpiScale = 1.0f) = 0;
     virtual QString extractText(int page) = 0;
     virtual QString metadata(const QString& key) const = 0;
     virtual QVector<OutlineItem> outline() const = 0;

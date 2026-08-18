@@ -1,13 +1,13 @@
 #include "viewer.h"
 
 #include <QVBoxLayout>
-#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QKeyEvent>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QShortcut>
+#include <QScreen>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -22,10 +22,6 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     layout->setSpacing(0);
     layout->setContentsMargins(0, 0, 0, 0);
 
-    m_toolbar = new QToolBar(this);
-    m_toolbar->setIconSize(QSize(16, 16));
-    layout->addWidget(m_toolbar);
-
     m_scrollArea = new QScrollArea(this);
     m_scrollArea->setWidgetResizable(true);
     m_scrollArea->setAlignment(Qt::AlignCenter);
@@ -36,83 +32,24 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     m_pageLabel->setAlignment(Qt::AlignCenter);
     m_scrollArea->setWidget(m_pageLabel);
 
-    // Navigation actions
-    auto* actFirst = m_toolbar->addAction(QIcon::fromTheme("go-first"), tr("First page"));
-    connect(actFirst, &QAction::triggered, this, &ViewerWidget::onFirstPage);
+    m_counterLabel = new QLabel(m_scrollArea);
+    m_counterLabel->setAlignment(Qt::AlignBottom | Qt::AlignRight);
+    m_counterLabel->setStyleSheet("QLabel { background: rgba(0,0,0,128); color: white; padding: 2px 6px; font-size: 11px; }");
+    m_counterLabel->setAutoFillBackground(false);
 
-    auto* actPrev = m_toolbar->addAction(QIcon::fromTheme("go-previous"), tr("Previous page"));
-    connect(actPrev, &QAction::triggered, this, &ViewerWidget::onPrevPage);
-
-    auto* actNext = m_toolbar->addAction(QIcon::fromTheme("go-next"), tr("Next page"));
-    connect(actNext, &QAction::triggered, this, &ViewerWidget::onNextPage);
-
-    auto* actLast = m_toolbar->addAction(QIcon::fromTheme("go-last"), tr("Last page"));
-    connect(actLast, &QAction::triggered, this, &ViewerWidget::onLastPage);
-
-    m_toolbar->addSeparator();
-
-    m_counterLabel = new QLabel(m_toolbar);
-    m_counterLabel->setMinimumWidth(60);
-    m_counterLabel->setAlignment(Qt::AlignCenter);
-    m_toolbar->addWidget(m_counterLabel);
-
-    auto* actGoTo = m_toolbar->addAction(QIcon::fromTheme("go-jump"), tr("Go to..."));
-    connect(actGoTo, &QAction::triggered, this, &ViewerWidget::onGoToPage);
-
-    m_toolbar->addSeparator();
-
-    // Zoom actions
-    auto* actZoomIn = m_toolbar->addAction(QIcon::fromTheme("zoom-in"), tr("Zoom In"));
-    connect(actZoomIn, &QAction::triggered, this, &ViewerWidget::onZoomIn);
-
-    auto* actZoomOut = m_toolbar->addAction(QIcon::fromTheme("zoom-out"), tr("Zoom Out"));
-    connect(actZoomOut, &QAction::triggered, this, &ViewerWidget::onZoomOut);
-
-    auto* actZoomOrig = m_toolbar->addAction(QIcon::fromTheme("zoom-original"), tr("Original Size"));
-    connect(actZoomOrig, &QAction::triggered, this, &ViewerWidget::onZoomOriginal);
-
-    m_toolbar->addSeparator();
-
-    auto* actFit = m_toolbar->addAction(QIcon::fromTheme("zoom-fit-best"), tr("Fit"));
-    actFit->setCheckable(true);
-    actFit->setChecked(true);
-    connect(actFit, &QAction::triggered, this, &ViewerWidget::onFitToggle);
-
-    m_toolbar->addSeparator();
-
-    auto* actInfo = m_toolbar->addAction(QIcon::fromTheme("dialog-information"), tr("Info"));
-    connect(actInfo, &QAction::triggered, this, &ViewerWidget::onInfo);
-
-    // Keyboard shortcuts
-    QShortcut* scNext = new QShortcut(QKeySequence(Qt::Key_Right), this);
-    connect(scNext, &QShortcut::activated, this, &ViewerWidget::onNextPage);
-
-    QShortcut* scPrev = new QShortcut(QKeySequence(Qt::Key_Left), this);
-    connect(scPrev, &QShortcut::activated, this, &ViewerWidget::onPrevPage);
-
-    QShortcut* scFirst = new QShortcut(QKeySequence(Qt::Key_Home), this);
-    connect(scFirst, &QShortcut::activated, this, &ViewerWidget::onFirstPage);
-
-    QShortcut* scLast = new QShortcut(QKeySequence(Qt::Key_End), this);
-    connect(scLast, &QShortcut::activated, this, &ViewerWidget::onLastPage);
-
-    QShortcut* scZoomIn = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Equal), this);
-    connect(scZoomIn, &QShortcut::activated, this, &ViewerWidget::onZoomIn);
-
-    QShortcut* scZoomOut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Minus), this);
-    connect(scZoomOut, &QShortcut::activated, this, &ViewerWidget::onZoomOut);
-
-    QShortcut* scFit = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_M), this);
-    connect(scFit, &QShortcut::activated, this, &ViewerWidget::onFitToggle);
-
-    QShortcut* scGoTo = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_G), this);
-    connect(scGoTo, &QShortcut::activated, this, &ViewerWidget::onGoToPage);
-
-    QShortcut* scPgDown = new QShortcut(QKeySequence(Qt::Key_PageDown), this);
-    connect(scPgDown, &QShortcut::activated, this, &ViewerWidget::onNextPage);
-
-    QShortcut* scPgUp = new QShortcut(QKeySequence(Qt::Key_PageUp), this);
-    connect(scPgUp, &QShortcut::activated, this, &ViewerWidget::onPrevPage);
+    connect(new QShortcut(QKeySequence(Qt::Key_Right), this), &QShortcut::activated, this, &ViewerWidget::onNextPage);
+    connect(new QShortcut(QKeySequence(Qt::Key_Left), this), &QShortcut::activated, this, &ViewerWidget::onPrevPage);
+    connect(new QShortcut(QKeySequence(Qt::Key_Home), this), &QShortcut::activated, this, &ViewerWidget::onFirstPage);
+    connect(new QShortcut(QKeySequence(Qt::Key_End), this), &QShortcut::activated, this, &ViewerWidget::onLastPage);
+    connect(new QShortcut(QKeySequence(Qt::Key_PageDown), this), &QShortcut::activated, this, &ViewerWidget::onNextPage);
+    connect(new QShortcut(QKeySequence(Qt::Key_PageUp), this), &QShortcut::activated, this, &ViewerWidget::onPrevPage);
+    connect(new QShortcut(QKeySequence(Qt::Key_V), this), &QShortcut::activated, this, &ViewerWidget::onModeToggle);
+    connect(new QShortcut(QKeySequence(Qt::Key_Plus), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
+    connect(new QShortcut(QKeySequence(Qt::Key_Equal), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
+    connect(new QShortcut(QKeySequence(Qt::Key_Minus), this), &QShortcut::activated, this, &ViewerWidget::onZoomOut);
+    connect(new QShortcut(QKeySequence(Qt::Key_0), this), &QShortcut::activated, this, &ViewerWidget::onZoomOriginal);
+    connect(new QShortcut(QKeySequence(Qt::Key_W), this), &QShortcut::activated, this, &ViewerWidget::onFitWidth);
+    connect(new QShortcut(QKeySequence(Qt::Key_P), this), &QShortcut::activated, this, &ViewerWidget::onFitPage);
 }
 
 ViewerWidget::~ViewerWidget() {
@@ -126,9 +63,9 @@ bool ViewerWidget::loadDocument(const QString& path) {
     if (!m_engine || !m_engine->open(path))
         return false;
 
-    m_currentPage = 1;
-    m_zoom = 1.0f;
-    m_fitToWidth = true;
+    m_state.setPageCount(m_engine->pageCount());
+    m_state.resetPage();
+    m_state.resetZoom();
 
     updateZoomForFit();
     updatePage();
@@ -140,125 +77,129 @@ void ViewerWidget::closeDocument() {
         m_engine->close();
         m_engine.reset();
     }
+    m_state = ViewerState();
     m_pageLabel->clear();
     m_counterLabel->clear();
-    m_currentPage = 1;
+}
+
+float ViewerWidget::dpiScale() const {
+    QScreen* screen = screen();
+    if (!screen)
+        return 1.0f;
+    return screen->logicalDotsPerInchX() / 96.0f;
 }
 
 void ViewerWidget::updatePage() {
     if (!m_engine || !m_engine->isOpen())
         return;
 
-    QImage img = m_engine->renderPage(m_currentPage, m_zoom);
+    QImage img = m_engine->renderPage(m_state.currentPage(), m_state.zoom(), dpiScale());
     if (!img.isNull()) {
         m_pageLabel->setPixmap(QPixmap::fromImage(img));
     } else {
-        m_pageLabel->setText(tr("Failed to render page %1").arg(m_currentPage));
+        m_pageLabel->setText(tr("Failed to render page %1").arg(m_state.currentPage()));
     }
     updateCounter();
 }
 
 void ViewerWidget::updateCounter() {
-    if (!m_engine || !m_engine->isOpen()) {
-        m_counterLabel->clear();
-        return;
-    }
-    m_counterLabel->setText(QString("%1/%2").arg(m_currentPage).arg(m_engine->pageCount()));
-}
-
-float ViewerWidget::fitToWidthZoom() const {
-    if (!m_engine || !m_engine->isOpen())
-        return 1.0f;
-
-    PageInfo info = m_engine->pageDimensions(m_currentPage);
-    if (info.width <= 0)
-        return 1.0f;
-
-    int viewportWidth = m_scrollArea->viewport()->width();
-    if (viewportWidth <= 0)
-        return 1.0f;
-
-    return static_cast<float>(viewportWidth) / info.width;
-}
-
-float ViewerWidget::fitToPageZoom() const {
-    if (!m_engine || !m_engine->isOpen())
-        return 1.0f;
-
-    PageInfo info = m_engine->pageDimensions(m_currentPage);
-    if (info.width <= 0 || info.height <= 0)
-        return 1.0f;
-
-    int vw = m_scrollArea->viewport()->width();
-    int vh = m_scrollArea->viewport()->height();
-    if (vw <= 0 || vh <= 0)
-        return 1.0f;
-
-    float zx = static_cast<float>(vw) / info.width;
-    float zy = static_cast<float>(vh) / info.height;
-    return qMin(zx, zy);
+    const char* mode = m_state.isPagedMode() ? "Page" : "Cont";
+    m_counterLabel->setText(QString("%1/%2  [%3]").arg(m_state.currentPage()).arg(m_state.pageCount()).arg(mode));
 }
 
 void ViewerWidget::updateZoomForFit() {
-    if (m_fitToWidth)
-        m_zoom = fitToWidthZoom();
+    if (!m_engine || !m_engine->isOpen())
+        return;
+
+    if (!m_state.autoFit())
+        return;
+
+    PageInfo info = m_engine->pageDimensions(m_state.currentPage());
+    if (info.width <= 0)
+        return;
+
+    int vw = m_scrollArea->viewport()->width();
+    int vh = m_scrollArea->viewport()->height();
+    float ds = dpiScale();
+
+    if (m_state.fitToWidth()) {
+        m_state.setZoom(m_state.fitToWidthZoom(info.width, vw) / ds);
+    } else {
+        m_state.setZoom(m_state.fitToPageZoom(info.width, info.height, vw, vh) / ds);
+    }
 }
 
 void ViewerWidget::onNextPage() {
-    if (!m_engine || !m_engine->isOpen())
-        return;
-    if (m_currentPage < m_engine->pageCount()) {
-        m_currentPage++;
+    if (m_state.nextPage()) {
+        updateZoomForFit();
         updatePage();
     }
 }
 
 void ViewerWidget::onPrevPage() {
-    if (m_currentPage > 1) {
-        m_currentPage--;
+    if (m_state.prevPage()) {
+        updateZoomForFit();
         updatePage();
     }
 }
 
 void ViewerWidget::onFirstPage() {
-    if (m_currentPage != 1) {
-        m_currentPage = 1;
+    if (m_state.firstPage()) {
+        updateZoomForFit();
         updatePage();
     }
 }
 
 void ViewerWidget::onLastPage() {
-    if (!m_engine || !m_engine->isOpen())
-        return;
-    int last = m_engine->pageCount();
-    if (m_currentPage != last) {
-        m_currentPage = last;
+    if (m_state.lastPage()) {
+        updateZoomForFit();
         updatePage();
     }
 }
 
 void ViewerWidget::onZoomIn() {
-    m_fitToWidth = false;
-    m_zoom = qMin(m_zoom * 1.25f, 5.0f);
+    m_state.zoomIn();
     updatePage();
 }
 
 void ViewerWidget::onZoomOut() {
-    m_fitToWidth = false;
-    m_zoom = qMax(m_zoom * 0.8f, 0.1f);
+    m_state.zoomOut();
     updatePage();
 }
 
 void ViewerWidget::onZoomOriginal() {
-    m_fitToWidth = false;
-    m_zoom = 1.0f;
+    m_state.setManualZoom(1.0f);
     updatePage();
 }
 
 void ViewerWidget::onFitToggle() {
-    m_fitToWidth = !m_fitToWidth;
+    if (m_state.autoFit()) {
+        if (m_state.fitToWidth())
+            m_state.setFitToPage();
+        else
+            m_state.setFitToWidth();
+    } else {
+        m_state.setFitToPage();
+    }
     updateZoomForFit();
     updatePage();
+}
+
+void ViewerWidget::onFitWidth() {
+    m_state.setFitToWidth();
+    updateZoomForFit();
+    updatePage();
+}
+
+void ViewerWidget::onFitPage() {
+    m_state.setFitToPage();
+    updateZoomForFit();
+    updatePage();
+}
+
+void ViewerWidget::onModeToggle() {
+    m_state.setPagedMode(!m_state.isPagedMode());
+    updateCounter();
 }
 
 void ViewerWidget::onGoToPage() {
@@ -267,10 +208,10 @@ void ViewerWidget::onGoToPage() {
 
     bool ok;
     int page = QInputDialog::getInt(this, tr("Go to page"),
-                                     tr("Page number:"), m_currentPage,
-                                     1, m_engine->pageCount(), 1, &ok);
-    if (ok && page != m_currentPage) {
-        m_currentPage = page;
+                                     tr("Page number:"), m_state.currentPage(),
+                                     1, m_state.pageCount(), 1, &ok);
+    if (ok && m_state.goToPage(page)) {
+        updateZoomForFit();
         updatePage();
     }
 }
@@ -332,7 +273,7 @@ bool ViewerWidget::nativeEvent(const QByteArray& eventType, void* message, qintp
 
 void ViewerWidget::resizeEvent(QResizeEvent* event) {
     QFrame::resizeEvent(event);
-    if (m_fitToWidth && m_engine && m_engine->isOpen()) {
+    if (m_engine && m_engine->isOpen()) {
         updateZoomForFit();
         updatePage();
     }
