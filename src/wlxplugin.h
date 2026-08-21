@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #ifdef _WIN32
+#define NOMINMAX
 #include <windows.h>
 #else
 typedef void* HWND;
@@ -29,6 +30,10 @@ typedef int BOOL;
 #define lcp_center 0x1000
 #define lcp_fitlargeonly 0x2000
 #define lcp_hidewindowtitle 0x4000
+
+#define lc_copy 8
+#define lc_newparams 9
+#define lc_showparams 10
 
 struct ListDefaultParamStruct {
     int size;

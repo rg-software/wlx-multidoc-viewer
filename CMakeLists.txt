@@ -25,6 +25,7 @@ add_library(wlx-multidoc-viewer SHARED
     src/formatdispatcher.cpp
     src/mupdfengine.cpp
     src/djvuengine.cpp
+    src/viewercontroller.cpp
 )
 
 if(NOT WIN32)
@@ -59,7 +60,7 @@ set_target_properties(wlx-multidoc-viewer PROPERTIES
 )
 
 if(WIN32)
-    set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".dll")
+    set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".wlx64")
     target_compile_definitions(wlx-multidoc-viewer PRIVATE WLX_MULTIDOC_VIEWER_EXPORTS)
 elseif(APPLE)
     set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".wlx")

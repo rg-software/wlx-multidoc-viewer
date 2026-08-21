@@ -1,5 +1,7 @@
 #include "wlxplugin.h"
 
+#include <QDebug>
+
 #ifdef _WIN32
 #include "viewer_win32.h"
 #else
@@ -36,9 +38,13 @@ DCPCALL HANDLE ListLoad(HANDLE ParentWin, char* FileToLoad, int ShowFlags) {
     if (!ParentWin)
         return nullptr;
 
+    QString path = QString::fromLocal8Bit(FileToLoad);
+    qDebug() << "ListLoad:" << path;
+
 #ifdef _WIN32
     auto* viewer = new ViewerWin32(static_cast<HWND>(ParentWin));
-    if (!viewer->loadDocument(QString::fromLocal8Bit(FileToLoad))) {
+    if (!viewer->loadDocument(path)) {
+        qWarning() << "ListLoad: failed to load" << path;
         delete viewer;
         return nullptr;
     }
@@ -129,9 +135,38 @@ DCPCALL int ListSearchDialog(HWND ListWin, int FindNext) {
 }
 
 DCPCALL int ListSendCommand(HWND ListWin, int Command, int Parameter) {
+#ifdef _WIN32
+    HWND hViewer = static_cast<HWND>(ListWin);
+    auto* viewer = hViewer ? reinterpret_cast<ViewerWin32*>(GetWindowLongPtrW(hViewer, GWLP_USERDATA))
+                           : nullptr;
+    Q_UNUSED(Parameter)
+
+    if (viewer && Command == lc_copy) {
+        QString text;
+        if (auto* c = viewer->controller(); c && c->hasDocument())
+            text = QString("%1 / %2").arg(c->currentPage()).arg(c->pageCount());
+        if (!text.isEmpty()) {
+            if (OpenClipboard(nullptr)) {
+                EmptyClipboard();
+                QByteArray utf16(reinterpret_cast<const char*>(text.utf16()),
+                                 (text.size() + 1) * static_cast<int>(sizeof(ushort)));
+                HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, utf16.size());
+                if (h) {
+                    void* p = GlobalLock(h);
+                    memcpy(p, utf16.constData(), utf16.size());
+                    GlobalUnlock(h);
+                    SetClipboardData(CF_UNICODETEXT, h);
+                }
+                CloseClipboard();
+            }
+        }
+        return LISTPLUGIN_OK;
+    }
+#else
     Q_UNUSED(ListWin)
     Q_UNUSED(Command)
     Q_UNUSED(Parameter)
+#endif
     return LISTPLUGIN_OK;
 }
 

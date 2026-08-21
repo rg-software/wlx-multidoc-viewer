@@ -1,6 +1,7 @@
 #include "djvuengine.h"
 
 #include <QImage>
+#include <QDebug>
 #include <cstring>
 
 DjVuEngine::DjVuEngine() = default;
@@ -33,18 +34,22 @@ bool DjVuEngine::open(const QString& path) {
     close();
 
     m_ctx = ddjvu_context_create("wlx-multidoc-viewer");
-    if (!m_ctx)
+    if (!m_ctx) {
+        qWarning() << "DjVuEngine: failed to create context for" << path;
         return false;
+    }
 
     QByteArray pathBytes = path.toLocal8Bit();
     m_doc = ddjvu_document_create_by_filename(m_ctx, pathBytes.constData(), 1);
     if (!m_doc) {
+        qWarning() << "DjVuEngine: ddjvu_document_create_by_filename failed for" << path;
         ddjvu_context_release(m_ctx);
         m_ctx = nullptr;
         return false;
     }
 
     if (!waitForDocInfo(m_ctx, m_doc)) {
+        qWarning() << "DjVuEngine: waitForDocInfo failed for" << path;
         ddjvu_document_release(m_doc);
         ddjvu_context_release(m_ctx);
         m_doc = nullptr;
@@ -82,7 +87,7 @@ int DjVuEngine::pageCount() const {
     return m_pageCount;
 }
 
-QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale) {
+QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale, int rotation) {
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -104,6 +109,8 @@ QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale) {
     float effectiveZoom = zoom * dpiScale;
     int scaledW = static_cast<int>(w * effectiveZoom);
     int scaledH = static_cast<int>(h * effectiveZoom);
+    if (rotation == 90 || rotation == 270)
+        std::swap(scaledW, scaledH);
     if (scaledW <= 0 || scaledH <= 0) {
         ddjvu_page_release(djpage);
         return {};
@@ -136,8 +143,8 @@ QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale) {
     ddjvu_rect_t pageRect;
     pageRect.x = 0;
     pageRect.y = 0;
-    pageRect.w = w;
-    pageRect.h = h;
+    pageRect.w = scaledW;
+    pageRect.h = scaledH;
 
     ddjvu_page_render(djpage, DDJVU_RENDER_COLOR,
                       &pageRect, &rider, m_fmt,
@@ -146,6 +153,12 @@ QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale) {
     QImage img(buffer, scaledW, scaledH, stride, QImage::Format_RGB888);
     QImage result = img.copy();
     result = result.flipped(Qt::Vertical);
+
+    if (rotation != 0) {
+        QTransform t;
+        t.rotate(rotation);
+        result = result.transformed(t, Qt::SmoothTransformation);
+    }
 
     delete[] buffer;
     ddjvu_page_release(djpage);

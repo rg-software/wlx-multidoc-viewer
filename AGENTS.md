@@ -13,7 +13,7 @@ Standalone vcpkg at `C:\vcpkg`. VS 2022 at `C:\Program Files\Microsoft Visual St
 cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 && cmake --preset windows-x64-release && cmake --build --preset windows-release'
 ```
 
-Output: `build/release/Release/wlx-multidoc-viewer.dll`
+Output: `build/release/Release/wlx-multidoc-viewer.wlx64`
 
 ## Architecture
 

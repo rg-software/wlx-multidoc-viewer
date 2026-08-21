@@ -2,6 +2,8 @@
 
 #include <mupdf/pdf.h>
 #include <QImage>
+#include <QFile>
+#include <QDebug>
 
 MuPdfEngine::MuPdfEngine() = default;
 
@@ -12,9 +14,16 @@ MuPdfEngine::~MuPdfEngine() {
 bool MuPdfEngine::open(const QString& path) {
     close();
 
-    m_ctx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
-    if (!m_ctx)
+    if (!QFile::exists(path)) {
+        qWarning() << "MuPdfEngine: file does not exist:" << path;
         return false;
+    }
+
+    m_ctx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
+    if (!m_ctx) {
+        qWarning() << "MuPdfEngine: failed to create MuPDF context for" << path;
+        return false;
+    }
 
     fz_register_document_handlers(m_ctx);
 
@@ -23,6 +32,7 @@ bool MuPdfEngine::open(const QString& path) {
         m_doc = fz_open_document(m_ctx, pathBytes.constData());
     }
     fz_catch(m_ctx) {
+        qWarning() << "MuPdfEngine: fz_open_document failed for" << path;
         fz_drop_context(m_ctx);
         m_ctx = nullptr;
         m_doc = nullptr;
@@ -33,6 +43,7 @@ bool MuPdfEngine::open(const QString& path) {
         m_pageCount = fz_count_pages(m_ctx, m_doc);
     }
     fz_catch(m_ctx) {
+        qWarning() << "MuPdfEngine: fz_count_pages failed for" << path;
         m_pageCount = 0;
     }
 
@@ -59,7 +70,7 @@ int MuPdfEngine::pageCount() const {
     return m_pageCount;
 }
 
-QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale) {
+QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale, int rotation) {
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -74,6 +85,13 @@ QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale) {
 
         fz_rect bounds = fz_bound_page(m_ctx, fzpage);
         fz_matrix ctm = fz_scale(effectiveZoom, effectiveZoom);
+        if (rotation) {
+            float cx = (bounds.x0 + bounds.x1) * 0.5f;
+            float cy = (bounds.y0 + bounds.y1) * 0.5f;
+            ctm = fz_concat(ctm, fz_translate(cx, cy));
+            ctm = fz_concat(ctm, fz_rotate(static_cast<float>(rotation)));
+            ctm = fz_concat(ctm, fz_translate(-cx, -cy));
+        }
 
         pixmap = fz_new_pixmap_from_page(m_ctx, fzpage, ctm, fz_device_rgb(m_ctx), 0);
 
