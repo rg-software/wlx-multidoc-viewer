@@ -177,7 +177,7 @@ void ViewerWin32::closeDocument() {
 }
 
 void ViewerWin32::onControllerChanged() {
-    m_currentImage = m_controller->renderVisiblePages();
+    m_currentImage = m_controller->renderVisiblePages(m_scrollY);
     imageToBitmap(m_currentImage);
     updateScrollBars();
     if (m_infoPanel)
@@ -212,15 +212,8 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
     case WM_MOUSEWHEEL:
         onMouseWheel(GET_WHEEL_DELTA_WPARAM(wp));
         return 0;
-    case WM_ERASEBKGND: {
-        HDC hdc = reinterpret_cast<HDC>(wp);
-        RECT rc;
-        GetClientRect(m_hwnd, &rc);
-        HBRUSH bgBrush = CreateSolidBrush(kBgColor);
-        FillRect(hdc, &rc, bgBrush);
-        DeleteObject(bgBrush);
+    case WM_ERASEBKGND:
         return 1;
-    }
     }
 
     return DefWindowProcW(m_hwnd, msg, wp, lp);
@@ -303,8 +296,7 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
             int maxY = (std::max)(0, m_currentImage.height() - 1);
             m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
             updateVisiblePage();
-            updateScrollBars();
-            InvalidateRect(m_hwnd, nullptr, FALSE);
+            onControllerChanged();
         } else if (wp == VK_RIGHT || wp == VK_LEFT || wp == VK_NEXT || wp == VK_PRIOR
                    || wp == VK_HOME || wp == VK_END || wp == 'V') {
             m_scrollX = 0;
@@ -329,6 +321,8 @@ void ViewerWin32::onMouseWheel(int delta) {
         int maxY = (std::max)(0, m_currentImage.height() - 1);
         m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
         updateVisiblePage();
+        onControllerChanged();
+        return;
     }
     updateScrollBars();
     InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -340,25 +334,31 @@ void ViewerWin32::onPaint() {
 
     RECT rc;
     GetClientRect(m_hwnd, &rc);
+    const int w = static_cast<int>(rc.right);
+    const int h = static_cast<int>(rc.bottom);
+
+    HDC hdcMem = CreateCompatibleDC(hdc);
+    HBITMAP hbmMem = CreateCompatibleBitmap(hdc, w, h);
+    HGDIOBJ hOldBmp = SelectObject(hdcMem, hbmMem);
 
     HBRUSH bgBrush = CreateSolidBrush(kBgColor);
-    FillRect(hdc, &rc, bgBrush);
+    FillRect(hdcMem, &rc, bgBrush);
     DeleteObject(bgBrush);
 
     const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
     const int pageY = panelH;
 
     if (m_hBitmap) {
-        HDC hdcMem = CreateCompatibleDC(hdc);
-        HGDIOBJ hOld = SelectObject(hdcMem, m_hBitmap);
+        HDC hdcStrip = CreateCompatibleDC(hdc);
+        HGDIOBJ hOld = SelectObject(hdcStrip, m_hBitmap);
 
         int imgW = m_currentImage.width();
         int imgH = m_currentImage.height();
 
         int srcX = m_scrollX;
         int srcY = m_scrollY;
-        int availW = static_cast<int>(rc.right) - 2 * kPageMargin;
-        int availH = static_cast<int>(rc.bottom) - pageY - 2 * kPageMargin;
+        int availW = w - 2 * kPageMargin;
+        int availH = h - pageY - 2 * kPageMargin;
         int dstW = (std::min)(imgW - srcX, availW);
         int dstH = (std::min)(imgH - srcY, availH);
 
@@ -370,11 +370,17 @@ void ViewerWin32::onPaint() {
             dstY += (availH - imgH) / 2;
 
         if (dstW > 0 && dstH > 0)
-            BitBlt(hdc, dstX, dstY, dstW, dstH, hdcMem, srcX, srcY, SRCCOPY);
+            BitBlt(hdcMem, dstX, dstY, dstW, dstH, hdcStrip, srcX, srcY, SRCCOPY);
 
-        SelectObject(hdcMem, hOld);
-        DeleteDC(hdcMem);
+        SelectObject(hdcStrip, hOld);
+        DeleteDC(hdcStrip);
     }
+
+    BitBlt(hdc, 0, 0, w, h, hdcMem, 0, 0, SRCCOPY);
+
+    SelectObject(hdcMem, hOldBmp);
+    DeleteObject(hbmMem);
+    DeleteDC(hdcMem);
 
     EndPaint(m_hwnd, &ps);
 }
@@ -434,6 +440,8 @@ void ViewerWin32::onVScroll(int code, int pos) {
         int maxY = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage));
         m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
         updateVisiblePage();
+        onControllerChanged();
+        return;
     }
 
     updateScrollBars();

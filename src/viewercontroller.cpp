@@ -237,7 +237,7 @@ void ViewerController::trackCurrentPage(int page) {
     m_state.goToPage(page);
 }
 
-QImage ViewerController::renderVisiblePages() {
+QImage ViewerController::renderVisiblePages(int scrollY) {
     if (!m_engine || !m_engine->isOpen())
         return {};
 
@@ -264,6 +264,7 @@ QImage ViewerController::renderVisiblePages() {
     if (scaledPageH <= 0 || scaledPageW <= 0)
         return {};
 
+    const int stride = scaledPageH + kPageGap;
     const int stripW = std::max(scaledPageW, vw);
     const int xPad = (stripW - scaledPageW) / 2;
     const long long totalH =
@@ -273,17 +274,20 @@ QImage ViewerController::renderVisiblePages() {
     QImage strip(stripW, stripH, QImage::Format_RGB888);
     strip.fill(0x808080);
 
+    constexpr int kBufferPages = 3;
+    const int visTop = scrollY;
+    const int visBot = visTop + vh;
+    const int firstPage = (std::max)(1, visTop / stride - kBufferPages);
+    const int lastPage = (std::min)(pageCount, (visBot + stride - 1) / stride + kBufferPages);
+
     QPainter p(&strip);
-    int y = 0;
-    for (int page = 1; page <= pageCount; ++page) {
-        if (y + scaledPageH > stripH)
+    for (int page = firstPage; page <= lastPage; ++page) {
+        int y = static_cast<long long>(page - 1) * stride;
+        if (y >= stripH)
             break;
         QImage img = m_engine->renderPage(page, m_state.zoom(), 1.0f, m_rotation);
         if (!img.isNull())
             p.drawImage(xPad, y, img);
-        y += scaledPageH;
-        if (page < pageCount)
-            y += kPageGap;
     }
     p.end();
     return strip;

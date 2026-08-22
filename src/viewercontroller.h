@@ -73,7 +73,7 @@ public:
     int pageAreaWidth() const;
 
     // Render
-    QImage renderVisiblePages();
+    QImage renderVisiblePages(int scrollY = 0);
 
     // Continuous-mode helpers
     int pageAtScrollOffset(int scrollY) const;
