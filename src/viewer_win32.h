@@ -44,6 +44,8 @@ private:
     HBITMAP bitmapForPage(int page);
     void invalidatePageBitmaps();
     void drawPageBitmap(HDC hdc, HBITMAP hbm, int dstX, int dstY, int srcX, int srcY, int w, int h) const;
+    int maxScrollX() const;
+    int maxScrollY() const;
 
     HWND m_hwnd = nullptr;
     std::unique_ptr<InfoPanelWin32> m_infoPanel;

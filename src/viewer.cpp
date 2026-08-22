@@ -2,10 +2,12 @@
 
 #include <QCoreApplication>
 #include <QInputDialog>
+#include <QMetaObject>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScrollBar>
 #include <QShortcut>
+#include <QTimer>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -24,9 +26,10 @@ void ViewerCanvas::paintEvent(QPaintEvent* event) {
         QImage img = m_controller->renderPageCached(page);
         if (img.isNull())
             return;
+        // Canvas is at least the viewport; center the page only if it fits.
         const int x = (width() - img.width()) / 2;
         const int y = (height() - img.height()) / 2;
-        p.drawImage(x, y, img);
+        p.drawImage(std::max(0, x), std::max(0, y), img);
         return;
     }
 
@@ -154,9 +157,22 @@ void ViewerWidget::resizeCanvas() {
         return;
     }
     if (m_controller->isPagedMode()) {
-        // Paged mode: the canvas is the scroll viewport; no scrolling.
+        // Paged mode: the canvas is at least the viewport; if the current page
+        // overflows, the canvas grows to the page so the scroll area offers
+        // horizontal (and, for a tall page, vertical) panning while centered
+        // when it fits.
         const QSize vp = m_scrollArea->viewport()->size();
-        m_canvas->setContentSize(vp);
+        const QRect pr = m_controller->pageRect(m_controller->currentPage());
+        if (pr.isValid()) {
+            QSize canvasSize = vp;
+            if (pr.width() > vp.width())
+                canvasSize.setWidth(pr.width());
+            if (pr.height() > vp.height())
+                canvasSize.setHeight(pr.height());
+            m_canvas->setContentSize(canvasSize);
+        } else {
+            m_canvas->setContentSize(vp);
+        }
     } else {
         m_canvas->setContentSize(m_controller->contentSize());
     }
@@ -227,13 +243,24 @@ void ViewerWidget::onCycleFit() {
 
 void ViewerWidget::onToggleMode() {
     if (!m_controller) return;
+    const int page = m_controller->currentPage();
+    m_suppressScrollTracking = true;
     m_controller->toggleMode();
     if (m_controller->isPagedMode()) {
         m_scrollArea->verticalScrollBar()->setValue(0);
-    } else {
-        m_scrollArea->verticalScrollBar()->setValue(m_controller->scrollOffsetForPage(m_controller->currentPage()));
+        m_suppressScrollTracking = false;
+        resizeCanvas();
+        return;
     }
     resizeCanvas();
+    // The widget resize that sets the scrollbar's maximum may be deferred, so
+    // set the value on the next event-loop spin (range is correct by then).
+    // Suppression stays on so a transient valueChanged(0) during the resize
+    // cannot reset the tracked page to 1.
+    QTimer::singleShot(0, this, [this, page, target = m_controller->scrollOffsetForPage(page)]() {
+        m_scrollArea->verticalScrollBar()->setValue(target);
+        m_suppressScrollTracking = false;
+    });
 }
 
 void ViewerWidget::onRotateCw() {
@@ -294,6 +321,8 @@ void ViewerWidget::wheelEvent(QWheelEvent* event) {
 }
 
 void ViewerWidget::onVerticalScrollChanged(int value) {
+    if (m_suppressScrollTracking)
+        return;
     if (!m_controller || !m_controller->hasDocument() || m_controller->isPagedMode())
         return;
     const int page = m_controller->pageAtScrollOffset(value);
@@ -316,8 +345,17 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
     switch (event->type()) {
     case QEvent::MouseButtonPress: {
         auto* me = static_cast<QMouseEvent*>(event);
-        if (me->button() != Qt::LeftButton || m_controller->isPagedMode())
+        if (me->button() != Qt::LeftButton)
             break;
+        // Drag-panning: continuous mode always; paged mode only when the page
+        // overflows (horizontal and/or vertical — both pan like Win32).
+        if (m_controller->isPagedMode()) {
+            const QRect pr = m_controller->pageRect(m_controller->currentPage());
+            const QSize vp = m_scrollArea->viewport()->size();
+            const bool overflows = pr.isValid() && (pr.width() > vp.width() || pr.height() > vp.height());
+            if (!overflows)
+                break;
+        }
         m_dragging = true;
         m_lastMousePos = me->position().toPoint();
         setCursor(Qt::PointingHandCursor);

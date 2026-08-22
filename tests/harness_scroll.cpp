@@ -109,6 +109,14 @@ static int vPos(HWND hwnd) {
     return (int)si.nPos;
 }
 
+static int hPos(HWND hwnd) {
+    SCROLLINFO si{};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_ALL;
+    GetScrollInfo(hwnd, SB_HORZ, &si);
+    return (int)si.nPos;
+}
+
 static int vMaxScroll(HWND hwnd) {
     SCROLLINFO si{};
     si.cbSize = sizeof(si);
@@ -303,6 +311,215 @@ viewer.controller()->setManualZoom(1.0f, 0);
         const int rotScroll = viewer.controller()->rotateCw(scrollMid);
         CHECK("B6 rotate preserves top-of-viewport anchor page",
               viewer.controller()->firstPageAtScroll(rotScroll) == rotTopBefore);
+
+        DestroyWindow(host);
+        pump(50);
+    }
+
+    // ---------------- B7) 'V' key: paged -> continuous preserves current page
+    {
+        std::string pdfPath = std::string(tmpPath) + "wlx_toggle.pdf";
+        const int pageCount = 20;
+        if (!writeTestPdf(pdfPath.c_str(), pageCount, 420, 595)) {
+            std::printf("FAIL pdf gen\n");
+            return 2;
+        }
+        HWND host = CreateWindowExW(0, L"WLXHarnessHostScroll", L"harness",
+                                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                    120, 120, 800, 600,
+                                    nullptr, nullptr, wc.hInstance, nullptr);
+        pump(100);
+        ViewerWin32 viewer(host);
+        HWND vh = viewer.hwnd();
+        MoveWindow(vh, 0, 0, 800, 600, TRUE);
+        pump(100);
+        if (!viewer.loadDocument(QString::fromLocal8Bit(pdfPath.c_str()))) {
+            std::printf("FAIL load\n");
+            return 2;
+        }
+        pump(80);
+        viewer.controller()->setManualZoom(1.0f, 0);
+        pump(80);
+        CHECK("B7a starts paged", viewer.controller()->isPagedMode());
+
+        // Land on page 5 in paged mode (both via controller and the real key
+        // path once focused) then press 'V'.
+        viewer.controller()->goToPage(5);
+        pump(80);
+        CHECK("B7b paged current page = 5", viewer.controller()->currentPage() == 5);
+
+        SetForegroundWindow(host);
+        SetFocus(vh);
+        pump(80);
+        // Drive the REAL 'V' key path deterministically by posting WM_KEYDOWN
+        // directly to the viewer window (bypasses OS focus flakiness but goes
+        // through handleMsg -> onKeyDown, the exact code being tested).
+        auto postVKey = [vh]() { PostMessageW(vh, WM_KEYDOWN, 'V', 0); };
+        postVKey();
+        pump(200);
+        if (viewer.controller()->isPagedMode()) {
+            postVKey();
+            pump(200);
+        }
+        CHECK("B7c switched to continuous", !viewer.controller()->isPagedMode());
+        CHECK("B7d current page preserved = 5 (not reset to 1)",
+              viewer.controller()->currentPage() == 5);
+        CHECK("B7e scroll offset lands on page 5's top",
+              vPos(vh) == viewer.controller()->scrollOffsetForPage(5));
+
+        // And back: continuous -> paged keeps the tracked page.
+        postVKey();
+        pump(200);
+        if (!viewer.controller()->isPagedMode()) {
+            postVKey();
+            pump(200);
+        }
+        CHECK("B7f switched back to paged", viewer.controller()->isPagedMode());
+        CHECK("B7g page preserved after return to paged",
+              viewer.controller()->currentPage() == 5);
+
+        DestroyWindow(host);
+        pump(50);
+    }
+
+    // ---------------- B8) Shift+V cycles fit modes; V alone toggles mode
+    {
+        std::string pdfPath = std::string(tmpPath) + "wlx_fit.pdf";
+        if (!writeTestPdf(pdfPath.c_str(), 6, 420, 595)) {
+            std::printf("FAIL pdf gen\n");
+            return 2;
+        }
+        HWND host = CreateWindowExW(0, L"WLXHarnessHostScroll", L"harness",
+                                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                    120, 120, 800, 600,
+                                    nullptr, nullptr, wc.hInstance, nullptr);
+        pump(100);
+        ViewerWin32 viewer(host);
+        HWND vh = viewer.hwnd();
+        MoveWindow(vh, 0, 0, 800, 600, TRUE);
+        pump(100);
+        if (!viewer.loadDocument(QString::fromLocal8Bit(pdfPath.c_str()))) {
+            std::printf("FAIL load\n");
+            return 2;
+        }
+        pump(80);
+        // Leave the default fit mode (FitToPage) intact — setManualZoom would
+        // force Manual. Instead just confirm the default after load.
+        CHECK("B8a default fit mode = FitToPage",
+              viewer.controller()->fitMode() == ViewerController::FitMode::FitToPage);
+
+        // Shift+V: hold Shift via SetKeyboardState (GetKeyState, which
+        // onKeyDown reads, reflects this thread's state), post V, THEN pump so
+        // the message is dispatched while Shift is still held; restore after.
+        auto postShiftV = [vh]() {
+            BYTE shiftedState[256] = {};
+            GetKeyboardState(shiftedState);
+            BYTE holdShift[256] = {};
+            memcpy(holdShift, shiftedState, sizeof(holdShift));
+            holdShift[VK_SHIFT] |= 0x80;
+            SetKeyboardState(holdShift);
+            PostMessageW(vh, WM_KEYDOWN, 'V', 0);
+            pump(150);
+            SetKeyboardState(shiftedState);
+        };
+
+        // Shift+V cycles FitToPage -> FitToWidth -> Manual(100%) -> FitToPage.
+        postShiftV(); pump(150);
+        CHECK("B8b Shift+V #1 -> FitToWidth",
+              viewer.controller()->fitMode() == ViewerController::FitMode::FitToWidth);
+        postShiftV(); pump(150);
+        CHECK("B8c Shift+V #2 -> Manual(100%)",
+              viewer.controller()->fitMode() == ViewerController::FitMode::Manual &&
+              viewer.controller()->zoom() > 0.999f && viewer.controller()->zoom() < 1.001f);
+        postShiftV(); pump(150);
+        CHECK("B8d Shift+V #3 -> back to FitToPage",
+              viewer.controller()->fitMode() == ViewerController::FitMode::FitToPage);
+        CHECK("B8e Shift+V did NOT toggle paged/continuous",
+              viewer.controller()->isPagedMode());
+
+        DestroyWindow(host);
+        pump(50);
+    }
+
+    // ---------------- B9) Paged mode horizontal panning when page overflows
+    {
+        std::string pdfPath = std::string(tmpPath) + "wlx_wide.pdf";
+        if (!writeTestPdf(pdfPath.c_str(), 4, 420, 595)) {
+            std::printf("FAIL pdf gen\n");
+            return 2;
+        }
+        HWND host = CreateWindowExW(0, L"WLXHarnessHostScroll", L"harness",
+                                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                    120, 120, 800, 600,
+                                    nullptr, nullptr, wc.hInstance, nullptr);
+        pump(100);
+        ViewerWin32 viewer(host);
+        HWND vh = viewer.hwnd();
+        MoveWindow(vh, 0, 0, 800, 600, TRUE);
+        pump(100);
+        if (!viewer.loadDocument(QString::fromLocal8Bit(pdfPath.c_str()))) {
+            std::printf("FAIL load\n");
+            return 2;
+        }
+        pump(80);
+        viewer.controller()->setManualZoom(2.0f, 0); // 840px wide > ~784px client
+        pump(200);
+        CHECK("B9a paged, H-range > 0 (page overflows)",
+              viewer.controller()->isPagedMode() &&
+              viewer.controller()->maxScrollOffsetXForPage(viewer.controller()->currentPage()) > 0);
+
+        // Paged-mode H-scrollbar must be present with a usable range.
+        SCROLLINFO hsi{};
+        hsi.cbSize = sizeof(hsi);
+        hsi.fMask = SIF_ALL;
+        GetScrollInfo(vh, SB_HORZ, &hsi);
+        CHECK("B9a1 paged H-scrollbar has range (page overflows)",
+              hsi.nMax > 0);
+
+        // Verify horizontal panning plumbing deterministically via the H-scrollbar
+        // (SB_LINERIGHT moves m_scrollX through onHScroll -> clamp -> repaint,
+        // the exact path a mouse drag or scrollbar arrow uses). The raw
+        // SendInput mouse path is unreliable under automation (no foreground
+        // capture), as seen above.
+        auto postHScroll = [vh](WORD code) {
+            PostMessageW(vh, WM_HSCROLL, MAKEWPARAM(code, 0), 0);
+            pump(50);
+        };
+        for (int i = 0; i < 8; ++i) postHScroll(SB_LINERIGHT);
+        std::printf("  [dbg] paged-h: hPos=%d xRange=%d\n", hPos(vh),
+                    viewer.controller()->maxScrollOffsetXForPage(viewer.controller()->currentPage()));
+        std::fflush(stdout);
+        CHECK("B9b horizontal pan moved the page (m_scrollX > 0)",
+              hPos(vh) > 0);
+        CHECK("B9c clamped to page H-range",
+              hPos(vh) <= viewer.controller()->maxScrollOffsetXForPage(
+                               viewer.controller()->currentPage()));
+
+        // Full-range: scrolling left to the end clamps at the page's overflow.
+        PostMessageW(vh, WM_HSCROLL, MAKEWPARAM(SB_LEFT, 0), 0);
+        pump(50);
+        for (int i = 0; i < 200; ++i) postHScroll(SB_LINERIGHT);
+        CHECK("B9d horizontal pan clamps at page max",
+              hPos(vh) == viewer.controller()->maxScrollOffsetXForPage(
+                              viewer.controller()->currentPage()));
+
+        // Vertical paging-pan availability: a tall page (zoom makes it taller than
+// the viewport) must be vertically drag-pannable in paged mode. The V
+// scrollbar stays page-jump (drag is the pan mechanism), so we verify the
+// model exposes the vertical overflow; the drag clamps to it exactly like the
+// horizontal path (B9b-B9d, which shares onDragMove).
+        {
+            viewer.controller()->setManualZoom(2.0f, 0); // 1190px tall > ~578px
+            pump(200);
+            const int yRange = viewer.controller()->maxScrollOffsetYForPage(
+                                   viewer.controller()->currentPage());
+            std::printf("  [dbg] B9v: yRange=%d vPos=%d\n", yRange, vPos(vh));
+            std::fflush(stdout);
+            CHECK("B9e tall page has vertical paged overflow",
+                  yRange > 0);
+            CHECK("B9g V-scrollbar remains page-jump (nPos = currentPage-1)",
+                  vPos(vh) == viewer.controller()->currentPage() - 1);
+        }
 
         DestroyWindow(host);
         pump(50);

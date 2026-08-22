@@ -6,7 +6,7 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and [Double 
 
 - **Formats** (via MuPDF and DjVuLibre): PDF, XPS, OXPS, EPUB, MOBI, FB2, CBZ, CBR, CB7, HTML/HTM, Markdown, TXT, JPEG, PNG, TIFF, GIF, BMP, WEBP, DJVU, DJV.
 - **Paged & continuous display modes** — `V` toggles between single-page and continuous scrolling.
-- **Smooth scrolling** in continuous mode (mouse wheel, scrollbar, arrow keys, mouse-drag panning) over a virtual canvas whose scrollbar covers the full document — accurate even on very long or high-zoom files.
+- **Smooth scrolling** in continuous mode (mouse wheel, scrollbar, arrow keys, mouse-drag panning) over a virtual canvas whose scrollbar covers the full document — accurate even on very long or high-zoom files. In paged mode, an overflowing page (wider/taller than the window) gains a scrollbar and drag-panning to move the visible part.
 - **Fit modes** — `Shift+V` cycles fit-to-page → fit-to-width → 100%. `+`/`-`/`0` adjust zoom.
 - **Rotation** — `R` rotates 90° clockwise, `Shift+R` counter-clockwise; persisted per document.
 - **Navigation** — `Right`/`PageDown` next, `Left`/`PageUp` prev, `Home` first, `End` last; `G` go-to-page (Qt viewer).
@@ -99,7 +99,7 @@ Open any supported file in the lister (e.g. press `F3` in Total Commander). Use 
 | `G` | Go to page (Qt viewer) |
 | `Esc` | Exit the viewer (Qt viewer forwards a `Q` keypress to the host) |
 | Mouse wheel | Smooth scroll (continuous) / page turn (paged) |
-| Left-drag | Pan (continuous mode) |
+| Left-drag | Pan (continuous; paged when page overflows) |
 
 ## Keyboard shortcuts map
 

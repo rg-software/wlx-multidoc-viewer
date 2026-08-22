@@ -69,6 +69,7 @@ private:
 
     bool m_dragging = false;
     QPoint m_lastMousePos;
+    bool m_suppressScrollTracking = false;
 };
 
 // Pure-paint canvas that draws each page from the controller's render cache at

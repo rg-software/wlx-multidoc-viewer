@@ -65,3 +65,21 @@ The viewer SHALL bound the memory used for rendered pages in continuous mode to 
 #### Scenario: Very long document in continuous mode
 - **WHEN** the user opens a very long document (e.g. more pages than fit in a fixed-height strip) and enables continuous mode
 - **THEN** the viewer does not allocate a single bitmap taller than the per-page cache budget, yet the scrollbar reaches the end of the document
+
+### Requirement: Paged-mode panning when the page overflows the viewport
+
+In paged mode, when the current page is larger than the viewport (wider and/or taller at the active zoom), the viewer SHALL let the user move the visible part of the page within the viewport. A horizontal scrollbar SHALL appear when the page is wider than the viewport and the page SHALL be inferred horizontally toward the center of the visible overflow with the visible part following the scrollbar. Dragging with the mouse SHALL pan the page in the overflowing axis or axes. When the page fits the viewport on an axis, that axis SHALL remain centered (no scrollbar, no panning) and the page SHALL NOT be stretchy.
+
+In paged mode a page that fits the viewport therefore remains centered and non-scrollable; only overflowing axes gain a scrollbar and drag-panning. The paged vertical scrollbar SHALL stay page-jump semantics (previous/next page), never a continuous position.
+
+#### Scenario: Page wider than the viewport in paged mode
+- **WHEN** the current page is wider than the viewport (e.g. 100% zoom on a large page) and paged mode is active
+- **THEN** a horizontal scrollbar appears and dragging or scrolling horizontally moves the visible part of the page up to the page's horizontal overflow; the page is not stretched to fit
+
+#### Scenario: Page taller than the viewport in paged mode
+- **WHEN** the current page is taller than the viewport and paged mode is active
+- **THEN** the user can drag vertically to move the visible part of the page up to the page's vertical overflow, while the paged vertical scrollbar continues to turn pages rather than acting as a continuous position
+
+#### Scenario: Page fits the viewport in paged mode
+- **WHEN** the current page fits entirely within the viewport
+- **THEN** no overflow scrollbar appears and the page stays centered with no panning, identical to previous behavior

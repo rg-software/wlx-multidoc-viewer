@@ -73,6 +73,8 @@ public:
     int firstPageAtScroll(int scrollY) const;
     int maxScrollOffset() const;
     int maxScrollOffsetX() const;
+    int maxScrollOffsetXForPage(int page) const;
+    int maxScrollOffsetYForPage(int page) const;
     int scrollOffsetForPage(int page) const;
     void trackCurrentPage(int page);
     void trimRenderCache(int scrollY);

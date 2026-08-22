@@ -247,8 +247,8 @@ void ViewerWin32::closeDocument() {
 void ViewerWin32::onControllerChanged() {
     if (!m_controller)
         return;
-    m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
-    m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+    m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
+    m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
     updateScrollBars();
     if (m_infoPanel)
         m_infoPanel->onControllerChanged();
@@ -338,8 +338,10 @@ void ViewerWin32::onPaint() {
                 int imgW = r.isValid() ? r.width() : 0;
                 int imgH = r.isValid() ? r.height() : 0;
                 if (imgW > 0 && imgH > 0) {
-                    int dstX = (std::max)(0, (w - imgW) / 2);
-                    int dstY = panelH + (std::max)(0, (vh - imgH) / 2);
+                    // Center the page only when it fits; otherwise scroll the
+                    // visible part with m_scrollX/m_scrollY offset.
+                    int dstX = (imgW <= w) ? (std::max)(0, (w - imgW) / 2) : -m_scrollX;
+                    int dstY = panelH + ((imgH <= vh) ? (std::max)(0, (vh - imgH) / 2) : -m_scrollY);
                     drawPageBitmap(hdcMem, bitmapForPage(m_controller->currentPage()),
                                    dstX, dstY, 0, 0, imgW, imgH);
                 }
@@ -417,6 +419,22 @@ void ViewerWin32::invalidatePageBitmaps() {
     m_bitmapEpoch = m_controller ? m_controller->layoutEpoch() : -1;
 }
 
+int ViewerWin32::maxScrollX() const {
+    if (!m_controller || !m_controller->hasDocument())
+        return 0;
+    if (m_controller->isPagedMode())
+        return m_controller->maxScrollOffsetXForPage(m_controller->currentPage());
+    return m_controller->maxScrollOffsetX();
+}
+
+int ViewerWin32::maxScrollY() const {
+    if (!m_controller || !m_controller->hasDocument())
+        return 0;
+    if (m_controller->isPagedMode())
+        return m_controller->maxScrollOffsetYForPage(m_controller->currentPage());
+    return m_controller->maxScrollOffset();
+}
+
 void ViewerWin32::onSize(int w, int h) {
     if (m_infoPanel)
         m_infoPanel->onSize(w, h);
@@ -425,8 +443,8 @@ void ViewerWin32::onSize(int w, int h) {
             m_controller->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
         m_controller->setViewportSize(QSize(w, h));
         m_scrollY = m_controller->relayout(m_scrollY);
-        m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
-        m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+        m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
+        m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
         onControllerChanged();
     }
 }
@@ -449,7 +467,7 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         return;
 
     bool captured = false;
-    const bool continuous = !m_controller->isPagedMode();
+    bool continuous = !m_controller->isPagedMode();
 
     switch (wp) {
     case VK_RIGHT:
@@ -499,13 +517,25 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         captured = true;
         break;
     case 'V':
+        if (shift) {
+            // Shift+V = cycle fit mode (F is a host hotkey on TC/DC, so fit
+            // cycling uses Shift+V; V alone toggles paged/continuous).
+            m_scrollY = m_controller->cycleFitMode(m_scrollY);
+            captured = true;
+            break;
+        }
         m_controller->toggleMode();
-        if (m_controller->isPagedMode()) {
-            m_scrollX = 0;
-            m_scrollY = 0;
-        } else {
+        // The toggle flips the mode, which can invalidate the `continuous`
+        // captured at the top of onKeyDown (paged<->continuous). Refresh it so
+        // the post-switch scroll positioning below uses the NEW mode; otherwise
+        // switching paged->continuous restarts at page 1.
+        continuous = !m_controller->isPagedMode();
+        if (continuous) {
             m_scrollX = 0;
             m_scrollY = m_controller->scrollOffsetForPage(m_controller->currentPage());
+        } else {
+            m_scrollX = 0;
+            m_scrollY = 0;
         }
         captured = true;
         break;
@@ -535,7 +565,7 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
     if (captured) {
         if (continuous) {
             m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
-            m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
+            m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
             updateVisiblePage();
             updateScrollBars();
             InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -549,7 +579,16 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
 }
 
 void ViewerWin32::onDragStart(LPARAM lp) {
-    if (!m_controller || m_controller->isPagedMode())
+    if (!m_controller || !m_controller->hasDocument())
+        return;
+    // Panning is available when the content overflows the viewport in at least
+    // one axis. In paged mode the page may overflow horizontally (page wider
+    // than window) and/or vertically (page taller than window); both are
+    // drag-pannable. Continuous mode always allows drag.
+    const bool paged = m_controller->isPagedMode();
+    const int xRange = maxScrollX();
+    const int yRange = maxScrollY();
+    if (paged && xRange <= 0 && yRange <= 0)
         return;
     m_dragging = true;
     m_lastMouseX = GET_X_LPARAM(lp);
@@ -563,15 +602,25 @@ void ViewerWin32::onDragMove(LPARAM lp) {
         return;
     const int x = GET_X_LPARAM(lp);
     const int y = GET_Y_LPARAM(lp);
-    m_scrollX -= x - m_lastMouseX;
-    m_scrollY -= y - m_lastMouseY;
+    const int dx = x - m_lastMouseX;
+    const int dy = y - m_lastMouseY;
     m_lastMouseX = x;
     m_lastMouseY = y;
 
-    m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
-    m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
-
-    updateVisiblePage();
+    if (m_controller && m_controller->isPagedMode()) {
+        // Paged mode: pan within the current page's overflow in both axes.
+        m_scrollX -= dx;
+        m_scrollY -= dy;
+        m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
+        m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
+        updateVisiblePage();
+    } else {
+        m_scrollX -= dx;
+        m_scrollY -= dy;
+        m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
+        m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+        updateVisiblePage();
+    }
     updateScrollBars();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
@@ -716,9 +765,9 @@ void ViewerWin32::onHScroll(int code, int pos) {
         break;
     }
     case SB_LEFT:       m_scrollX = 0; break;
-    case SB_RIGHT:      m_scrollX = m_controller->maxScrollOffsetX(); break;
+    case SB_RIGHT:      m_scrollX = maxScrollX(); break;
     }
-    m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
+    m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
     updateScrollBars();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
@@ -735,14 +784,33 @@ void ViewerWin32::updateScrollBars() {
     si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
 
     if (!m_controller || !m_controller->hasDocument() || m_controller->isPagedMode()) {
+        if (m_controller && m_controller->hasDocument() && m_controller->isPagedMode()) {
+            // Paged mode: if the current page overflows the viewport width,
+            // enable the horizontal scrollbar. nMax is the page width minus 1,
+            // nPage the viewport width, so the reachable track is
+            // nMax - nPage + 1 = pageW - viewportW (the overflow amount).
+            const QRect pr = m_controller->pageRect(m_controller->currentPage());
+            const int pageW = pr.isValid() ? pr.width() : 0;
+            if (pageW > vw && pageW > 0) {
+                si.nMin = 0;
+                si.nMax = pageW - 1;
+                si.nPage = vw;
+                si.nPos = m_scrollX;
+                SetScrollInfo(m_hwnd, SB_HORZ, &si, TRUE);
+            } else {
+                si.nMin = 0; si.nMax = 0; si.nPage = 1; si.nPos = 0;
+                SetScrollInfo(m_hwnd, SB_HORZ, &si, TRUE);
+            }
+        } else {
+            si.nMin = 0; si.nMax = 0; si.nPage = 1; si.nPos = 0;
+            SetScrollInfo(m_hwnd, SB_HORZ, &si, TRUE);
+        }
+
         si.nMin = 0;
         si.nMax = (std::max)(0, m_controller ? m_controller->pageCount() - 1 : 0);
         si.nPage = 1;
         si.nPos = m_controller ? m_controller->currentPage() - 1 : 0;
         SetScrollInfo(m_hwnd, SB_VERT, &si, TRUE);
-
-        si.nMin = 0; si.nMax = 0; si.nPage = 1; si.nPos = 0;
-        SetScrollInfo(m_hwnd, SB_HORZ, &si, TRUE);
         return;
     }
 

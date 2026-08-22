@@ -386,6 +386,20 @@ int ViewerController::maxScrollOffsetX() const {
     return std::max(0, m_contentSize.width() - pageAreaWidth());
 }
 
+int ViewerController::maxScrollOffsetXForPage(int page) const {
+    QRect r = pageRect(page);
+    if (!r.isValid())
+        return 0;
+    return std::max(0, r.width() - pageAreaWidth());
+}
+
+int ViewerController::maxScrollOffsetYForPage(int page) const {
+    QRect r = pageRect(page);
+    if (!r.isValid())
+        return 0;
+    return std::max(0, r.height() - pageAreaHeight());
+}
+
 int ViewerController::scrollOffsetForPage(int page) const {
     QRect r = pageRect(page);
     return r.isValid() ? r.y() : 0;
