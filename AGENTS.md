@@ -56,8 +56,18 @@ MuPDF and DjVuLibre are linked as static libraries via vcpkg. Both return `QImag
 
 ## Known Issues
 
-See `openspec/changes/win32-viewer-improvements/` for planned improvements:
-- No page navigation (single page only)
-- Distortion on resize
-- Blurry text (missing DPI awareness)
-- No paged/continuous mode toggle
+### Fixed (in viewer-baseline)
+- ~~No page navigation (single page only)~~ — implemented continuous mode
+- ~~Distortion on resize~~ — fixed with `setWidgetResizable(false)` and deferred scroll restore
+- ~~No paged/continuous mode toggle~~ — V key toggles, Shift+V cycles fit mode
+- ~~DjVu RGB/BGR swap and vertical flip~~ — fixed: `DDJVU_FORMAT_RGB24` + removed redundant `flipped(Qt::Vertical)`
+
+### Open gaps
+
+| Gap | Severity | Note |
+|---|---|---|
+| **DPI awareness hardcoded** | Medium | Spec says use system DPI; code passes `1.0f`. Text undersized on HiDPI. |
+| **Windows `G` key go-to-page** | Low | Spec requires dialog; no handler in `viewer_win32.cpp`. Qt has `QInputDialog`. |
+| **Linux continuous→paged toggle** | Medium | Qt viewer has no scroll-position tracking (`trackCurrentPage` never called on scroll). Toggling from continuous to paged shows last-navigated page, not top-of-viewport page. |
+| **Mixed page sizes in strip** | Low | Strip stride assumes uniform page size (uses current page dimensions). Documents with mixed portrait/landscape pages will misalign. |
+| **Fit-to-page overflow** | Low | Fit zoom computed against viewport minus panel height but not minus 8px paint margin; can clip ~16px at edges. |
