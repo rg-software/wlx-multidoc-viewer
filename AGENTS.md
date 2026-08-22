@@ -6,14 +6,17 @@ WLX multi-document viewer plugin for Total Commander and Double Commander. Displ
 
 ## Build
 
-Standalone vcpkg at `C:\vcpkg`. VS 2022 at `C:\Program Files\Microsoft Visual Studio\2022\Community`.
+Windows (VS 2022) uses a standalone vcpkg at `C:\vcpkg`. Linux uses system packages via `find_library` (see CMakeLists.txt) — no vcpkg needed.
 
 ```bash
-# Configure + build (must run from vcvarsall shell)
+# Windows: configure + build (must run from vcvarsall shell)
 cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 && cmake --preset windows-x64-release && cmake --build --preset windows-release'
+
+# Linux: configure + build
+cmake --preset linux-release && cmake --build --preset linux-release
 ```
 
-Output: `build/release/Release/wlx-multidoc-viewer.wlx64`
+Output: `build/release/Release/wlx-multidoc-viewer.wlx64` (Windows), `build/linux-release/wlx-multidoc-viewer.wlx64` (Linux).
 
 ## Architecture
 
@@ -25,8 +28,8 @@ src/
   formatdispatcher.cpp  Routes file extensions to the right engine
   mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML)
   djvuengine.*          DjVuLibre backend (DJVU, DJV)
-  viewer_win32.*        Win32 viewer (Windows) — pure HWND, BitBlt paint
-  viewer.*              Qt viewer (Linux) — QFrame, QScrollArea, QLabel
+  viewer_win32.*        Win32 viewer (Windows) — pure HWND, per-page BitBlt paint
+  viewer.*              Qt viewer (Linux) — QFrame, QScrollArea, ViewerCanvas widget
 ```
 
 ### Platform split
@@ -37,14 +40,14 @@ src/
 
 ### Engines
 
-MuPDF and DjVuLibre are linked as static libraries via vcpkg. Both return `QImage` from `renderPage(page, zoom)`. The engine interface (`DocumentEngine`) is platform-agnostic.
+MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as system libraries on Linux. Both return `QImage` from `renderPage(page, zoom)`. The engine interface (`DocumentEngine`) is platform-agnostic.
 
 ### Build system
 
-- `CMakePresets.json`: VS 2022 generator, `x64-windows-static-md` triplet
-- `vcpkg.json`: manifest mode with builtin-baseline
+- `CMakePresets.json`: VS 2022 generator + `x64-windows-static-md` triplet (Windows); Ninja (Linux)
+- `vcpkg.json`: manifest mode with builtin-baseline (Windows only)
 - `overlay-ports/djvulibre/`: custom port with manual config.cmake (debug+release imported locations, empty API macros for static linking)
-- `CMakeLists.txt`: platform-conditional — `Qt6::Core`+`Qt6::Gui` on Windows, `Qt6::Widgets` on Linux
+- `CMakeLists.txt`: platform-conditional — `Qt6::Core`+`Qt6::Gui` on Windows, `Qt6::Widgets` on Linux; `find_package` on Windows vs `find_library` on Linux
 
 ## Conventions
 
@@ -57,7 +60,7 @@ MuPDF and DjVuLibre are linked as static libraries via vcpkg. Both return `QImag
 ## Known Issues
 
 ### Fixed (in viewer-baseline)
-- ~~Distortion on resize~~ — fixed with `setWidgetResizable(false)` and deferred scroll restore
+- ~~Distortion on resize~~ — fixed with `setWidgetResizable(false)` and viewport-anchored relayout
 - ~~No paged/continuous mode toggle~~ — V key toggles, Shift+V cycles fit mode
 - ~~DjVu RGB/BGR swap and vertical flip~~ — fixed: `DDJVU_FORMAT_RGB24` + removed redundant `flipped(Qt::Vertical)`
 - ~~DPI awareness hardcoded~~ — fixed: viewers pass system DPI scale (`GetDpiForWindow` / Qt `devicePixelRatioF`) into `ViewerController::setDpiScale()`; fit math and strip geometry are DPI-aware
@@ -70,5 +73,5 @@ MuPDF and DjVuLibre are linked as static libraries via vcpkg. Both return `QImag
 | Gap | Severity | Note |
 |---|---|---|
 | **Windows `G` key go-to-page** | Low | Spec requires dialog; no handler in `viewer_win32.cpp`. Qt has `QInputDialog`. |
-| **Linux continuous→paged toggle** | Medium | Qt viewer has no scroll-position tracking (`trackCurrentPage` never called on scroll). Toggling from continuous to paged shows last-navigated page, not top-of-viewport page. |
 | **Asynchronous rendering** | Medium | Continuous mode renders newly-visible pages synchronously on the UI thread (one-frame stall on fast jumps). The per-page cache helps; a background worker is planned in `async-render-worker`. |
+| **Qt build untested** | Medium | The Qt `viewer.*` rework compiles cleanly on Win32 by inspection but has not been built/run on Linux yet; verify `cmake --preset linux-release`. |
