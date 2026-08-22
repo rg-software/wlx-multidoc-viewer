@@ -4,12 +4,17 @@
 #include "viewercontroller.h"
 
 #include <QFrame>
-#include <QPoint>
-#include <QScrollArea>
+#include <QKeyEvent>
 #include <QLabel>
-#include <QPixmap>
+#include <QPoint>
+#include <QResizeEvent>
+#include <QScrollArea>
+#include <QWheelEvent>
+#include <QWidget>
 #include <QHBoxLayout>
 #include <memory>
+
+class ViewerCanvas;
 
 class ViewerWidget : public QFrame {
     Q_OBJECT
@@ -47,8 +52,8 @@ private slots:
 private:
     void onControllerChanged();
     void updateInfoPanel();
-    void captureScrollForContinuousJump();
-    void restoreScrollAfterContinuousJump();
+    void resizeCanvas();
+    int scrollYValue() const;
 
     std::unique_ptr<ViewerController> m_controller;
 
@@ -59,13 +64,31 @@ private:
     QFrame* m_infoBar = nullptr;
 
     QScrollArea* m_scrollArea = nullptr;
-    QLabel* m_pageLabel = nullptr;
-
-    int m_savedScrollY = 0;
-    bool m_pendingScrollRestore = false;
+    ViewerCanvas* m_canvas = nullptr;
 
     bool m_dragging = false;
     QPoint m_lastMousePos;
+};
+
+// Pure-paint canvas that draws each page from the controller's render cache at
+// its layout rect. Continuous mode makes this widget the full virtual canvas;
+// paged mode sizes it to the current page.
+class ViewerCanvas : public QWidget {
+public:
+    explicit ViewerCanvas(QWidget* parent = nullptr)
+        : QWidget(parent)
+    {
+        setAttribute(Qt::WA_OpaquePaintEvent);
+    }
+
+    void setController(ViewerController* controller) { m_controller = controller; }
+    void setContentSize(const QSize& size) { setFixedSize(size); }
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+
+private:
+    ViewerController* m_controller = nullptr;
 };
 
 #endif // VIEWER_H

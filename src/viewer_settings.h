@@ -13,7 +13,7 @@ inline constexpr int kInfoPanelHeight = 22;     // info panel / info bar height
 inline constexpr int kPageGap = 4;              // gap between pages in continuous strip
 inline constexpr int kPageMargin = 8;           // margin around page area
 inline constexpr int kBufferPages = 3;          // extra pages rendered above/below viewport
-inline constexpr long long kMaxStripHeight = 1500000; // continuous-strip height cap
+inline constexpr int kCacheWindowPages = 20;    // max pages kept in the render cache (LRU)
 
 } // namespace viewer_settings
 

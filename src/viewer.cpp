@@ -1,19 +1,54 @@
 #include "viewer.h"
 
-#include <QTimer>
-#include <QVBoxLayout>
 #include <QInputDialog>
-#include <QMessageBox>
-#include <QKeyEvent>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QScrollBar>
 #include <QShortcut>
-#include <QScreen>
-#include <QWheelEvent>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
+
+void ViewerCanvas::paintEvent(QPaintEvent* event) {
+    QPainter p(this);
+    p.fillRect(event->rect(), QColor(0x80, 0x80, 0x80));
+
+    if (!m_controller || !m_controller->hasDocument())
+        return;
+
+    const bool paged = m_controller->isPagedMode();
+    if (paged) {
+        const int page = m_controller->currentPage();
+        QImage img = m_controller->renderPageCached(page);
+        if (img.isNull())
+            return;
+        const int x = (width() - img.width()) / 2;
+        const int y = (height() - img.height()) / 2;
+        p.drawImage(x, y, img);
+        return;
+    }
+
+    // Continuous: the widget is the full canvas; the visible band is
+    // event->rect() in canvas coordinates.
+    const QRect vis = event->rect();
+    if (m_controller->pageCount() <= 0 || vis.bottom() < 0 || vis.y() > m_controller->contentSize().height())
+        return;
+
+    const int firstVisible = m_controller->firstPageAtScroll(vis.y());
+    for (int page = firstVisible; page <= m_controller->pageCount(); ++page) {
+        const QRect r = m_controller->pageRect(page);
+        if (r.y() > vis.bottom())
+            break;
+        if (r.bottom() < vis.y())
+            continue;
+        QImage img = m_controller->renderPageCached(page);
+        if (img.isNull())
+            continue;
+        p.drawImage(r.x(), r.y(), img);
+    }
+    m_controller->trimRenderCache(vis.y());
+}
 
 ViewerWidget::ViewerWidget(QWidget* parent)
     : QFrame(parent)
@@ -54,11 +89,10 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     m_scrollArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     layout->addWidget(m_scrollArea);
 
-    m_pageLabel = new QLabel(m_scrollArea);
-    m_pageLabel->setAlignment(Qt::AlignCenter);
-    m_scrollArea->setWidget(m_pageLabel);
+    m_canvas = new ViewerCanvas(m_scrollArea);
+    m_scrollArea->setWidget(m_canvas);
 
-    m_pageLabel->installEventFilter(this);
+    m_canvas->installEventFilter(this);
     m_scrollArea->viewport()->installEventFilter(this);
     connect(m_scrollArea->verticalScrollBar(), &QScrollBar::valueChanged,
             this, &ViewerWidget::onVerticalScrollChanged);
@@ -93,32 +127,41 @@ bool ViewerWidget::loadDocument(const QString& path) {
     m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
     if (!m_controller->openDocument(path))
         return false;
+    resizeCanvas();
     return true;
 }
 
 void ViewerWidget::closeDocument() {
     if (m_controller)
         m_controller->closeDocument();
-    if (m_pageLabel)
-        m_pageLabel->clear();
+    if (m_canvas)
+        m_canvas->setContentSize(QSize(1, 1));
     updateInfoPanel();
 }
 
 void ViewerWidget::onControllerChanged() {
-    QImage img = m_controller->renderVisiblePages();
-    if (!img.isNull())
-        m_pageLabel->setPixmap(QPixmap::fromImage(img));
-    else
-        m_pageLabel->setText(tr("Failed to render"));
+    resizeCanvas();
     updateInfoPanel();
+}
 
-    if (m_pendingScrollRestore) {
-        m_pendingScrollRestore = false;
-        int savedY = m_savedScrollY;
-        QTimer::singleShot(0, this, [this, savedY]() {
-            m_scrollArea->verticalScrollBar()->setValue(savedY);
-        });
+void ViewerWidget::resizeCanvas() {
+    if (!m_controller || !m_controller->hasDocument()) {
+        m_canvas->setContentSize(QSize(1, 1));
+        m_canvas->update();
+        return;
     }
+    if (m_controller->isPagedMode()) {
+        // Paged mode: the canvas is the scroll viewport; no scrolling.
+        const QSize vp = m_scrollArea->viewport()->size();
+        m_canvas->setContentSize(vp);
+    } else {
+        m_canvas->setContentSize(m_controller->contentSize());
+    }
+    m_canvas->update();
+}
+
+int ViewerWidget::scrollYValue() const {
+    return m_scrollArea->verticalScrollBar()->value();
 }
 
 void ViewerWidget::updateInfoPanel() {
@@ -143,37 +186,12 @@ void ViewerWidget::updateInfoPanel() {
     m_fitIndicator->setText(fitLabel);
 }
 
-void ViewerWidget::captureScrollForContinuousJump() {
-    m_savedScrollY = m_scrollArea->verticalScrollBar()->value();
-    m_pendingScrollRestore = true;
-}
-
-void ViewerWidget::restoreScrollAfterContinuousJump() {
-    m_pendingScrollRestore = false;
-    m_scrollArea->verticalScrollBar()->setValue(m_savedScrollY);
-}
-
 void ViewerWidget::onNextPage() {
-    if (!m_controller) return;
-    if (!m_controller->isPagedMode()) {
-        // Only arm the scroll restore when navigation will actually succeed;
-        // otherwise a stale armed flag would be consumed by an unrelated
-        // controller change later.
-        if (m_controller->currentPage() >= m_controller->pageCount())
-            return;
-        captureScrollForContinuousJump();
-    }
-    m_controller->nextPage();
+    if (m_controller) m_controller->nextPage();
 }
 
 void ViewerWidget::onPrevPage() {
-    if (!m_controller) return;
-    if (!m_controller->isPagedMode()) {
-        if (m_controller->currentPage() <= 1)
-            return;
-        captureScrollForContinuousJump();
-    }
-    m_controller->prevPage();
+    if (m_controller) m_controller->prevPage();
 }
 
 void ViewerWidget::onFirstPage() {
@@ -185,31 +203,44 @@ void ViewerWidget::onLastPage() {
 }
 
 void ViewerWidget::onZoomIn() {
-    if (m_controller) m_controller->zoomIn();
+    if (!m_controller) return;
+    m_scrollArea->verticalScrollBar()->setValue(m_controller->zoomIn(scrollYValue()));
 }
 
 void ViewerWidget::onZoomOut() {
-    if (m_controller) m_controller->zoomOut();
+    if (!m_controller) return;
+    m_scrollArea->verticalScrollBar()->setValue(m_controller->zoomOut(scrollYValue()));
 }
 
 void ViewerWidget::onZoomOriginal() {
-    if (m_controller) m_controller->setManualZoom(1.0f);
+    if (!m_controller) return;
+    m_scrollArea->verticalScrollBar()->setValue(m_controller->setManualZoom(1.0f, scrollYValue()));
 }
 
 void ViewerWidget::onCycleFit() {
-    if (m_controller) m_controller->cycleFitMode();
+    if (!m_controller) return;
+    m_scrollArea->verticalScrollBar()->setValue(m_controller->cycleFitMode(scrollYValue()));
 }
 
 void ViewerWidget::onToggleMode() {
-    if (m_controller) m_controller->toggleMode();
+    if (!m_controller) return;
+    m_controller->toggleMode();
+    if (m_controller->isPagedMode()) {
+        m_scrollArea->verticalScrollBar()->setValue(0);
+    } else {
+        m_scrollArea->verticalScrollBar()->setValue(m_controller->scrollOffsetForPage(m_controller->currentPage()));
+    }
+    resizeCanvas();
 }
 
 void ViewerWidget::onRotateCw() {
-    if (m_controller) m_controller->rotateCw();
+    if (!m_controller) return;
+    m_scrollArea->verticalScrollBar()->setValue(m_controller->rotateCw(scrollYValue()));
 }
 
 void ViewerWidget::onRotateCcw() {
-    if (m_controller) m_controller->rotateCcw();
+    if (!m_controller) return;
+    m_scrollArea->verticalScrollBar()->setValue(m_controller->rotateCcw(scrollYValue()));
 }
 
 void ViewerWidget::onGoToPage() {
@@ -220,8 +251,12 @@ void ViewerWidget::onGoToPage() {
     int page = QInputDialog::getInt(this, tr("Go to page"),
                                      tr("Page number:"), m_controller->currentPage(),
                                      1, m_controller->pageCount(), 1, &ok);
-    if (ok)
+    if (ok) {
         m_controller->goToPage(page);
+        if (!m_controller->isPagedMode()) {
+            m_scrollArea->verticalScrollBar()->setValue(m_controller->scrollOffsetForPage(page));
+        }
+    }
 }
 
 void ViewerWidget::keyPressEvent(QKeyEvent* event) {
@@ -248,6 +283,7 @@ void ViewerWidget::onVerticalScrollChanged(int value) {
         m_controller->trackCurrentPage(page);
         updateInfoPanel();
     }
+    m_controller->trimRenderCache(value);
 }
 
 bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
@@ -327,6 +363,8 @@ void ViewerWidget::resizeEvent(QResizeEvent* event) {
     if (m_controller) {
         m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
         m_controller->setViewportSize(QSize(width(), height()));
-        onControllerChanged();
+        const int y = scrollYValue();
+        m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(y));
+        resizeCanvas();
     }
 }

@@ -85,4 +85,20 @@ if(WLX_BUILD_HARNESS AND WIN32)
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
     )
+
+    add_executable(harness-scroll
+        tests/harness_scroll.cpp
+        src/viewer_win32.cpp
+        src/viewercontroller.cpp
+        src/formatdispatcher.cpp
+        src/mupdfengine.cpp
+        src/djvuengine.cpp
+    )
+    target_include_directories(harness-scroll PRIVATE src)
+    target_link_libraries(harness-scroll
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
+        ${DJVU_TARGET}
+    )
 endif()

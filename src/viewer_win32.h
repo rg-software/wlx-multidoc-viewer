@@ -4,6 +4,7 @@
 #include "viewercontroller.h"
 
 #include <QString>
+#include <QVector>
 #include <memory>
 
 #ifdef Q_OS_WIN
@@ -37,23 +38,26 @@ private:
     void onDragEnd();
     void updateScrollBars();
     void updateVisiblePage();
-    bool needsStripRerender() const;
-    void imageToBitmap(const QImage& src);
     void onControllerChanged();
-    int maxScrollY() const;
+    void pageJumpContinuous(int delta);
+
+    HBITMAP bitmapForPage(int page);
+    void invalidatePageBitmaps();
+    void drawPageBitmap(HDC hdc, HBITMAP hbm, int dstX, int dstY, int srcX, int srcY, int w, int h) const;
 
     HWND m_hwnd = nullptr;
     std::unique_ptr<InfoPanelWin32> m_infoPanel;
 
     std::unique_ptr<ViewerController> m_controller;
-    QImage m_currentImage;
-    HBITMAP m_hBitmap = nullptr;
+
+    // Per-page HBITMAP cache (index page-1). Null until first painted; dropped
+    // whenever the controller's layout epoch changes.
+    QVector<HBITMAP> m_pageBitmaps;
+    int m_bitmapEpoch = -1;
 
     int m_scrollX = 0;
     int m_scrollY = 0;
     int m_wheelRemainder = 0;
-    int m_renderedScrollY = 0;
-    int m_renderedPageCount = 0;
 
     bool m_dragging = false;
     int m_lastMouseX = 0;

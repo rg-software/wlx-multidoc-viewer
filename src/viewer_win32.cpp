@@ -6,8 +6,8 @@
 #include <algorithm>
 
 #include <QImage>
+#include <QVector>
 
-#include <QFileInfo>
 #include <windowsx.h>
 
 #define WLX_VIEWER_CLASS L"WLXDocViewer"
@@ -23,7 +23,50 @@ using viewer_settings::kKeyboardStepPx;
 using viewer_settings::kPageMargin;
 using viewer_settings::kScrollBarLineStepPx;
 using viewer_settings::kWheelStepPx;
+
+// QImage::Format_RGB888 -> DIB (bottom-left origin, BGR byte order).
+HBITMAP QImageToBitmap(const QImage& src) {
+    if (src.isNull())
+        return nullptr;
+    QImage img = src.convertToFormat(QImage::Format_RGB888);
+    const int w = img.width();
+    const int h = img.height();
+    if (w <= 0 || h <= 0)
+        return nullptr;
+
+    BITMAPINFOHEADER bi = {};
+    bi.biSize = sizeof(bi);
+    bi.biWidth = w;
+    bi.biHeight = -h;
+    bi.biPlanes = 1;
+    bi.biBitCount = 24;
+    bi.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HBITMAP hbm = CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bi),
+                                   DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!hbm || !bits)
+        return hbm;
+
+    const int dibStride = ((w * 3 + 3) / 4) * 4;
+    const int srcStride = img.bytesPerLine();
+    const uchar* srcd = img.constBits();
+    auto* dst = static_cast<uchar*>(bits);
+    for (int y = 0; y < h; ++y) {
+        const uchar* srcRow = srcd + y * srcStride;
+        uchar* dstRow = dst + y * dibStride;
+        for (int x = 0; x < w; ++x) {
+            uchar r = srcRow[x * 3 + 0];
+            uchar g = srcRow[x * 3 + 1];
+            uchar b = srcRow[x * 3 + 2];
+            dstRow[x * 3 + 0] = b;
+            dstRow[x * 3 + 1] = g;
+            dstRow[x * 3 + 2] = r;
+        }
+    }
+    return hbm;
 }
+} // namespace
 
 class InfoPanelWin32 {
 public:
@@ -113,7 +156,8 @@ void InfoPanelWin32::onPaint() {
     DeleteObject(bg);
 
     if (m_controller && m_controller->hasDocument()) {
-        QString mode = m_controller->isPagedMode() ? QStringLiteral("Continuous: OFF") : QStringLiteral("Continuous: ON");
+        const bool continuous = !m_controller->isPagedMode();
+        QString mode = continuous ? QStringLiteral("Continuous: ON") : QStringLiteral("Continuous: OFF");
         QString fitMode;
         switch (m_controller->fitMode()) {
         case ViewerController::FitMode::FitToPage:  fitMode = QStringLiteral("Fit: Page"); break;
@@ -138,8 +182,7 @@ void InfoPanelWin32::onPaint() {
     EndPaint(m_hwnd, &ps);
 }
 
-ViewerWin32::ViewerWin32(HWND hParent)
-{
+ViewerWin32::ViewerWin32(HWND hParent) {
     HINSTANCE hInst = GetModuleHandleW(nullptr);
 
     WNDCLASSEXW wc = {};
@@ -190,26 +233,22 @@ bool ViewerWin32::loadDocument(const QString& path) {
 }
 
 void ViewerWin32::closeDocument() {
-    if (m_hBitmap) {
-        DeleteObject(m_hBitmap);
-        m_hBitmap = nullptr;
-    }
-    m_currentImage = QImage();
+    invalidatePageBitmaps();
     if (m_controller)
         m_controller->closeDocument();
     m_scrollX = 0;
     m_scrollY = 0;
 }
 
+// ---------------------------------------------------------------------------
+// Paint
+// ---------------------------------------------------------------------------
+
 void ViewerWin32::onControllerChanged() {
-    m_currentImage = m_controller->renderVisiblePages(m_scrollY);
-    imageToBitmap(m_currentImage);
-    m_renderedScrollY = m_scrollY;
-    m_renderedPageCount = m_controller->pageCount();
-    // A re-render can change m_currentImage (zoom, page count, etc.), so
-    // re-clamp before reporting the new range to the scrollbar.
-    m_scrollX = (std::max)(0, m_scrollX);
-    m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
+    if (!m_controller)
+        return;
+    m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
+    m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
     updateScrollBars();
     if (m_infoPanel)
         m_infoPanel->onControllerChanged();
@@ -268,192 +307,7 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
     case WM_ERASEBKGND:
         return 1;
     }
-
     return DefWindowProcW(m_hwnd, msg, wp, lp);
-}
-
-void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
-    if (!m_controller || !m_controller->hasDocument())
-        return;
-
-    int captured = 0;
-    const bool continuous = !m_controller->isPagedMode();
-
-    switch (wp) {
-    case VK_RIGHT:
-    case VK_NEXT:
-        if (continuous) {
-            m_scrollY += m_controller->pageStride();
-        } else {
-            m_controller->nextPage();
-        }
-        captured = 1;
-        break;
-    case VK_LEFT:
-    case VK_PRIOR:
-        if (continuous) {
-            m_scrollY -= m_controller->pageStride();
-        } else {
-            m_controller->prevPage();
-        }
-        captured = 1;
-        break;
-    case VK_UP:
-        if (continuous)
-            m_scrollY -= kKeyboardStepPx;
-        else
-            m_controller->prevPage();
-        captured = 1;
-        break;
-    case VK_DOWN:
-        if (continuous)
-            m_scrollY += kKeyboardStepPx;
-        else
-            m_controller->nextPage();
-        captured = 1;
-        break;
-    case VK_HOME:
-        if (continuous) {
-            m_scrollY = 0;
-        } else {
-            m_controller->firstPage();
-        }
-        captured = 1;
-        break;
-    case VK_END:
-        if (continuous) {
-            m_scrollY = maxScrollY();
-        } else {
-            m_controller->lastPage();
-        }
-        captured = 1;
-        break;
-    case 'V':
-        if (shift)
-            m_controller->cycleFitMode();
-        else
-            m_controller->toggleMode();
-        m_scrollX = 0;
-        m_scrollY = (m_controller->currentPage() - 1) * m_controller->pageStride();
-        captured = 1;
-        break;
-    case 'R':
-        if (shift)
-            m_controller->rotateCcw();
-        else
-            m_controller->rotateCw();
-        captured = 1;
-        break;
-    case 0xBB: case 0x6B:
-        m_controller->zoomIn();
-        captured = 1;
-        break;
-    case 0xBD: case 0x6D:
-        m_controller->zoomOut();
-        captured = 1;
-        break;
-    case '0':
-        m_controller->setManualZoom(1.0f);
-        captured = 1;
-        break;
-    }
-
-    if (captured) {
-        if (continuous) {
-            int maxY = maxScrollY();
-            m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
-            updateVisiblePage();
-            if (needsStripRerender())
-                onControllerChanged();
-            else {
-                updateScrollBars();
-                InvalidateRect(m_hwnd, nullptr, FALSE);
-            }
-        } else if (wp == VK_RIGHT || wp == VK_LEFT || wp == VK_NEXT || wp == VK_PRIOR
-                   || wp == VK_HOME || wp == VK_END || wp == 'V' || wp == 'R'
-                   || wp == 0xBB || wp == 0x6B || wp == 0xBD || wp == 0x6D || wp == '0') {
-            m_scrollX = 0;
-            m_scrollY = 0;
-        }
-    }
-}
-
-void ViewerWin32::onDragStart(LPARAM lp) {
-    if (!m_controller || m_controller->isPagedMode())
-        return;
-    m_dragging = true;
-    m_lastMouseX = GET_X_LPARAM(lp);
-    m_lastMouseY = GET_Y_LPARAM(lp);
-    SetCapture(m_hwnd);
-    // WM_SETCURSOR is not sent while capture is held, so set the drag
-    // cursor explicitly and restore it on release.
-    SetCursor(LoadCursor(nullptr, IDC_HAND));
-}
-
-void ViewerWin32::onDragMove(LPARAM lp) {
-    if (!m_dragging)
-        return;
-    const int x = GET_X_LPARAM(lp);
-    const int y = GET_Y_LPARAM(lp);
-    m_scrollX -= x - m_lastMouseX;
-    m_scrollY -= y - m_lastMouseY;
-    m_lastMouseX = x;
-    m_lastMouseY = y;
-
-    SCROLLINFO si = {};
-    si.cbSize = sizeof(si);
-    si.fMask = SIF_ALL;
-    GetScrollInfo(m_hwnd, SB_HORZ, &si);
-    const int maxX = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage));
-    m_scrollX = (std::clamp)(m_scrollX, 0, maxX);
-    m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
-
-    updateVisiblePage();
-    InvalidateRect(m_hwnd, nullptr, FALSE);
-}
-
-void ViewerWin32::onDragEnd() {
-    if (!m_dragging)
-        return;
-    m_dragging = false;
-    ReleaseCapture();
-    SetCursor(LoadCursor(nullptr, IDC_ARROW));
-    updateScrollBars();
-    if (needsStripRerender())
-        onControllerChanged();
-}
-
-void ViewerWin32::onMouseWheel(int delta) {
-    if (!m_controller)
-        return;
-    if (m_controller->isPagedMode()) {
-        if (delta < 0)
-            m_controller->nextPage();
-        else
-            m_controller->prevPage();
-        m_scrollX = 0;
-        m_scrollY = 0;
-    } else {
-        // Accumulate fractional wheel deltas so high-resolution wheels and
-        // trackpads (which may deliver |delta| < WHEEL_DELTA per message)
-        // still produce smooth, lossless scrolling.
-        m_wheelRemainder += delta * kWheelStepPx;
-        const int applied = m_wheelRemainder / WHEEL_DELTA;
-        m_wheelRemainder -= applied * WHEEL_DELTA;
-        m_scrollY -= applied;
-        int maxY = maxScrollY();
-        m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
-        updateVisiblePage();
-        if (needsStripRerender())
-            onControllerChanged();
-        else {
-            updateScrollBars();
-            InvalidateRect(m_hwnd, nullptr, FALSE);
-        }
-        return;
-    }
-    updateScrollBars();
-    InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 void ViewerWin32::onPaint() {
@@ -474,34 +328,43 @@ void ViewerWin32::onPaint() {
     DeleteObject(bgBrush);
 
     const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
-    const int pageY = panelH;
 
-    if (m_hBitmap) {
-        HDC hdcStrip = CreateCompatibleDC(hdc);
-        HGDIOBJ hOld = SelectObject(hdcStrip, m_hBitmap);
+    const bool paged = !m_controller || m_controller->isPagedMode();
+    if (paged) {
+        if (m_controller && m_controller->hasDocument()) {
+            const int vh = h - panelH;
+            if (vh > 0) {
+                QRect r = m_controller->pageRect(m_controller->currentPage());
+                int imgW = r.isValid() ? r.width() : 0;
+                int imgH = r.isValid() ? r.height() : 0;
+                if (imgW > 0 && imgH > 0) {
+                    int dstX = (std::max)(0, (w - imgW) / 2);
+                    int dstY = panelH + (std::max)(0, (vh - imgH) / 2);
+                    drawPageBitmap(hdcMem, bitmapForPage(m_controller->currentPage()),
+                                   dstX, dstY, 0, 0, imgW, imgH);
+                }
+            }
+        }
+    } else {
+        const int vh = h - panelH;
+        const QSize cs = m_controller->contentSize();
+        const int cx = (std::max)(0, (w - cs.width()) / 2);
+        const int cy = (std::max)(0, (vh - cs.height()) / 2);
 
-        int imgW = m_currentImage.width();
-        int imgH = m_currentImage.height();
-
-        int srcX = m_scrollX;
-        int srcY = m_scrollY;
-        int availW = w - 2 * kPageMargin;
-        int availH = h - pageY - 2 * kPageMargin;
-        int dstW = (std::min)(imgW - srcX, availW);
-        int dstH = (std::min)(imgH - srcY, availH);
-
-        int dstX = kPageMargin;
-        int dstY = pageY + kPageMargin;
-        if (imgW < availW)
-            dstX += (availW - imgW) / 2;
-        if (imgH < availH)
-            dstY += (availH - imgH) / 2;
-
-        if (dstW > 0 && dstH > 0)
-            BitBlt(hdcMem, dstX, dstY, dstW, dstH, hdcStrip, srcX, srcY, SRCCOPY);
-
-        SelectObject(hdcStrip, hOld);
-        DeleteDC(hdcStrip);
+        const int firstVisible = m_controller->firstPageAtScroll(m_scrollY);
+        for (int page = firstVisible; page <= m_controller->pageCount(); ++page) {
+            const QRect r = m_controller->pageRect(page);
+            if (r.bottom() < m_scrollY)
+                continue;
+            if (r.top() > m_scrollY + vh)
+                break;
+            const int dstX = cx + r.x() - m_scrollX;
+            const int dstY = panelH + cy + (r.y() - m_scrollY);
+            if (dstX >= w || dstY >= h)
+                continue;
+            drawPageBitmap(hdcMem, bitmapForPage(page), dstX, dstY, 0, 0, r.width(), r.height());
+        }
+        m_controller->trimRenderCache(m_scrollY);
     }
 
     BitBlt(hdc, 0, 0, w, h, hdcMem, 0, 0, SRCCOPY);
@@ -513,6 +376,47 @@ void ViewerWin32::onPaint() {
     EndPaint(m_hwnd, &ps);
 }
 
+void ViewerWin32::drawPageBitmap(HDC hdc, HBITMAP hbm, int dstX, int dstY, int srcX, int srcY, int w, int h) const {
+    if (!hbm || w <= 0 || h <= 0)
+        return;
+    HDC hdcBmp = CreateCompatibleDC(hdc);
+    HGDIOBJ old = SelectObject(hdcBmp, hbm);
+    // Shift source when the destination would start off-window left/top so the
+    // visible part of the page lines up.
+    if (dstX < 0) { srcX += -dstX; w += dstX; dstX = 0; }
+    if (dstY < 0) { srcY += -dstY; h += dstY; dstY = 0; }
+    if (w > 0 && h > 0)
+        BitBlt(hdc, dstX, dstY, w, h, hdcBmp, srcX, srcY, SRCCOPY);
+    SelectObject(hdcBmp, old);
+    DeleteDC(hdcBmp);
+}
+
+HBITMAP ViewerWin32::bitmapForPage(int page) {
+    if (!m_controller || !m_controller->hasDocument() || page < 1 || page > m_controller->pageCount())
+        return nullptr;
+    if (m_bitmapEpoch != m_controller->layoutEpoch())
+        invalidatePageBitmaps();
+    if (m_pageBitmaps.isEmpty())
+        m_pageBitmaps.resize(m_controller->pageCount());
+    if (m_pageBitmaps[page - 1])
+        return m_pageBitmaps[page - 1];
+
+    QImage img = m_controller->renderPageCached(page);
+    if (img.isNull())
+        return nullptr;
+    m_pageBitmaps[page - 1] = QImageToBitmap(img);
+    return m_pageBitmaps[page - 1];
+}
+
+void ViewerWin32::invalidatePageBitmaps() {
+    for (HBITMAP hbm : m_pageBitmaps) {
+        if (hbm)
+            DeleteObject(hbm);
+    }
+    m_pageBitmaps.clear();
+    m_bitmapEpoch = m_controller ? m_controller->layoutEpoch() : -1;
+}
+
 void ViewerWin32::onSize(int w, int h) {
     if (m_infoPanel)
         m_infoPanel->onSize(w, h);
@@ -520,8 +424,189 @@ void ViewerWin32::onSize(int w, int h) {
         if (m_hwnd)
             m_controller->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
         m_controller->setViewportSize(QSize(w, h));
+        m_scrollY = m_controller->relayout(m_scrollY);
+        m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
+        m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
         onControllerChanged();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Input
+// ---------------------------------------------------------------------------
+
+void ViewerWin32::pageJumpContinuous(int delta) {
+    if (!m_controller)
+        return;
+    const int out = (std::clamp)(m_controller->pageAtScrollOffset(m_scrollY) + delta, 1, m_controller->pageCount());
+    m_scrollY = m_controller->scrollOffsetForPage(out);
+    m_scrollX = 0;
+    m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+}
+
+void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
+    if (!m_controller || !m_controller->hasDocument())
+        return;
+
+    bool captured = false;
+    const bool continuous = !m_controller->isPagedMode();
+
+    switch (wp) {
+    case VK_RIGHT:
+    case VK_NEXT:
+        if (continuous)
+            pageJumpContinuous(+1);
+        else
+            m_controller->nextPage();
+        captured = true;
+        break;
+    case VK_LEFT:
+    case VK_PRIOR:
+        if (continuous)
+            pageJumpContinuous(-1);
+        else
+            m_controller->prevPage();
+        captured = true;
+        break;
+    case VK_UP:
+        if (continuous) {
+            m_scrollY -= kKeyboardStepPx;
+        } else {
+            m_controller->prevPage();
+        }
+        captured = true;
+        break;
+    case VK_DOWN:
+        if (continuous) {
+            m_scrollY += kKeyboardStepPx;
+        } else {
+            m_controller->nextPage();
+        }
+        captured = true;
+        break;
+    case VK_HOME:
+        if (continuous)
+            m_scrollY = 0;
+        else
+            m_controller->firstPage();
+        captured = true;
+        break;
+    case VK_END:
+        if (continuous)
+            m_scrollY = m_controller->maxScrollOffset();
+        else
+            m_controller->lastPage();
+        captured = true;
+        break;
+    case 'V':
+        m_controller->toggleMode();
+        if (m_controller->isPagedMode()) {
+            m_scrollX = 0;
+            m_scrollY = 0;
+        } else {
+            m_scrollX = 0;
+            m_scrollY = m_controller->scrollOffsetForPage(m_controller->currentPage());
+        }
+        captured = true;
+        break;
+    case 'R':
+        if (shift)
+            m_scrollY = m_controller->rotateCcw(m_scrollY);
+        else
+            m_scrollY = m_controller->rotateCw(m_scrollY);
+        captured = true;
+        break;
+    case 0xBB:
+    case 0x6B:
+        m_scrollY = m_controller->zoomIn(m_scrollY);
+        captured = true;
+        break;
+    case 0xBD:
+    case 0x6D:
+        m_scrollY = m_controller->zoomOut(m_scrollY);
+        captured = true;
+        break;
+    case '0':
+        m_scrollY = m_controller->setManualZoom(1.0f, m_scrollY);
+        captured = true;
+        break;
+    }
+
+    if (captured) {
+        if (continuous) {
+            m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+            m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
+            updateVisiblePage();
+            updateScrollBars();
+            InvalidateRect(m_hwnd, nullptr, FALSE);
+        } else if (wp == VK_RIGHT || wp == VK_LEFT || wp == VK_NEXT || wp == VK_PRIOR
+                   || wp == VK_HOME || wp == VK_END || wp == 'V' || wp == 'R'
+                   || wp == 0xBB || wp == 0x6B || wp == 0xBD || wp == 0x6D || wp == '0') {
+            m_scrollX = 0;
+            m_scrollY = 0;
+        }
+    }
+}
+
+void ViewerWin32::onDragStart(LPARAM lp) {
+    if (!m_controller || m_controller->isPagedMode())
+        return;
+    m_dragging = true;
+    m_lastMouseX = GET_X_LPARAM(lp);
+    m_lastMouseY = GET_Y_LPARAM(lp);
+    SetCapture(m_hwnd);
+    SetCursor(LoadCursor(nullptr, IDC_HAND));
+}
+
+void ViewerWin32::onDragMove(LPARAM lp) {
+    if (!m_dragging)
+        return;
+    const int x = GET_X_LPARAM(lp);
+    const int y = GET_Y_LPARAM(lp);
+    m_scrollX -= x - m_lastMouseX;
+    m_scrollY -= y - m_lastMouseY;
+    m_lastMouseX = x;
+    m_lastMouseY = y;
+
+    m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
+    m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+
+    updateVisiblePage();
+    updateScrollBars();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void ViewerWin32::onDragEnd() {
+    if (!m_dragging)
+        return;
+    m_dragging = false;
+    ReleaseCapture();
+    SetCursor(LoadCursor(nullptr, IDC_ARROW));
+    updateScrollBars();
+}
+
+void ViewerWin32::onMouseWheel(int delta) {
+    if (!m_controller)
+        return;
+    if (m_controller->isPagedMode()) {
+        if (delta < 0)
+            m_controller->nextPage();
+        else
+            m_controller->prevPage();
+        updateScrollBars();
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+        return;
+    }
+    // Accumulate fractional wheel deltas so high-resolution wheels and
+    // trackpads (|delta| < WHEEL_DELTA per message) scroll smoothly.
+    m_wheelRemainder += delta * kWheelStepPx;
+    const int applied = m_wheelRemainder / WHEEL_DELTA;
+    m_wheelRemainder -= applied * WHEEL_DELTA;
+    m_scrollY -= applied;
+    m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+    updateVisiblePage();
+    updateScrollBars();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 void ViewerWin32::onVScroll(int code, int pos) {
@@ -555,30 +640,51 @@ void ViewerWin32::onVScroll(int code, int pos) {
         if (changed) {
             m_scrollX = 0;
             m_scrollY = 0;
+            InvalidateRect(m_hwnd, nullptr, FALSE);
         }
-    } else {
-        switch (code) {
-        case SB_LINEUP:    m_scrollY -= kScrollBarLineStepPx; break;
-        case SB_LINEDOWN:  m_scrollY += kScrollBarLineStepPx; break;
-        case SB_PAGEUP:    m_scrollY -= si.nPage; break;
-        case SB_PAGEDOWN:  m_scrollY += si.nPage; break;
-        case SB_THUMBTRACK: case SB_THUMBPOSITION:
-            m_scrollY = pos; break;
-        case SB_TOP:       m_scrollY = 0; break;
-        case SB_BOTTOM:    m_scrollY = maxScrollY(); break;
-        }
-        m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
-        updateVisiblePage();
-        updateScrollBars();
-        InvalidateRect(m_hwnd, nullptr, FALSE);
         return;
     }
 
+    switch (code) {
+    case SB_LINEUP:    m_scrollY -= kScrollBarLineStepPx; break;
+    case SB_LINEDOWN:  m_scrollY += kScrollBarLineStepPx; break;
+    case SB_PAGEUP:    m_scrollY -= si.nPage; break;
+    case SB_PAGEDOWN:  m_scrollY += si.nPage; break;
+    case SB_THUMBTRACK: {
+        // The thumb position is conveyed 16-bit in WM_VSCROLL's HIWORD, which
+        // truncates ranges > 65535; read the true 32-bit track position.
+        SCROLLINFO tr = {};
+        tr.cbSize = sizeof(tr);
+        tr.fMask = SIF_TRACKPOS;
+        if (GetScrollInfo(m_hwnd, SB_VERT, &tr) && tr.nTrackPos >= 0)
+            m_scrollY = (int)tr.nTrackPos;
+        else
+            m_scrollY = pos;
+        break;
+    }
+    case SB_THUMBPOSITION: {
+        SCROLLINFO siP = {};
+        siP.cbSize = sizeof(siP);
+        siP.fMask = SIF_POS;
+        if (GetScrollInfo(m_hwnd, SB_VERT, &siP))
+            m_scrollY = (int)siP.nPos;
+        else
+            m_scrollY = pos;
+        break;
+    }
+    case SB_TOP:       m_scrollY = 0; break;
+    case SB_BOTTOM:    m_scrollY = m_controller->maxScrollOffset(); break;
+    }
+    m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+    updateVisiblePage();
     updateScrollBars();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 void ViewerWin32::onHScroll(int code, int pos) {
+    if (!m_controller)
+        return;
+
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
     si.fMask = SIF_ALL;
@@ -589,14 +695,30 @@ void ViewerWin32::onHScroll(int code, int pos) {
     case SB_LINERIGHT:  m_scrollX += kScrollBarLineStepPx; break;
     case SB_PAGELEFT:   m_scrollX -= si.nPage; break;
     case SB_PAGERIGHT:  m_scrollX += si.nPage; break;
-    case SB_THUMBTRACK: case SB_THUMBPOSITION:
-        m_scrollX = pos; break;
-    case SB_LEFT:       m_scrollX = 0; break;
-    case SB_RIGHT:      m_scrollX = si.nMax; break;
+    case SB_THUMBTRACK: {
+        SCROLLINFO tr = {};
+        tr.cbSize = sizeof(tr);
+        tr.fMask = SIF_TRACKPOS;
+        if (GetScrollInfo(m_hwnd, SB_HORZ, &tr) && tr.nTrackPos >= 0)
+            m_scrollX = (int)tr.nTrackPos;
+        else
+            m_scrollX = pos;
+        break;
     }
-    int maxX = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage));
-    m_scrollX = (std::clamp)(m_scrollX, 0, maxX);
-
+    case SB_THUMBPOSITION: {
+        SCROLLINFO siP = {};
+        siP.cbSize = sizeof(siP);
+        siP.fMask = SIF_POS;
+        if (GetScrollInfo(m_hwnd, SB_HORZ, &siP))
+            m_scrollX = (int)siP.nPos;
+        else
+            m_scrollX = pos;
+        break;
+    }
+    case SB_LEFT:       m_scrollX = 0; break;
+    case SB_RIGHT:      m_scrollX = m_controller->maxScrollOffsetX(); break;
+    }
+    m_scrollX = (std::clamp)(m_scrollX, 0, m_controller->maxScrollOffsetX());
     updateScrollBars();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
@@ -605,17 +727,14 @@ void ViewerWin32::updateScrollBars() {
     RECT rc;
     GetClientRect(m_hwnd, &rc);
     const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
-    const int vw = (std::max)(1, static_cast<int>(rc.right) - 2 * kPageMargin);
-    const int vh = (std::max)(1, static_cast<int>(rc.bottom) - panelH - 2 * kPageMargin);
-
-    int imgW = m_currentImage.width();
-    int imgH = m_currentImage.height();
+    const int vw = (std::max)(1, static_cast<int>(rc.right));
+    const int vh = (std::max)(1, static_cast<int>(rc.bottom) - panelH);
 
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
     si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
 
-    if (!m_controller || m_controller->isPagedMode()) {
+    if (!m_controller || !m_controller->hasDocument() || m_controller->isPagedMode()) {
         si.nMin = 0;
         si.nMax = (std::max)(0, m_controller ? m_controller->pageCount() - 1 : 0);
         si.nPage = 1;
@@ -624,19 +743,22 @@ void ViewerWin32::updateScrollBars() {
 
         si.nMin = 0; si.nMax = 0; si.nPage = 1; si.nPos = 0;
         SetScrollInfo(m_hwnd, SB_HORZ, &si, TRUE);
-    } else {
-        si.nMin = 0;
-        si.nMax = (std::max)(0, imgW - vw);
-        si.nPage = vw;
-        si.nPos = m_scrollX;
-        SetScrollInfo(m_hwnd, SB_HORZ, &si, TRUE);
-
-        si.nMin = 0;
-        si.nMax = (std::max)(0, imgH - vh);
-        si.nPage = vh;
-        si.nPos = m_scrollY;
-        SetScrollInfo(m_hwnd, SB_VERT, &si, TRUE);
+        return;
     }
+
+    const QSize cs = m_controller->contentSize();
+
+    si.nMin = 0;
+    si.nMax = (std::max)(0, cs.width() - 1);
+    si.nPage = vw;
+    si.nPos = m_scrollX;
+    SetScrollInfo(m_hwnd, SB_HORZ, &si, TRUE);
+
+    si.nMin = 0;
+    si.nMax = (std::max)(0, cs.height() - 1);
+    si.nPage = vh;
+    si.nPos = m_scrollY;
+    SetScrollInfo(m_hwnd, SB_VERT, &si, TRUE);
 }
 
 void ViewerWin32::updateVisiblePage() {
@@ -647,76 +769,6 @@ void ViewerWin32::updateVisiblePage() {
         m_controller->trackCurrentPage(page);
         if (m_infoPanel)
             m_infoPanel->onControllerChanged();
-    }
-}
-
-bool ViewerWin32::needsStripRerender() const {
-    if (!m_controller || !m_controller->hasDocument())
-        return false;
-    if (m_renderedPageCount != m_controller->pageCount())
-        return true;
-    int vh = m_controller->pageAreaHeight();
-    int dist = abs(m_scrollY - m_renderedScrollY);
-    return dist > vh;
-}
-
-int ViewerWin32::maxScrollY() const {
-    if (!m_hwnd)
-        return 0;
-    // The scrollbar is configured with nMax = imgH - vh and nPage = vh.
-    // Win32 clamps the reachable slider position to nMax - (nPage - 1),
-    // i.e. imgH - 2*vh + 1, so the internal scroll value and the visible
-    // scroll position must agree on that ceiling.
-    RECT rc;
-    GetClientRect(m_hwnd, &rc);
-    const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
-    const int vh = (std::max)(1, static_cast<int>(rc.bottom) - panelH - 2 * kPageMargin);
-    const int raw = m_currentImage.height() - 2 * vh + 1;
-    return (std::max)(0, raw);
-}
-
-void ViewerWin32::imageToBitmap(const QImage& src) {
-    if (m_hBitmap) {
-        DeleteObject(m_hBitmap);
-        m_hBitmap = nullptr;
-    }
-    if (src.isNull())
-        return;
-
-    QImage img = src.convertToFormat(QImage::Format_RGB888);
-    int w = img.width();
-    int h = img.height();
-
-    BITMAPINFOHEADER bi = {};
-    bi.biSize = sizeof(bi);
-    bi.biWidth = w;
-    bi.biHeight = -h;
-    bi.biPlanes = 1;
-    bi.biBitCount = 24;
-    bi.biCompression = BI_RGB;
-
-    void* bits = nullptr;
-    m_hBitmap = CreateDIBSection(nullptr, reinterpret_cast<BITMAPINFO*>(&bi),
-                                  DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (!m_hBitmap || !bits)
-        return;
-
-    int dibStride = ((w * 3 + 3) / 4) * 4;
-    int srcStride = img.bytesPerLine();
-    auto* dst = static_cast<uchar*>(bits);
-    const uchar* srcd = img.constBits();
-
-    for (int y = 0; y < h; ++y) {
-        const uchar* srcRow = srcd + y * srcStride;
-        uchar* dstRow = dst + y * dibStride;
-        for (int x = 0; x < w; ++x) {
-            uchar r = srcRow[x * 3 + 0];
-            uchar g = srcRow[x * 3 + 1];
-            uchar b = srcRow[x * 3 + 2];
-            dstRow[x * 3 + 0] = b;
-            dstRow[x * 3 + 1] = g;
-            dstRow[x * 3 + 2] = r;
-        }
     }
 }
 

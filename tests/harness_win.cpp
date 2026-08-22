@@ -329,7 +329,7 @@ int main() {
     // The cycle is FitToPage -> FitToWidth -> Manual -> FitToPage, so three
     // presses return to the starting mode.
     {
-        drag(vh, 0, -700); // land somewhere mid-document
+        drag(vh, 0, -1500); // land well past a page so page 2 dominates
         pump(80);
         const int pageBefore = viewer.controller()->currentPage();
         std::printf("  [dbg] vPos=%d pageBefore=%d\n", vPos(vh), pageBefore);
