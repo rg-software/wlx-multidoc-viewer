@@ -5,6 +5,8 @@
 
 #include <algorithm>
 
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QImage>
 #include <QVector>
 
@@ -14,6 +16,9 @@
 #define WLX_INFO_CLASS L"WLXDocInfoPanel"
 
 namespace {
+inline void setClipboardText(const QString& text) {
+    QGuiApplication::clipboard()->setText(text);
+}
 constexpr COLORREF kBgColor = 0x808080;
 constexpr COLORREF kPanelBg = 0x202020;
 constexpr COLORREF kPanelFg = 0xFFFFFF;
@@ -284,16 +289,38 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_LBUTTONDOWN:
     case WM_LBUTTONDBLCLK: // CS_DBLCLKS class: a fast second press must still drag
+        // Branch: press on selectable text starts a text selection; anywhere
+        // else starts the existing pan gesture.
+        if (m_controller && m_controller->hasDocument()) {
+            const int page = pageUnderPoint(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            const QPointF canvasPt = clientToCanvas(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            const int word = (page >= 1) ? m_controller->wordAtCanvas(page, canvasPt) : -1;
+            if (m_controller->pageHasText(page > 0 ? page : 1) && word >= 0) {
+                onSelectionStart(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+                if (m_selecting)
+                    return 0;
+            }
+        }
         onDragStart(lp);
         if (!m_dragging)
             break;
         return 0;
     case WM_MOUSEMOVE:
-        if (!m_dragging)
+        if (m_selecting) {
+            onSelectionMove(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            return 0;
+        }
+        if (!m_dragging) {
+            onMouseIdleMove(lp);
             break;
+        }
         onDragMove(lp);
         return 0;
     case WM_LBUTTONUP:
+        if (m_selecting) {
+            onSelectionEnd();
+            return 0;
+        }
         if (!m_dragging)
             break;
         onDragEnd();
@@ -301,6 +328,26 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SETCURSOR:
         if (m_dragging && LOWORD(lp) == HTCLIENT) {
             SetCursor(LoadCursor(nullptr, IDC_HAND));
+            return TRUE;
+        }
+        if (m_selecting && LOWORD(lp) == HTCLIENT) {
+            SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+            return TRUE;
+        }
+        // Hover: I-beam over selectable text, arrow elsewhere.
+        if (!m_dragging && !m_selecting && LOWORD(lp) == HTCLIENT &&
+            m_controller && m_controller->hasDocument()) {
+            const int page = (std::max)(1, pageUnderPoint(m_hoverX, m_hoverY));
+            if (m_controller->pageHasText(page)) {
+                const QPointF canvasPt = m_controller->isPagedMode()
+                    ? clientToCanvas(m_hoverX, m_hoverY)
+                    : clientToCanvas(m_hoverX, m_hoverY);
+                if (m_controller->wordAtCanvas(page, canvasPt) >= 0) {
+                    SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+                    return TRUE;
+                }
+            }
+            SetCursor(LoadCursor(nullptr, IDC_ARROW));
             return TRUE;
         }
         break;
@@ -370,6 +417,11 @@ void ViewerWin32::onPaint() {
     }
 
     BitBlt(hdc, 0, 0, w, h, hdcMem, 0, 0, SRCCOPY);
+
+    // Selection highlight overlay (drawn on the primary DC, on top of the
+    // rendered content).
+    if (m_controller && m_controller->hasSelection())
+        paintSelectionOverlay(hdc, rc, panelH);
 
     SelectObject(hdcMem, hOldBmp);
     DeleteObject(hbmMem);
@@ -468,6 +520,7 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
 
     bool captured = false;
     bool continuous = !m_controller->isPagedMode();
+    const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
     switch (wp) {
     case VK_RIGHT:
@@ -526,9 +579,8 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         }
         m_controller->toggleMode();
         // The toggle flips the mode, which can invalidate the `continuous`
-        // captured at the top of onKeyDown (paged<->continuous). Refresh it so
-        // the post-switch scroll positioning below uses the NEW mode; otherwise
-        // switching paged->continuous restarts at page 1.
+        // captured at the top of onKeyDown; refresh it so scroll positioning
+        // uses the new mode.
         continuous = !m_controller->isPagedMode();
         if (continuous) {
             m_scrollX = 0;
@@ -537,6 +589,23 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
             m_scrollX = 0;
             m_scrollY = 0;
         }
+        captured = true;
+        break;
+    case 'C':
+        if (ctrl) {
+            if (m_controller && m_controller->hasSelection()) {
+                const QString text = m_controller->selectedText();
+                if (!text.isEmpty())
+                    setClipboardText(text);
+            }
+            captured = true;
+        }
+        break;
+    case VK_ESCAPE:
+        if (m_selecting)
+            onSelectionEnd();
+        if (m_controller)
+            m_controller->clearSelection();
         captured = true;
         break;
     case 'R':
@@ -632,6 +701,143 @@ void ViewerWin32::onDragEnd() {
     ReleaseCapture();
     SetCursor(LoadCursor(nullptr, IDC_ARROW));
     updateScrollBars();
+}
+
+// ---------------------------------------------------------------------------
+// Text selection
+// ---------------------------------------------------------------------------
+
+int ViewerWin32::pageUnderPoint(int x, int y) const {
+    if (!m_controller || m_controller->isPagedMode()) {
+        return m_controller ? m_controller->currentPage() : 1;
+    }
+    const QPointF cpt = clientToCanvas(x, y);
+    for (int page = 1; page <= m_controller->pageCount(); ++page) {
+        if (m_controller->pageRect(page).contains(cpt.toPoint()))
+            return page;
+    }
+    return -1;
+}
+
+QPointF ViewerWin32::clientToCanvas(int x, int y) const {
+    // Mirror the paint math: content is centered in the viewport when smaller,
+    // otherwise shifted by scroll. In paged mode the current page is centered
+    // when it fits; otherwise it starts at -scroll.
+    const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
+    RECT cr;
+    GetClientRect(m_hwnd, &cr);
+    const double viewW = cr.right;
+    const double viewH = (cr.bottom - panelH);
+
+    if (m_controller->isPagedMode()) {
+        const QRect r = m_controller->pageRect(m_controller->currentPage());
+        const int imgW = r.isValid() ? r.width() : 0;
+        const int imgH = r.isValid() ? r.height() : 0;
+        const double dstX = (imgW <= viewW) ? std::max(0, (int)((viewW - imgW) / 2)) : -m_scrollX;
+        const double dstY = panelH + ((imgH <= viewH) ? std::max(0, (int)((viewH - imgH) / 2)) : -m_scrollY);
+        // Page-local canvas: the on-screen page starts at (dstX,dstY), but the
+        // controller's transform places it at pageRect.topLeft(). Shift so the
+        // returned canvas point is in the same space as pageRect.
+        return QPointF(x - dstX + r.x(), y - dstY + r.y());
+    }
+
+    const QSize cs = m_controller->contentSize();
+    const double cx = std::max(0, (int)((viewW - cs.width()) / 2));
+    const double cy = std::max(0, (int)((viewH - cs.height()) / 2));
+    return QPointF(x - cx + m_scrollX, (y - panelH) - cy + m_scrollY);
+}
+
+void ViewerWin32::onMouseIdleMove(LPARAM lp) {
+    if (m_dragging || m_selecting)
+        return;
+    m_hoverX = GET_X_LPARAM(lp);
+    m_hoverY = GET_Y_LPARAM(lp);
+}
+
+void ViewerWin32::onSelectionStart(int x, int y) {
+    if (!m_controller)
+        return;
+    const int page = pageUnderPoint(x, y);
+    if (page < 1)
+        return;
+    const QPointF cpt = clientToCanvas(x, y);
+    const int word = m_controller->wordAtCanvas(page, cpt);
+    if (word < 0)
+        return;
+    m_controller->clearSelection();
+    m_selecting = true;
+    m_controller->beginSelection(page, word);
+    SetCapture(m_hwnd);
+    SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+}
+
+void ViewerWin32::onSelectionMove(int x, int y) {
+    if (!m_selecting)
+        return;
+    const int page = pageUnderPoint(x, y);
+    if (page < 1)
+        return;
+    const QPointF canvas = clientToCanvas(x, y);
+    const int word = m_controller->wordAtCanvas(page, canvas);
+    if (word < 0)
+        return;
+    m_controller->updateSelection(page, word);
+}
+
+void ViewerWin32::onSelectionEnd() {
+    if (!m_selecting)
+        return;
+    m_selecting = false;
+    ReleaseCapture();
+    m_controller->endSelection();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void ViewerWin32::paintSelectionOverlay(HDC hdc, const RECT& rc, int panelH) {
+    if (!m_controller || !m_controller->hasSelection() || !hdc)
+        return;
+
+    const int vw = rc.right;
+    const int vh = rc.bottom - panelH;
+    const QSize cs = m_controller->contentSize();
+    const bool paged = m_controller->isPagedMode();
+
+    // Paint each visible page's highlight rects. Rects are canvas-space; convert
+    // to client by mirroring onPaint placement (canvas pageRect -> on-screen).
+    for (int page = (paged ? m_controller->currentPage() : 1);
+         page <= (paged ? m_controller->currentPage() : m_controller->pageCount()); ++page) {
+        const QRect pr = m_controller->pageRect(page);
+        if (!pr.isValid())
+            continue;
+        const QVector<QRectF> rects = m_controller->highlightRects(page);
+        if (rects.isEmpty())
+            continue;
+        // On-screen origin of this page in client coords.
+        int onScreenX;
+        int onScreenY;
+        if (paged) {
+            const int imgW = pr.width();
+            const int imgH = pr.height();
+            onScreenX = (imgW <= vw) ? std::max(0, (vw - imgW) / 2) : -m_scrollX;
+            onScreenY = panelH + ((imgH <= vh) ? std::max(0, (vh - imgH) / 2) : -m_scrollY);
+        } else {
+            const int cx = std::max(0, (vw - cs.width()) / 2);
+            const int cy = std::max(0, (vh - cs.height()) / 2);
+            onScreenX = cx + pr.x() - m_scrollX;
+            onScreenY = panelH + cy + pr.y() - m_scrollY;
+        }
+        HBRUSH hb = CreateSolidBrush(RGB(120, 140, 255));
+        HGDIOBJ old = SelectObject(hdc, hb);
+        for (const QRectF& r : rects) {
+            QRect rcSel((int)(r.x() - pr.x() + onScreenX),
+                        (int)(r.y() - pr.y() + onScreenY),
+                        (int)r.width() + 1, (int)r.height() + 1);
+            RECT wr = { rcSel.left(), rcSel.top(), rcSel.right(), rcSel.bottom() };
+            FillRect(hdc, &wr, hb);
+        }
+        SelectObject(hdc, old);
+        DeleteObject(hb);
+    }
 }
 
 void ViewerWin32::onMouseWheel(int delta) {

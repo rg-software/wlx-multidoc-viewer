@@ -2,13 +2,17 @@
 #define VIEWERCONTROLLER_H
 
 #include "document.h"
+#include "textselection.h"
 #include "viewer_settings.h"
 #include "viewerstate.h"
 
+#include <QHash>
 #include <QImage>
+#include <QPointF>
 #include <QRect>
 #include <QSize>
 #include <QString>
+#include <QTransform>
 #include <QVector>
 #include <algorithm>
 #include <functional>
@@ -80,6 +84,21 @@ public:
     void trimRenderCache(int scrollY);
     int layoutEpoch() const { return m_layoutEpoch; }
 
+    // ---- Text selection ----
+    bool pageHasText(int page) const;
+    PageText pageText(int page) const;
+    QTransform pageTransform(int page) const;
+    QPointF canvasToPagePoint(int page, const QPointF& canvasPt) const;
+    int wordAtCanvas(int page, const QPointF& canvasPt) const;
+    QRectF wordRectOnCanvas(int page, int wordIndex) const;
+    void beginSelection(int page, int wordIndex);
+    void updateSelection(int page, int wordIndex);
+    void endSelection();
+    void clearSelection();
+    bool hasSelection() const { return m_textSelection.isActive(); }
+    QVector<QRectF> highlightRects(int page) const;
+    QString selectedText() const;
+
     // Relays a fit/zoom mode change that the caller already applied (fit mode,
     // viewport size, rotation angle) into a fresh layout, anchoring scrollY.
     int relayout(int scrollY);
@@ -119,6 +138,11 @@ private:
     // m_cacheRecency is most-recent-first for eviction beyond the cache window.
     QVector<QImage> m_pageCache;
     QVector<int> m_cacheRecency;
+
+    // Text-selection state.
+    mutable QHash<int, PageText> m_textCache;
+    TextSelection m_textSelection;
+    bool m_selecting = false;
 };
 
 #endif // VIEWERCONTROLLER_H

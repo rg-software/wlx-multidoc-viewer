@@ -24,11 +24,12 @@ Output: `build/release/Release/wlx-multidoc-viewer.wlx64` (Windows), `build/linu
 src/
   plugin.cpp            WLX entry points (ListLoad, ListCloseWindow, etc.)
   wlxplugin.h           WLX API types and DCPCALL macro
-  document.h            DocumentEngine interface (open/render/text/outline)
+  document.h            DocumentEngine interface (open/render/text/outline + pageText/PageText)
   formatdispatcher.cpp  Routes file extensions to the right engine
-  mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML)
-  djvuengine.*          DjVuLibre backend (DJVU, DJV)
-  viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache
+  mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML); pageText from fz_stext
+  djvuengine.*          DjVuLibre backend (DJVU, DJV); pageText unavailable (see AGENTS gaps)
+  viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache + selection
+  textselection.*       Platform-agnostic text-selection model (anchor/focus, ranges)
   viewer_win32.*        Win32 viewer (Windows) — pure HWND, per-page BitBlt paint
   viewer.*              Qt viewer (Linux) — QFrame, QScrollArea, ViewerCanvas widget
 ```
@@ -75,4 +76,5 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 |---|---|---|
 | **Windows `G` key go-to-page** | Low | Qt has `QInputDialog` (`viewer.cpp` `onGoToPage`); Win32 has no dialog equivalent. Add one in `viewer_win32.cpp` if wanted. |
 | **Synchronous first-render of a new page** | Low | Rendering happens on the UI thread only the first time a page enters the viewport; the per-page LRU cache (`kCacheWindowPages`) makes revisits instant. A background render worker was tried and reverted — thread-safety + FIFO-order complexity did not justify the latency gain for a single lister (see `async-render-worker` change, abandoned). |
-| **Qt in-host verification** | Medium | The continuous-mode rework changed `viewer.*`; Linux must re-verify `cmake --preset linux-release` and scroll behavior in Total/Double Commander. |
+| **DjVu text-layer selection** | Low | The vcpkg djvulibre static build does not export the core miniexp accessors (`miniexp_car/cdr/consp/symbolp/to_int`), so `ddjvu_document_get_pagetext` trees cannot be walked. DjVu pages report no text layer (selection works only for MuPDF-backed formats). Revisit if a djvulibre build with the miniexp public API is available, or add a local miniexp.h overlay. |
+| **Qt in-host verification** | Medium | The continuous-mode rework and text-selection changed `viewer.*`; Linux must re-verify `cmake --preset linux-release` and scroll + selection behavior in Total/Double Commander. |

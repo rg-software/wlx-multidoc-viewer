@@ -76,6 +76,58 @@ static bool writeTestPdf(const char* path, int pageCount, int w = 420, int h = 5
     return true;
 }
 
+// Minimal single-page PDF with drawn text (Helvetica) so the selection layer
+// finds real words. Coordinates in PDF units (y-up, origin bottom-left; the
+// engine normalizes to y-down).
+static bool writeTextTestPdf(const char* path) {
+    std::string content =
+        "BT\n"
+        "/F1 24 Tf\n"
+        "50 500 Td\n"
+        "(Hello) Tj\n"
+        "0 -32 Td\n"
+        "(world) Tj\n"
+        "ET\n";
+    std::string font = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+
+    std::string page =
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Contents 4 0 R "
+        "/Resources << /Font << /F1 5 0 R >> >> >>";
+    std::string stream = "<< /Length " + std::to_string(content.size()) + " >>\nstream\n" +
+                         content + "endstream";
+
+    std::vector<std::string> objs = {
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        page,
+        stream,
+        font,
+    };
+
+    std::ofstream f(path, std::ios::binary);
+    if (!f) return false;
+    long long offset = 9;
+    f << "%PDF-1.4\n";
+    std::vector<long long> offsets(objs.size() + 1);
+    for (size_t i = 0; i < objs.size(); ++i) {
+        offsets[i + 1] = offset;
+        std::string head = std::to_string(i + 1) + " 0 obj\n";
+        std::string tail = "\nendobj\n";
+        f << head << objs[i] << tail;
+        offset += (long long)head.size() + objs[i].size() + tail.size();
+    }
+    const long long xrefStart = offset;
+    f << "xref\n0 " << (objs.size() + 1) << "\n0000000000 65535 f \n";
+    for (size_t i = 1; i <= objs.size(); ++i) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%010lld 00000 n \n", offsets[i]);
+        f << buf;
+    }
+    f << "trailer\n<< /Size " << (objs.size() + 1) << " /Root 1 0 R >>\nstartxref\n"
+      << xrefStart << "\n%%EOF\n";
+    return true;
+}
+
 // ------------------------------------------------------------- utilities
 
 static void pump(DWORD ms) {
@@ -520,6 +572,148 @@ viewer.controller()->setManualZoom(1.0f, 0);
             CHECK("B9g V-scrollbar remains page-jump (nPos = currentPage-1)",
                   vPos(vh) == viewer.controller()->currentPage() - 1);
         }
+
+        DestroyWindow(host);
+        pump(50);
+    }
+
+    // ---------------- E) Text selection (MuPDF path)
+    {
+        std::string pdfPath = std::string(tmpPath) + "wlx_text.pdf";
+        if (!writeTextTestPdf(pdfPath.c_str())) {
+            std::printf("FAIL pdf gen\n");
+            return 2;
+        }
+        HWND host = CreateWindowExW(0, L"WLXHarnessHostScroll", L"harness",
+                                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                    120, 120, 800, 600,
+                                    nullptr, nullptr, wc.hInstance, nullptr);
+        pump(100);
+        ViewerWin32 viewer(host);
+        HWND vh = viewer.hwnd();
+        MoveWindow(vh, 0, 0, 800, 600, TRUE);
+        pump(100);
+        if (!viewer.loadDocument(QString::fromLocal8Bit(pdfPath.c_str()))) {
+            std::printf("FAIL load\n");
+            return 2;
+        }
+        pump(150);
+
+        CHECK("E1 page has selectable text (MuPDF)",
+              viewer.controller()->pageHasText(1));
+        const PageText pt = viewer.controller()->pageText(1);
+        std::printf("  [dbg] E: %d words: ", (int)pt.words.size());
+        for (const TextWord& w : pt.words)
+            std::printf("'%s' ", w.text.toUtf8().constData());
+        std::printf("\n");
+        std::fflush(stdout);
+        CHECK("E2 words extracted (>=2: 'Hello','world')", pt.words.size() >= 2);
+
+        // Transform round-trip: page center maps to the page rect center on the
+        // content canvas; a word bbox lands within the page's scaled rect.
+        viewer.controller()->setManualZoom(1.0f, 0);
+        pump(100);
+        const QRect pr = viewer.controller()->pageRect(1);
+        const QTransform t = viewer.controller()->pageTransform(1);
+        const PageInfo pi = viewer.controller()->engine()->pageDimensions(1);
+        QPointF pcenter = t.map(QPointF(pi.width / 2.0, pi.height / 2.0));
+        QPointF rcenter(pr.x() + pr.width() / 2.0, pr.y() + pr.height() / 2.0);
+        CHECK("E3 page center maps to canvas page-center",
+              std::abs(pcenter.x() - rcenter.x()) < 2.0 &&
+              std::abs(pcenter.y() - rcenter.y()) < 2.0);
+
+        // Word 0 ("Hello") bbox maps inside the page rect on canvas.
+        const QRectF wbbox = viewer.controller()->wordRectOnCanvas(1, 0);
+        CHECK("E4 word rect inside page rect",
+              wbbox.isValid() && pr.contains(wbbox.toRect()));
+
+        // Hit-test: page top-left in canvas should hit no word; a point on a
+        // word's bbox center should hit that word via inverse transform.
+        const QRectF firstWord = pt.words[0].bbox;
+        const QPointF firstWordCanvas = t.map(
+            QPointF(firstWord.center().x(), firstWord.center().y()));
+        const int hitIdx = viewer.controller()->wordAtCanvas(1, firstWordCanvas);
+        CHECK("E5 hit-test at word center returns the word", hitIdx == 0);
+
+        // Begin/update selection then read the copied text.
+        viewer.controller()->beginSelection(1, 0);
+        viewer.controller()->updateSelection(1, (int)pt.words.size() - 1);
+        viewer.controller()->endSelection();
+        const QString sel = viewer.controller()->selectedText();
+        std::printf("  [dbg] E selectedText: '%s'\n", sel.toUtf8().constData());
+        std::fflush(stdout);
+        CHECK("E6 selectedText joins words", !sel.isEmpty());
+        viewer.controller()->clearSelection();
+        CHECK("E7 clearSelection empties text", viewer.controller()->selectedText().isEmpty());
+
+        DestroyWindow(host);
+        pump(50);
+    }
+
+    // ---------------- F) Win32 selection through the real mouse message path
+    {
+        std::string pdfPath = std::string(tmpPath) + "wlx_text.pdf";
+        if (!writeTextTestPdf(pdfPath.c_str())) {
+            std::printf("FAIL pdf gen\n");
+            return 2;
+        }
+        HWND host = CreateWindowExW(0, L"WLXHarnessHostScroll", L"harness",
+                                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                    120, 120, 800, 600,
+                                    nullptr, nullptr, wc.hInstance, nullptr);
+        pump(100);
+        ViewerWin32 viewer(host);
+        HWND vh = viewer.hwnd();
+        MoveWindow(vh, 0, 0, 800, 600, TRUE);
+        pump(100);
+        if (!viewer.loadDocument(QString::fromLocal8Bit(pdfPath.c_str()))) {
+            std::printf("FAIL load\n");
+            return 2;
+        }
+        pump(150);
+        viewer.controller()->setManualZoom(1.0f, 0);
+        pump(100);
+
+        const PageText pt = viewer.controller()->pageText(1);
+        CHECK("F0 two words extracted", pt.words.size() >= 2);
+        const QRect pr = viewer.controller()->pageRect(1);
+        const QTransform t = viewer.controller()->pageTransform(1);
+
+        // On-screen page origin in paged mode (fit page is centered).
+        const int panelH = ViewerController::kInfoPanelHeight;
+        RECT cr;
+        GetClientRect(vh, &cr);
+        const int viewW = cr.right;
+        const int viewH = cr.bottom - panelH;
+        const int screenX0 = (viewW - pr.width()) / 2;
+        const int screenY0 = panelH + (viewH - pr.height()) / 2;
+
+        // Down on word 0, drag to the last word's right edge, release.
+        const QRectF w0 = t.mapRect(pt.words[0].bbox);
+        const QRectF wLast = t.mapRect(pt.words[pt.words.size() - 1].bbox);
+        const int downX = screenX0 + (int)w0.center().x();
+        const int downY = screenY0 + (int)w0.center().y();
+        const int upX = screenX0 + (int)wLast.right();
+        const int upY = screenY0 + (int)wLast.center().y();
+
+        PostMessageW(vh, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(downX, downY));
+        pump(40);
+        PostMessageW(vh, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(upX, upY));
+        pump(40);
+        PostMessageW(vh, WM_LBUTTONUP, 0, MAKELPARAM(upX, upY));
+        pump(80);
+
+        const QString sel = viewer.controller()->selectedText();
+        std::printf("  [dbg] F selectedText: '%s'\n", sel.toUtf8().constData());
+        std::fflush(stdout);
+        CHECK("F1 selection produced text through mouse path", !sel.isEmpty());
+        CHECK("F2 selectedText contains first word", sel.contains("Hello"));
+        CHECK("F3 hasSelection active", viewer.controller()->hasSelection());
+
+        // Esc clears.
+        PostMessageW(vh, WM_KEYDOWN, VK_ESCAPE, 0);
+        pump(80);
+        CHECK("F4 Esc clears selection", !viewer.controller()->hasSelection());
 
         DestroyWindow(host);
         pump(50);

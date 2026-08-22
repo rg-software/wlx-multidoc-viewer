@@ -117,6 +117,82 @@ QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale, int rotatio
     return result;
 }
 
+PageText MuPdfEngine::pageText(int page) {
+    if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
+        return {};
+
+    fz_page* fzpage = nullptr;
+    fz_stext_page* stext = nullptr;
+    PageText result;
+
+    fz_try(m_ctx) {
+        fzpage = fz_load_page(m_ctx, m_doc, page - 1);
+
+        fz_stext_options opts;
+        opts.flags = FZ_STEXT_ACCURATE_BBOXES;
+        stext = fz_new_stext_page_from_page(m_ctx, fzpage, &opts);
+
+        int lineIndex = 0;
+        for (fz_stext_block* block = stext->first_block; block; block = block->next) {
+            if (block->type != FZ_STEXT_BLOCK_TEXT)
+                continue;
+            for (fz_stext_line* line = block->u.t.first_line; line; line = line->next) {
+                // Group characters into words on whitespace, unioning each
+                // char's quad into the current word's bbox.
+                QString wordText;
+                QRectF wordBox;
+                bool building = false;
+                bool lineHasChars = false;
+                auto flushWord = [&]() {
+                    if (!building)
+                        return;
+                    TextWord w;
+                    w.text = wordText;
+                    w.bbox = wordBox;
+                    w.lineIndex = lineIndex;
+                    result.words.append(w);
+                    wordText.clear();
+                    wordBox = QRectF();
+                    building = false;
+                };
+                for (fz_stext_char* ch = line->first_char; ch; ch = ch->next) {
+                    lineHasChars = true;
+                    const QChar qc(ch->c);
+                    if (qc.isSpace()) {
+                        flushWord();
+                        continue;
+                    }
+                    const fz_quad q = ch->quad;
+                    // MuPDF quads are in page space (y-down), ul/lr opposite corners.
+                    const QRectF r(QPointF(q.ul.x, q.ul.y), QPointF(q.lr.x, q.lr.y));
+                    if (!building) {
+                        wordBox = r;
+                        building = true;
+                    } else {
+                        wordBox = wordBox.united(r);
+                    }
+                    wordText.append(qc);
+                }
+                flushWord();
+                if (lineHasChars)
+                    ++lineIndex;
+            }
+        }
+        result.hasText = !result.words.isEmpty();
+    }
+    fz_always(m_ctx) {
+        if (stext)
+            fz_drop_stext_page(m_ctx, stext);
+        if (fzpage)
+            fz_drop_page(m_ctx, fzpage);
+    }
+    fz_catch(m_ctx) {
+        return {};
+    }
+
+    return result;
+}
+
 QString MuPdfEngine::extractText(int page) {
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};

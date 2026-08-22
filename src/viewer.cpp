@@ -1,6 +1,8 @@
 #include "viewer.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QInputDialog>
 #include <QMetaObject>
 #include <QMouseEvent>
@@ -30,6 +32,7 @@ void ViewerCanvas::paintEvent(QPaintEvent* event) {
         const int x = (width() - img.width()) / 2;
         const int y = (height() - img.height()) / 2;
         p.drawImage(std::max(0, x), std::max(0, y), img);
+        paintSelection(p, rect());
         return;
     }
 
@@ -52,6 +55,7 @@ void ViewerCanvas::paintEvent(QPaintEvent* event) {
         p.drawImage(r.x(), r.y(), img);
     }
     m_controller->trimRenderCache(vis.y());
+    paintSelection(p, vis);
 }
 
 ViewerWidget::ViewerWidget(QWidget* parent)
@@ -120,7 +124,8 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     connect(new QShortcut(QKeySequence(Qt::Key_R), this), &QShortcut::activated, this, &ViewerWidget::onRotateCw);
     connect(new QShortcut(QKeySequence("Shift+R"), this), &QShortcut::activated, this, &ViewerWidget::onRotateCcw);
     connect(new QShortcut(QKeySequence(Qt::Key_G), this), &QShortcut::activated, this, &ViewerWidget::onGoToPage);
-    connect(new QShortcut(QKeySequence(Qt::Key_Escape), this), &QShortcut::activated, this, &ViewerWidget::onExitRequested);
+    connect(new QShortcut(QKeySequence(Qt::Key_Escape), this), &QShortcut::activated, this, &ViewerWidget::onEscapePressed);
+    connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_C), this), &QShortcut::activated, this, &ViewerWidget::copySelection);
 }
 
 ViewerWidget::~ViewerWidget() {
@@ -289,6 +294,138 @@ void ViewerWidget::onGoToPage() {
     }
 }
 
+void ViewerWidget::copySelection() {
+    if (!m_controller || !m_controller->hasSelection())
+        return;
+    const QString text = m_controller->selectedText();
+    if (!text.isEmpty())
+        QGuiApplication::clipboard()->setText(text);
+}
+
+void ViewerWidget::onEscapePressed() {
+    if (m_controller && m_controller->hasSelection()) {
+        clearSelectionUi();
+        return; // Esc clears the selection; a second Esc exits the viewer.
+    }
+    onExitRequested();
+}
+
+void ViewerWidget::clearSelectionUi() {
+    if (m_selecting)
+        endSelectionGesture();
+    if (m_controller)
+        m_controller->clearSelection();
+    if (m_canvas)
+        m_canvas->update();
+}
+
+// Map a widget (canvas) position to content-canvas coordinates. Continuous
+// mode: the canvas IS the content canvas (scrollbar offsets applied by
+// QScrollArea). Paged mode: the canvas is the viewport and the page is
+// centered; shift to the pageRect space the controller expects.
+QPointF ViewerWidget::widgetToCanvas(const QPoint& pos) const {
+    if (m_controller->isPagedMode()) {
+        const QRect pr = m_controller->pageRect(m_controller->currentPage());
+        const QSize vp = m_scrollArea->viewport()->size();
+        const int dx = (vp.width() - pr.width()) / 2;
+        const int dy = (vp.height() - pr.height()) / 2;
+        return QPointF(pos.x() - dx + pr.x(), pos.y() - dy + pr.y());
+    }
+    return QPointF(pos.x(), pos.y());
+}
+
+int ViewerWidget::pageAtCanvas(const QPointF& canvasPt) const {
+    if (m_controller->isPagedMode())
+        return m_controller->currentPage();
+    for (int page = 1; page <= m_controller->pageCount(); ++page) {
+        if (m_controller->pageRect(page).contains(canvasPt.toPoint()))
+            return page;
+    }
+    return -1;
+}
+
+bool ViewerWidget::startSelection(const QPoint& pos) {
+    if (!m_controller)
+        return false;
+    const QPointF canvasPt = widgetToCanvas(pos);
+    const int page = pageAtCanvas(canvasPt);
+    if (page < 1 || !m_controller->pageHasText(page))
+        return false;
+    const int word = m_controller->wordAtCanvas(page, canvasPt);
+    if (word < 0)
+        return false;
+    m_controller->beginSelection(page, word);
+    m_selecting = true;
+    setCursor(Qt::IBeamCursor);
+    return true;
+}
+
+void ViewerWidget::extendSelection(const QPoint& pos) {
+    if (!m_selecting)
+        return;
+    const QPointF canvasPt = widgetToCanvas(pos);
+    int page = pageAtCanvas(canvasPt);
+    if (page < 1)
+        page = m_controller->currentPage();
+    const int word = m_controller->wordAtCanvas(page, canvasPt);
+    if (word < 0)
+        return;
+    m_controller->updateSelection(page, word);
+    if (m_canvas)
+        m_canvas->update();
+}
+
+void ViewerWidget::endSelectionGesture() {
+    if (!m_selecting)
+        return;
+    m_selecting = false;
+    m_controller->endSelection();
+    setCursor(Qt::ArrowCursor);
+}
+
+void ViewerWidget::paintSelection(QPainter& p, const QRect& vis) {
+    if (!m_controller || !m_controller->hasSelection())
+        return;
+
+    if (m_controller->isPagedMode()) {
+        // Paged: the current page is centered on the viewport-sized canvas.
+        const int page = m_controller->currentPage();
+        const QRect pr = m_controller->pageRect(page);
+        if (!pr.isValid())
+            return;
+        const QVector<QRectF> rects = m_controller->highlightRects(page);
+        if (rects.isEmpty())
+            return;
+        const QSize vp = m_scrollArea->viewport()->size();
+        const int dx = (vp.width() - pr.width()) / 2;
+        const int dy = (vp.height() - pr.height()) / 2;
+        p.setBrush(QColor(120, 140, 255, 90));
+        p.setPen(Qt::NoPen);
+        for (const QRectF& r : rects) {
+            p.drawRect(r.translated(dx - pr.x(), dy - pr.y()));
+        }
+        return;
+    }
+
+    // Continuous: highlight rects are canvas-space; paint pages in the band.
+    const int first = m_controller->firstPageAtScroll(vis.y());
+    for (int page = first; page <= m_controller->pageCount(); ++page) {
+        const QRect pr = m_controller->pageRect(page);
+        if (pr.y() > vis.bottom())
+            break;
+        if (pr.bottom() < vis.y())
+            continue;
+        const QVector<QRectF> rects = m_controller->highlightRects(page);
+        if (rects.isEmpty())
+            continue;
+        p.setBrush(QColor(120, 140, 255, 90));
+        p.setPen(Qt::NoPen);
+        for (const QRectF& r : rects) {
+            p.drawRect(r);
+        }
+    }
+}
+
 // ESC exits the viewer by forwarding a synthetic Q keypress to DC's viewer
 // panel (our parent widget), matching wlx-edge-viewer's ESC bridge: the host
 // processes Q exactly like a physical press and runs its own cm_ExitViewer /
@@ -347,8 +484,11 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
         auto* me = static_cast<QMouseEvent*>(event);
         if (me->button() != Qt::LeftButton)
             break;
-        // Drag-panning: continuous mode always; paged mode only when the page
-        // overflows (horizontal and/or vertical — both pan like Win32).
+        const QPoint pos = me->position().toPoint();
+        // Selection first: press on selectable text starts a selection.
+        if (startSelection(pos))
+            return true;
+        // Otherwise the existing pan path, with the same overflow policy.
         if (m_controller->isPagedMode()) {
             const QRect pr = m_controller->pageRect(m_controller->currentPage());
             const QSize vp = m_scrollArea->viewport()->size();
@@ -362,10 +502,23 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
         return true;
     }
     case QEvent::MouseMove: {
-        if (!m_dragging)
-            break;
         auto* me = static_cast<QMouseEvent*>(event);
         const QPoint pos = me->position().toPoint();
+        if (m_selecting) {
+            extendSelection(pos);
+            return true;
+        }
+        if (!m_dragging) {
+            // Hover: I-beam over selectable text.
+            if (m_controller && m_controller->hasDocument()) {
+                const QPointF canvasPt = widgetToCanvas(pos);
+                const int page = pageAtCanvas(canvasPt);
+                const bool overText = page >= 1 && m_controller->pageHasText(page) &&
+                                      m_controller->wordAtCanvas(page, canvasPt) >= 0;
+                setCursor(overText ? Qt::IBeamCursor : (m_dragging ? Qt::OpenHandCursor : Qt::ArrowCursor));
+            }
+            break;
+        }
         const QPoint delta = m_lastMousePos - pos;
         m_lastMousePos = pos;
         QScrollBar* vBar = m_scrollArea->verticalScrollBar();
@@ -375,10 +528,14 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
         return true;
     }
     case QEvent::MouseButtonRelease: {
-        if (!m_dragging)
-            break;
         auto* me = static_cast<QMouseEvent*>(event);
         if (me->button() != Qt::LeftButton)
+            break;
+        if (m_selecting) {
+            endSelectionGesture();
+            return true;
+        }
+        if (!m_dragging)
             break;
         m_dragging = false;
         unsetCursor();

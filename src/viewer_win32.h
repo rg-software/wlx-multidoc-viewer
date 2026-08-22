@@ -36,10 +36,17 @@ private:
     void onDragStart(LPARAM lp);
     void onDragMove(LPARAM lp);
     void onDragEnd();
+    void onMouseIdleMove(LPARAM lp);
     void updateScrollBars();
     void updateVisiblePage();
     void onControllerChanged();
     void pageJumpContinuous(int delta);
+    void onSelectionStart(int x, int y);
+    void onSelectionMove(int x, int y);
+    void onSelectionEnd();
+    int pageUnderPoint(int x, int y) const;
+    QPointF clientToCanvas(int x, int y) const;
+    void paintSelectionOverlay(HDC hdc, const RECT& rc, int panelH);
 
     HBITMAP bitmapForPage(int page);
     void invalidatePageBitmaps();
@@ -64,6 +71,9 @@ private:
     bool m_dragging = false;
     int m_lastMouseX = 0;
     int m_lastMouseY = 0;
+    int m_hoverX = 0;
+    int m_hoverY = 0;
+    bool m_selecting = false;
 };
 
 #endif // Q_OS_WIN

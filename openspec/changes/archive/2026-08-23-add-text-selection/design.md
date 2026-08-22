@@ -31,7 +31,7 @@ virtual PageText pageText(int page);        // full geometry-aware extraction
 ```
 
 - **MuPDF**: one `fz_new_stext_page_from_page` per page (`FZ_STEXT_ACCURATE_BBOXES`, as today), group chars into words on Unicode whitespace via `fz_stext_char::quad` unions. Alternative considered: raw char quads like SumatraPDF's glyph arrays — rejected because DjVu's miniexp parsing at `'char'` granularity is disproportionately expensive and word-level covers highlight + copy; the spec's "nearest text item boundary" wording permits this.
-- **DjVu**: parse `ddjvu_document_get_pagetext(doc, page, "word")` — nested `(page (column (para (line (word x0 y0 x1 y1 "text")))))` sexprs. DjVu rects use bottom-left origin in page pixels: flip Y to top-left/y-down here so both engines emit identical coordinate conventions. Empty tree ⇒ `hasSelectableText == false`.
+- **DjVu**: ~~parse `ddjvu_document_get_pagetext(doc, page, "word")` — nested `(page (column (para (line (word x0 y0 x1 y1 "text")))))` sexprs. DjVu rects use bottom-left origin in page pixels: flip Y to top-left/y-down here so both engines emit identical coordinate conventions. Empty tree ⇒ `hasSelectableText == false`.~~ **NOT IMPLEMENTED — BLOCKED by build ABI:** the vcpkg djvulibre static lib does not export the core miniexp accessors (`miniexp_car/cdr/consp/symbolp/to_int`), so `ddjvu_document_get_pagetext` trees cannot be walked. `DjVuEngine::pageText` reports no text layer. Revisit if a djvulibre build with the miniexp public API is available.
 - Default implementations return "no text" so any future engine (CHM, images) needs no changes to stay correct.
 
 ### D2: Lazy per-page cache in ViewerController, not engines
@@ -49,7 +49,7 @@ New `textselection.h/.cpp` used by `ViewerController`:
 - State: anchor + focus as snapped `(page, wordIndex, after/before-edge)` positions.
 - Hit-test: nearest word boundary by center-distance rule (word-level analogue of SumatraPDF's `FindClosestGlyph`).
 - Range resolution normalizes backwards drags; output APIs:
-  - `highlightRects(page) -> QVector<QRect>` device-space, computed per paint from current scroll — recomputed every frame, never cached in device space, which is what makes scrolling transparently keep selections.
+  - `highlightRects(page) -> QVector<QRect>` device-space, computed per paint from current scroll — recomputed every frame, never cached in device space, which is what makes scrolling transparently keep selections. Words on the same visual line are merged into one contiguous span (spaces included) in the controller, so the highlight reads as a continuous range rather than per-word boxes.
   - `selectedText() -> QString`: words joined by spaces within a line, `\n` between `lineIndex` groups and pages.
   - Clipboard write itself lives in the viewers (Qt `QClipboard` wraps native clipboard on both platforms), not in the model.
 

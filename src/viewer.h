@@ -48,6 +48,8 @@ private slots:
     void onRotateCcw();
     void onGoToPage();
     void onExitRequested();
+    void onEscapePressed();
+    void copySelection();
     void onVerticalScrollChanged(int value);
 
 private:
@@ -55,6 +57,14 @@ private:
     void updateInfoPanel();
     void resizeCanvas();
     int scrollYValue() const;
+    QPointF widgetToCanvas(const QPoint& pos) const;
+    int pageAtCanvas(const QPointF& canvasPt) const;
+    bool startSelection(const QPoint& pos);
+    void extendSelection(const QPoint& pos);
+    void endSelectionGesture();
+    void clearSelectionUi();
+    void copySelection();
+    void paintSelection(QPainter& p, const QRect& vis);
 
     std::unique_ptr<ViewerController> m_controller;
 
@@ -70,6 +80,7 @@ private:
     bool m_dragging = false;
     QPoint m_lastMousePos;
     bool m_suppressScrollTracking = false;
+    bool m_selecting = false;
 };
 
 // Pure-paint canvas that draws each page from the controller's render cache at

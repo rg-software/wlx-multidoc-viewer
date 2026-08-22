@@ -29,9 +29,11 @@
 #include "viewer_settings.h"
 
 #include <algorithm>
+#include <limits>
 
 #include <QDebug>
 #include <QPainter>
+#include <QTransform>
 
 namespace {
 using viewer_settings::kPageGap;
@@ -514,4 +516,180 @@ void ViewerController::trimRenderCache(int scrollY) {
 void ViewerController::notifyChanged() {
     if (m_onChanged)
         m_onChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Text selection
+// ---------------------------------------------------------------------------
+
+bool ViewerController::pageHasText(int page) const {
+    if (!m_engine || !m_engine->isOpen() || page < 1 || page > m_state.pageCount())
+        return false;
+    return !pageText(page).words.isEmpty();
+}
+
+PageText ViewerController::pageText(int page) const {
+    if (page < 1 || page > m_state.pageCount())
+        return {};
+    auto it = m_textCache.find(page);
+    if (it != m_textCache.end())
+        return it.value();
+    PageText pt = m_engine ? m_engine->pageText(page) : PageText();
+    m_textCache.insert(page, pt);
+    return pt;
+}
+
+// Map a page-space point (y-down, page dimensions before zoom) to the content
+// canvas. Word bboxes are in page space; the canvas places the page rect at
+// m_pageRects[page-1].topLeft() scaled by zoom*dpiScale and rotated about the
+// page center. The rotation convention matches renderPage's ctm (about center).
+QTransform ViewerController::pageTransform(int page) const {
+    if (page < 1 || page > m_pageRects.size())
+        return {};
+    const QRect r = m_pageRects[page - 1];
+    const PageInfo info = m_engine ? m_engine->pageDimensions(page) : PageInfo();
+    if (info.width <= 0 || info.height <= 0 || r.isEmpty())
+        return {};
+
+    const float scale = m_state.zoom() * m_dpiScale;
+    const float centerX = info.width * 0.5f;
+    const float centerY = info.height * 0.5f;
+
+    // page -> (page*zoom) -> rotate about center -> +pageRect.rotation.
+    QTransform t;
+    t.translate(r.x() + scale * centerX,
+                r.y() + scale * centerY);
+    t.rotate(-m_rotation); // Qt y-down; positive rotate is clockwise, renderPage rotates CW for +90
+    t.translate(-scale * centerX, -scale * centerY);
+    t.scale(scale, scale);
+    return t;
+}
+
+QPointF ViewerController::canvasToPagePoint(int page, const QPointF& canvasPt) const {
+    return pageTransform(page).inverted().map(canvasPt);
+}
+
+int ViewerController::wordAtCanvas(int page, const QPointF& canvasPt) const {
+    const PageText pt = const_cast<ViewerController*>(this)->pageText(page);
+    if (pt.words.isEmpty())
+        return -1;
+    const QTransform inv = pageTransform(page).inverted();
+    const QPointF p = inv.map(canvasPt);
+
+    // Nearest word by center distance (within or near its bbox).
+    double best = std::numeric_limits<double>::max();
+    int bestIdx = -1;
+    for (int i = 0; i < pt.words.size(); ++i) {
+        QRectF b = pt.words[i].bbox;
+        double dx = std::max({b.left() - p.x(), 0.0, p.x() - b.right()});
+        double dy = std::max({b.top() - p.y(), 0.0, p.y() - b.bottom()});
+        double d = dx * dx + dy * dy;
+        if (d < best) {
+            best = d;
+            bestIdx = i;
+        }
+    }
+    return bestIdx;
+}
+
+QRectF ViewerController::wordRectOnCanvas(int page, int wordIndex) const {
+    const PageText pt = pageText(page);
+    if (wordIndex < 0 || wordIndex >= pt.words.size())
+        return {};
+    return pageTransform(page).mapRect(pt.words[wordIndex].bbox);
+}
+
+void ViewerController::beginSelection(int page, int wordIndex) {
+    // Only start a selection over selectable text.
+    if (!pageHasText(page))
+        return;
+    m_textSelection.begin(page, wordIndex);
+    m_selecting = true;
+    notifyChanged();
+}
+
+void ViewerController::updateSelection(int page, int wordIndex) {
+    if (!m_selecting)
+        return;
+    m_textSelection.setFocus(page, wordIndex);
+    notifyChanged();
+}
+
+void ViewerController::endSelection() {
+    m_selecting = false;
+    // Selection stays active after release (highlights persist).
+}
+
+void ViewerController::clearSelection() {
+    if (!m_textSelection.isActive() && !m_selecting)
+        return; // avoid spurious repaints
+    m_selecting = false;
+    m_textSelection.clear();
+    notifyChanged();
+}
+
+QVector<QRectF> ViewerController::highlightRects(int page) const {
+    QVector<QRectF> out;
+    if (!m_textSelection.isActive())
+        return out;
+    const SelectionWordRange wr = m_textSelection.wordRangeOnPage(page);
+    if (wr.first < 0)
+        return out;
+    const PageText pt = pageText(page);
+    const int last = (std::min)(wr.last, static_cast<int>(pt.words.size()) - 1);
+    if (wr.first > last)
+        return out;
+    const QTransform t = pageTransform(page);
+
+    // Merge the selected words per line into one contiguous span (spaces
+    // between the words on the same line are included in the highlight).
+    QRectF run;
+    int curLine = -1;
+    bool inRun = false;
+    for (int i = wr.first; i <= last; ++i) {
+        const TextWord& w = pt.words[i];
+        if (w.lineIndex != curLine) {
+            if (inRun)
+                out.append(t.mapRect(run.normalized()));
+            curLine = w.lineIndex;
+            run = w.bbox;
+            inRun = true;
+        } else {
+            run = run.united(w.bbox);
+        }
+    }
+    if (inRun)
+        out.append(t.mapRect(run.normalized()));
+    return out;
+}
+
+QString ViewerController::selectedText() const {
+    if (!m_textSelection.isActive())
+        return {};
+    QString result;
+    int prevLine = -1;
+    int prevPage = -1;
+    for (int page = m_textSelection.firstPage(); page <= m_textSelection.lastPage(); ++page) {
+        const PageText pt = pageText(page);
+        const SelectionWordRange wr = m_textSelection.wordRangeOnPage(page);
+        if (wr.first < 0 || pt.words.isEmpty())
+            continue;
+        const int last = (std::min)(wr.last, static_cast<int>(pt.words.size()) - 1);
+        for (int i = wr.first; i <= last; ++i) {
+            const TextWord& w = pt.words[i];
+            if (page != prevPage) {
+                if (!result.isEmpty())
+                    result += '\n';
+                prevPage = page;
+                prevLine = -1;
+            }
+            if (w.lineIndex != prevLine && !result.isEmpty())
+                result += '\n';
+            result += w.text;
+            if (i < last && w.lineIndex == pt.words[i + 1].lineIndex)
+                result += ' ';
+            prevLine = w.lineIndex;
+        }
+    }
+    return result;
 }

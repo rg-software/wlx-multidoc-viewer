@@ -13,6 +13,7 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and [Double 
 - **Info panel** at the top showing `current / total`, continuous status, and fit/zoom state.
 - **DPI aware** — rendered at the host's effective display scale; no Qt DLLs needed at runtime on Windows.
 - **Per-page render cache** — continuous mode paints only visible pages from a bounded LRU cache, keeping memory flat and scroll cost proportional to the viewport.
+- **Text selection** — select text with the mouse in documents that carry a text layer (PDF/EPUB/XPS/HTML via MuPDF) and copy it with `Ctrl+C`; I-beam cursor over text, highlight overlay, `Esc` clears. Image-only scans and comics stay pan-only. (DjVu text-layer selection is pending a djvulibre build that exports the miniexp API.)
 
 ## Requirements
 
@@ -97,9 +98,10 @@ Open any supported file in the lister (e.g. press `F3` in Total Commander). Use 
 | `+` / `-` / `0` | Zoom in / out / 100% |
 | `R` / `Shift+R` | Rotate CW / CCW |
 | `G` | Go to page (Qt viewer) |
-| `Esc` | Exit the viewer (Qt viewer forwards a `Q` keypress to the host) |
+| `Esc` | Exit the viewer (Qt forwards a `Q` keypress to the host); clears a text selection first |
+| `Ctrl+C` | Copy selected text to the clipboard |
 | Mouse wheel | Smooth scroll (continuous) / page turn (paged) |
-| Left-drag | Pan (continuous; paged when page overflows) |
+| Left-drag | Pan (continuous; paged when page overflows); select text when dragging over selectable text |
 
 ## Keyboard shortcuts map
 

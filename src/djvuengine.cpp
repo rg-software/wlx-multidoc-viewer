@@ -165,6 +165,18 @@ QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale, int rotation
     return result;
 }
 
+// NOTE: DjVu text-layer extraction is intentionally not implemented. The
+// vcpkg ddjvulc static build does not export the core miniexp accessors
+// (miniexp_car/miniexp_cdr/miniexp_consp/miniexp_symbolp/miniexp_to_int are
+// module-local `Static` symbols and cannot be linked), so `ddjvu_document_get_pagetext`
+// trees cannot be walked. Selection therefore works for MuPDF-backed formats;
+// DjVu pages report no text layer (empty). Revisit if a djvulibre build exports
+// the miniexp public API.
+PageText DjVuEngine::pageText(int page) {
+    Q_UNUSED(page)
+    return {};
+}
+
 QString DjVuEngine::extractText(int page) {
     Q_UNUSED(page)
     return {};

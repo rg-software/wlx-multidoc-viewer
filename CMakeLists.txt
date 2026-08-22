@@ -50,6 +50,7 @@ add_library(wlx-multidoc-viewer SHARED
     src/mupdfengine.cpp
     src/djvuengine.cpp
     src/viewercontroller.cpp
+    src/textselection.cpp
 )
 
 if(NOT WIN32)
@@ -100,6 +101,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         tests/harness_win.cpp
         src/viewer_win32.cpp
         src/viewercontroller.cpp
+        src/textselection.cpp
         src/formatdispatcher.cpp
         src/mupdfengine.cpp
         src/djvuengine.cpp
@@ -116,6 +118,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         tests/harness_scroll.cpp
         src/viewer_win32.cpp
         src/viewercontroller.cpp
+        src/textselection.cpp
         src/formatdispatcher.cpp
         src/mupdfengine.cpp
         src/djvuengine.cpp

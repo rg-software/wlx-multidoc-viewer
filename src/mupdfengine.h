@@ -17,6 +17,7 @@ public:
 
     int pageCount() const override;
     QImage renderPage(int page, float zoom, float dpiScale = 1.0f, int rotation = 0) override;
+    PageText pageText(int page) override;
     QString extractText(int page) override;
     QString metadata(const QString& key) const override;
     QVector<OutlineItem> outline() const override;
