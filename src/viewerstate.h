@@ -63,12 +63,10 @@ public:
 
     void zoomIn() {
         m_zoom = std::min(m_zoom * 1.25f, 5.0f);
-        m_autoFit = false;
     }
 
     void zoomOut() {
         m_zoom = std::max(m_zoom * 0.8f, 0.1f);
-        m_autoFit = false;
     }
 
     void setZoom(float z) { m_zoom = std::max(0.1f, std::min(z, 5.0f)); }
@@ -77,13 +75,6 @@ public:
     void setPagedMode(bool paged) { m_pagedMode = paged; }
     bool isPagedMode() const { return m_pagedMode; }
 
-    // Auto-fit
-    void setFitToWidth() { m_fitToWidth = true; m_autoFit = true; }
-    void setFitToPage() { m_fitToWidth = false; m_autoFit = true; }
-    void setManualZoom(float z) { m_zoom = z; m_autoFit = false; }
-    bool autoFit() const { return m_autoFit; }
-    bool fitToWidth() const { return m_fitToWidth; }
-
     // State accessors
     int currentPage() const { return m_currentPage; }
     int pageCount() const { return m_pageCount; }
@@ -91,14 +82,11 @@ public:
 
     void setPageCount(int count) { m_pageCount = count; }
     void resetPage() { m_currentPage = 1; }
-    void resetZoom() { m_zoom = 1.0f; m_autoFit = true; m_fitToWidth = false; }
 
 private:
     int m_currentPage = 1;
     int m_pageCount = 0;
     float m_zoom = 1.0f;
-    bool m_fitToWidth = false;
-    bool m_autoFit = true;
     bool m_pagedMode = true;
 };
 

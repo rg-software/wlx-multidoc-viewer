@@ -42,7 +42,6 @@ private slots:
     void onGoToPage();
 
 private:
-    void setupUi();
     void onControllerChanged();
     void updateInfoPanel();
     void captureScrollForContinuousJump();

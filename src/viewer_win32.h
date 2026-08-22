@@ -37,10 +37,9 @@ private:
     bool needsStripRerender() const;
     void imageToBitmap(const QImage& src);
     void onControllerChanged();
-    void ensureInfoPanel();
+    int maxScrollY() const;
 
     HWND m_hwnd = nullptr;
-    HWND m_hParent = nullptr;
     std::unique_ptr<InfoPanelWin32> m_infoPanel;
 
     std::unique_ptr<ViewerController> m_controller;
@@ -49,28 +48,9 @@ private:
 
     int m_scrollX = 0;
     int m_scrollY = 0;
+    int m_wheelRemainder = 0;
     int m_renderedScrollY = 0;
     int m_renderedPageCount = 0;
-    int m_rotationShortcutPressed = 0;
-};
-
-class InfoPanelWin32 {
-public:
-    explicit InfoPanelWin32(HWND hParent);
-    void setController(ViewerController* controller);
-    HWND hwnd() const { return m_hwnd; }
-    int height() const;
-    void onControllerChanged();
-    void onSize(int w, int h);
-
-private:
-    static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
-    LRESULT handleMsg(UINT msg, WPARAM wp, LPARAM lp);
-    void onPaint();
-
-    HWND m_hwnd = nullptr;
-    HWND m_hParent = nullptr;
-    ViewerController* m_controller = nullptr;
 };
 
 #endif // Q_OS_WIN

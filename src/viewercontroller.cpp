@@ -1,3 +1,24 @@
+// Design notes (SumatraPDF reference patterns; read-only, not copied)
+// ---------------------------------------------------
+// Continuous-mode page strip layout: SumatraPDF renders all currently-visible
+// pages into a single tall bitmap and lets the scrollbar walk through it. We
+// do the same in renderVisiblePages(), with the strip height capped at
+// 1'500'000 pixels to bound memory on very long documents (see AGENTS.md).
+//
+// Paged<->continuous transition: SumatraPDF anchors the scroll position so
+// the page that was at the top of the viewport stays at the top. We do the
+// same via toggleMode(); the controller tracks only the current page index,
+// while each viewer owns viewport anchoring (scroll offset capture/restore)
+// around continuous-mode navigation.
+//
+// Wheel-event handling is viewer-specific: paged mode advances one page per
+// notch, continuous mode scrolls smoothly (owned entirely by the viewers).
+//
+// Engine abstraction: SumatraPDF's EngineBase shows the value of one render
+// method that takes (page, transform, target_size). Our DocumentEngine stays
+// as (page, zoom, dpiScale, rotation) per the existing project layout.
+// ---------------------------------------------------
+
 #include "viewercontroller.h"
 
 #include <algorithm>
@@ -7,7 +28,6 @@
 
 namespace {
 constexpr int kPageGap = 4;
-constexpr int kInfoPanelHeight = 22;
 }
 
 ViewerController::ViewerController() = default;
@@ -124,7 +144,7 @@ void ViewerController::zoomOut() {
 }
 
 void ViewerController::setManualZoom(float zoom) {
-    m_state.setManualZoom(zoom);
+    m_state.setZoom(zoom);
     m_fitMode = FitMode::Manual;
     notifyChanged();
 }
@@ -136,7 +156,7 @@ void ViewerController::cycleFitMode() {
         break;
     case FitMode::FitToWidth:
         m_fitMode = FitMode::Manual;
-        m_state.setManualZoom(1.0f);
+        m_state.setZoom(1.0f);
         break;
     case FitMode::Manual:
         m_fitMode = FitMode::FitToPage;
@@ -187,8 +207,12 @@ void ViewerController::recomputeFitZoom() {
     if (info.width <= 0 || info.height <= 0)
         return;
 
-    const int vw = pageAreaWidth();
-    const int vh = pageAreaHeight();
+    // Fit targets are expressed in logical (DPI-independent) pixels: the
+    // rendered bitmap is page * zoom * dpiScale device pixels, so the zoom
+    // that fits the physical viewport is viewport / dpiScale.
+    const float invScale = 1.0f / m_dpiScale;
+    const int vw = std::max(1, static_cast<int>(pageAreaWidth() * invScale));
+    const int vh = std::max(1, static_cast<int>(pageAreaHeight() * invScale));
 
     auto rotatedInfo = info;
     if (m_rotation == 90 || m_rotation == 270) {
@@ -210,7 +234,7 @@ int ViewerController::pageStride() const {
         return 0;
     if (m_rotation == 90 || m_rotation == 270)
         std::swap(info.width, info.height);
-    int scaledPageH = static_cast<int>(info.height * m_state.zoom());
+    int scaledPageH = static_cast<int>(info.height * m_state.zoom() * m_dpiScale);
     return scaledPageH + kPageGap;
 }
 
@@ -227,7 +251,7 @@ int ViewerController::pageAtScrollOffset(int scrollY) const {
         return m_state.currentPage();
     if (m_rotation == 90 || m_rotation == 270)
         std::swap(info.width, info.height);
-    int pageH = static_cast<int>(info.height * m_state.zoom());
+    int pageH = static_cast<int>(info.height * m_state.zoom() * m_dpiScale);
 
     int page = (scrollY + pageH / 2) / stride + 1;
     return (std::clamp)(page, 1, m_state.pageCount());
@@ -247,7 +271,7 @@ QImage ViewerController::renderVisiblePages(int scrollY) {
         return {};
 
     if (isPagedMode()) {
-        return m_engine->renderPage(m_state.currentPage(), m_state.zoom(), 1.0f, m_rotation);
+        return m_engine->renderPage(m_state.currentPage(), m_state.zoom(), m_dpiScale, m_rotation);
     }
 
     const int pageCount = m_state.pageCount();
@@ -259,8 +283,8 @@ QImage ViewerController::renderVisiblePages(int scrollY) {
         return {};
     if (m_rotation == 90 || m_rotation == 270)
         std::swap(cur.width, cur.height);
-    const int scaledPageH = static_cast<int>(cur.height * m_state.zoom());
-    const int scaledPageW = static_cast<int>(cur.width * m_state.zoom());
+    const int scaledPageH = static_cast<int>(cur.height * m_state.zoom() * m_dpiScale);
+    const int scaledPageW = static_cast<int>(cur.width * m_state.zoom() * m_dpiScale);
     if (scaledPageH <= 0 || scaledPageW <= 0)
         return {};
 
@@ -285,23 +309,12 @@ QImage ViewerController::renderVisiblePages(int scrollY) {
         int y = static_cast<long long>(page - 1) * stride;
         if (y >= stripH)
             break;
-        QImage img = m_engine->renderPage(page, m_state.zoom(), 1.0f, m_rotation);
+        QImage img = m_engine->renderPage(page, m_state.zoom(), m_dpiScale, m_rotation);
         if (!img.isNull())
             p.drawImage(xPad, y, img);
     }
     p.end();
     return strip;
-}
-
-void ViewerController::onWheel(int delta) {
-    if (isPagedMode()) {
-        if (delta < 0)
-            nextPage();
-        else
-            prevPage();
-    }
-    // In continuous mode the viewer owns smooth scroll; the controller is not
-    // responsible for partial-pixel scroll positions.
 }
 
 void ViewerController::notifyChanged() {

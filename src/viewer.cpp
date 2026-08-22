@@ -13,10 +13,6 @@
 #include <windows.h>
 #endif
 
-namespace {
-constexpr int kInfoBarHeight = 22;
-}
-
 ViewerWidget::ViewerWidget(QWidget* parent)
     : QFrame(parent)
 {
@@ -27,7 +23,7 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
 
     m_infoBar = new QFrame(this);
-    m_infoBar->setFixedHeight(kInfoBarHeight);
+    m_infoBar->setFixedHeight(ViewerController::kInfoPanelHeight);
     m_infoBar->setStyleSheet("QFrame { background: #202020; }");
 
     m_infoLayout = new QHBoxLayout(m_infoBar);
@@ -87,6 +83,7 @@ ViewerWidget::~ViewerWidget() {
 bool ViewerWidget::loadDocument(const QString& path) {
     closeDocument();
     m_controller->setEngine(createEngine(path));
+    m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
     if (!m_controller->openDocument(path))
         return false;
     return true;
@@ -151,15 +148,24 @@ void ViewerWidget::restoreScrollAfterContinuousJump() {
 
 void ViewerWidget::onNextPage() {
     if (!m_controller) return;
-    if (!m_controller->isPagedMode())
+    if (!m_controller->isPagedMode()) {
+        // Only arm the scroll restore when navigation will actually succeed;
+        // otherwise a stale armed flag would be consumed by an unrelated
+        // controller change later.
+        if (m_controller->currentPage() >= m_controller->pageCount())
+            return;
         captureScrollForContinuousJump();
+    }
     m_controller->nextPage();
 }
 
 void ViewerWidget::onPrevPage() {
     if (!m_controller) return;
-    if (!m_controller->isPagedMode())
+    if (!m_controller->isPagedMode()) {
+        if (m_controller->currentPage() <= 1)
+            return;
         captureScrollForContinuousJump();
+    }
     m_controller->prevPage();
 }
 
@@ -253,6 +259,7 @@ bool ViewerWidget::nativeEvent(const QByteArray& eventType, void* message, qintp
 void ViewerWidget::resizeEvent(QResizeEvent* event) {
     QFrame::resizeEvent(event);
     if (m_controller) {
+        m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
         m_controller->setViewportSize(QSize(width(), height()));
         onControllerChanged();
     }

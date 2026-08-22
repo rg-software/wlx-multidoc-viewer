@@ -61,12 +61,13 @@ MuPDF and DjVuLibre are linked as static libraries via vcpkg. Both return `QImag
 - ~~Distortion on resize~~ — fixed with `setWidgetResizable(false)` and deferred scroll restore
 - ~~No paged/continuous mode toggle~~ — V key toggles, Shift+V cycles fit mode
 - ~~DjVu RGB/BGR swap and vertical flip~~ — fixed: `DDJVU_FORMAT_RGB24` + removed redundant `flipped(Qt::Vertical)`
+- ~~DPI awareness hardcoded~~ — fixed: viewers pass system DPI scale (`GetDpiForWindow` / Qt `devicePixelRatioF`) into `ViewerController::setDpiScale()`; fit math and strip geometry are DPI-aware
 
 ### Open gaps
 
 | Gap | Severity | Note |
 |---|---|---|
-| **DPI awareness hardcoded** | Medium | Spec says use system DPI; code passes `1.0f`. Text undersized on HiDPI. |
+| **Strip height cap** | Low | Continuous-mode strip is capped at 1,500,000 px (`viewercontroller.cpp`). For very long documents at high zoom the scrollbar range is silently truncated and pages beyond the cap stay gray background. Accepted memory bound; a dynamic budget may replace it later. |
 | **Windows `G` key go-to-page** | Low | Spec requires dialog; no handler in `viewer_win32.cpp`. Qt has `QInputDialog`. |
 | **Linux continuous→paged toggle** | Medium | Qt viewer has no scroll-position tracking (`trackCurrentPage` never called on scroll). Toggling from continuous to paged shows last-navigated page, not top-of-viewport page. |
 | **Mixed page sizes in strip** | Low | Strip stride assumes uniform page size (uses current page dimensions). Documents with mixed portrait/landscape pages will misalign. |

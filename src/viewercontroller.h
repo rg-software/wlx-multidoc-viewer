@@ -7,32 +7,16 @@
 #include <QImage>
 #include <QSize>
 #include <QString>
+#include <algorithm>
 #include <functional>
 #include <memory>
-
-// SumatraPDF reference patterns (read-only; not copied)
-// ---------------------------------------------------
-// Continuous-mode page strip layout: SumatraPDF renders all currently-visible
-// pages into a single tall bitmap and lets the scrollbar walk through it. We
-// do the same in ViewerController::renderVisiblePages() with a cap of 3x
-// viewport height to bound memory on long documents.
-//
-// Wheel-event handling: SumatraPDF advances by 1/8 of the viewport per wheel
-// notch in continuous mode, but jumps one page per notch in paged mode. We
-// follow the same mode-dependent rule (see ViewerController::onWheel).
-//
-// Paged<->continuous transition: SumatraPDF anchors the scroll position so
-// the page that was at the top of the viewport stays at the top. We do the
-// same in ViewerController::toggleMode().
-//
-// Engine abstraction: SumatraPDF's EngineBase shows the value of one render
-// method that takes (page, transform, target_size). Our DocumentEngine stays
-// as (page, zoom, dpiScale, rotation) per the existing project layout.
-// ---------------------------------------------------
 
 class ViewerController {
 public:
     enum class FitMode { Manual, FitToPage, FitToWidth };
+
+    // Shared height of the Win32 info panel / Qt info bar.
+    static constexpr int kInfoPanelHeight = 22;
 
     using StateChangedCallback = std::function<void()>;
 
@@ -71,6 +55,8 @@ public:
     void setViewportSize(const QSize& size);
     int pageAreaHeight() const;
     int pageAreaWidth() const;
+    void setDpiScale(float scale) { m_dpiScale = std::max(0.25f, std::min(scale, 8.0f)); }
+    float dpiScale() const { return m_dpiScale; }
 
     // Render
     QImage renderVisiblePages(int scrollY = 0);
@@ -79,9 +65,6 @@ public:
     int pageAtScrollOffset(int scrollY) const;
     int pageStride() const;
     void trackCurrentPage(int page);
-
-    // Wheel
-    void onWheel(int delta);
 
     // Accessors
     int currentPage() const { return m_state.currentPage(); }
@@ -102,6 +85,7 @@ private:
     FitMode m_fitMode = FitMode::FitToPage;
     int m_rotation = 0;
     QSize m_viewportSize;
+    float m_dpiScale = 1.0f;
     StateChangedCallback m_onChanged;
 };
 

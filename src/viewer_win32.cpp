@@ -16,9 +16,28 @@ constexpr int kPageMargin = 8;
 constexpr COLORREF kBgColor = 0x808080;
 constexpr COLORREF kPanelBg = 0x202020;
 constexpr COLORREF kPanelFg = 0xFFFFFF;
+constexpr UINT kDefaultDpi = 96;
 }
 
-InfoPanelWin32::InfoPanelWin32(HWND hParent) : m_hParent(hParent) {
+class InfoPanelWin32 {
+public:
+    explicit InfoPanelWin32(HWND hParent);
+    void setController(ViewerController* controller);
+    HWND hwnd() const { return m_hwnd; }
+    int height() const;
+    void onControllerChanged();
+    void onSize(int w, int h);
+
+private:
+    static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+    LRESULT handleMsg(UINT msg, WPARAM wp, LPARAM lp);
+    void onPaint();
+
+    HWND m_hwnd = nullptr;
+    ViewerController* m_controller = nullptr;
+};
+
+InfoPanelWin32::InfoPanelWin32(HWND hParent) {
     HINSTANCE hInst = GetModuleHandleW(nullptr);
 
     WNDCLASSEXW wc = {};
@@ -50,7 +69,7 @@ void InfoPanelWin32::setController(ViewerController* controller) {
 }
 
 int InfoPanelWin32::height() const {
-    return 22;
+    return ViewerController::kInfoPanelHeight;
 }
 
 void InfoPanelWin32::onControllerChanged() {
@@ -114,7 +133,6 @@ void InfoPanelWin32::onPaint() {
 }
 
 ViewerWin32::ViewerWin32(HWND hParent)
-    : m_hParent(hParent)
 {
     HINSTANCE hInst = GetModuleHandleW(nullptr);
 
@@ -144,6 +162,7 @@ ViewerWin32::ViewerWin32(HWND hParent)
     m_infoPanel = std::make_unique<InfoPanelWin32>(m_hwnd);
     m_controller = std::make_unique<ViewerController>();
     m_controller->setStateChangedCallback([this]() { onControllerChanged(); });
+    m_controller->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
     m_infoPanel->setController(m_controller.get());
 }
 
@@ -271,7 +290,7 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         break;
     case VK_END:
         if (continuous) {
-            m_scrollY = (std::max)(0, m_currentImage.height() - 1);
+            m_scrollY = maxScrollY();
         } else {
             m_controller->lastPage();
         }
@@ -309,7 +328,7 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
 
     if (captured) {
         if (continuous) {
-            int maxY = (std::max)(0, m_currentImage.height() - 1);
+            int maxY = maxScrollY();
             m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
             updateVisiblePage();
             if (needsStripRerender())
@@ -319,7 +338,8 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
                 InvalidateRect(m_hwnd, nullptr, FALSE);
             }
         } else if (wp == VK_RIGHT || wp == VK_LEFT || wp == VK_NEXT || wp == VK_PRIOR
-                   || wp == VK_HOME || wp == VK_END || wp == 'V') {
+                   || wp == VK_HOME || wp == VK_END || wp == 'V' || wp == 'R'
+                   || wp == 0xBB || wp == 0x6B || wp == 0xBD || wp == 0x6D || wp == '0') {
             m_scrollX = 0;
             m_scrollY = 0;
         }
@@ -337,9 +357,15 @@ void ViewerWin32::onMouseWheel(int delta) {
         m_scrollX = 0;
         m_scrollY = 0;
     } else {
-        const int step = 60;
-        m_scrollY = (std::max)(0, m_scrollY - delta * step / WHEEL_DELTA);
-        int maxY = (std::max)(0, m_currentImage.height() - 1);
+        // Accumulate fractional wheel deltas so high-resolution wheels and
+        // trackpads (which may deliver |delta| < WHEEL_DELTA per message)
+        // still produce smooth, lossless scrolling.
+        constexpr int kWheelStep = 60;
+        m_wheelRemainder += delta * kWheelStep;
+        const int applied = m_wheelRemainder / WHEEL_DELTA;
+        m_wheelRemainder -= applied * WHEEL_DELTA;
+        m_scrollY -= applied;
+        int maxY = maxScrollY();
         m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
         updateVisiblePage();
         if (needsStripRerender())
@@ -415,6 +441,8 @@ void ViewerWin32::onSize(int w, int h) {
     if (m_infoPanel)
         m_infoPanel->onSize(w, h);
     if (m_controller) {
+        if (m_hwnd)
+            m_controller->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
         m_controller->setViewportSize(QSize(w, h));
         onControllerChanged();
     }
@@ -557,6 +585,16 @@ bool ViewerWin32::needsStripRerender() const {
     return dist > vh;
 }
 
+int ViewerWin32::maxScrollY() const {
+    if (!m_hwnd)
+        return 0;
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
+    const int vh = (std::max)(1, static_cast<int>(rc.bottom) - panelH - 2 * kPageMargin);
+    return (std::max)(0, m_currentImage.height() - vh);
+}
+
 void ViewerWin32::imageToBitmap(const QImage& src) {
     if (m_hBitmap) {
         DeleteObject(m_hBitmap);
@@ -599,13 +637,6 @@ void ViewerWin32::imageToBitmap(const QImage& src) {
             dstRow[x * 3 + 1] = g;
             dstRow[x * 3 + 2] = r;
         }
-    }
-}
-
-void ViewerWin32::ensureInfoPanel() {
-    if (!m_infoPanel) {
-        m_infoPanel = std::make_unique<InfoPanelWin32>(m_hwnd);
-        m_infoPanel->setController(m_controller.get());
     }
 }
 
