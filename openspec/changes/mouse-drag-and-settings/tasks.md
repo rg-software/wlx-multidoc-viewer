@@ -31,4 +31,4 @@
 - [x] 4.4 Test: cursor changes to hand during drag, restores on release
 - [x] 4.5 Test: drag near document edges clamps correctly
 - [x] 4.6 Test: shift+V fit cycle still preserves current page after drag
-- [ ] 4.7 Test (Linux): continuous→paged toggle shows top-of-viewport page, not last-navigated page
+- [x] 4.7 Test (Linux): continuous→paged toggle shows top-of-viewport page, not last-navigated page

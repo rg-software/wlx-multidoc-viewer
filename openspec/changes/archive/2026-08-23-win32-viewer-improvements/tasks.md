@@ -36,4 +36,4 @@
 
 - [x] 5.1 Add viewerstate.h to CMakeLists.txt (header-only or compiled into both targets)
 - [x] 5.2 Build and test on Windows: navigation, resize, DPI, modes
-- [ ] 5.3 Build and test on Linux: navigation, resize, DPI, modes
+- [x] 5.3 Build and test on Linux: navigation, resize, DPI, modes
