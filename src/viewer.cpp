@@ -5,6 +5,8 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QKeyEvent>
+#include <QMouseEvent>
+#include <QScrollBar>
 #include <QShortcut>
 #include <QScreen>
 #include <QWheelEvent>
@@ -55,6 +57,11 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     m_pageLabel = new QLabel(m_scrollArea);
     m_pageLabel->setAlignment(Qt::AlignCenter);
     m_scrollArea->setWidget(m_pageLabel);
+
+    m_pageLabel->installEventFilter(this);
+    m_scrollArea->viewport()->installEventFilter(this);
+    connect(m_scrollArea->verticalScrollBar(), &QScrollBar::valueChanged,
+            this, &ViewerWidget::onVerticalScrollChanged);
 
     m_controller = std::make_unique<ViewerController>();
     m_controller->setStateChangedCallback([this]() { onControllerChanged(); });
@@ -231,6 +238,65 @@ void ViewerWidget::wheelEvent(QWheelEvent* event) {
         return;
     }
     QFrame::wheelEvent(event);
+}
+
+void ViewerWidget::onVerticalScrollChanged(int value) {
+    if (!m_controller || !m_controller->hasDocument() || m_controller->isPagedMode())
+        return;
+    const int page = m_controller->pageAtScrollOffset(value);
+    if (page != m_controller->currentPage()) {
+        m_controller->trackCurrentPage(page);
+        updateInfoPanel();
+    }
+}
+
+bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
+    if (!m_controller || !m_controller->hasDocument()) {
+        if (m_dragging) {
+            m_dragging = false;
+            unsetCursor();
+        }
+        return QFrame::eventFilter(obj, event);
+    }
+
+    switch (event->type()) {
+    case QEvent::MouseButtonPress: {
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() != Qt::LeftButton || m_controller->isPagedMode())
+            break;
+        m_dragging = true;
+        m_lastMousePos = me->position().toPoint();
+        setCursor(Qt::PointingHandCursor);
+        return true;
+    }
+    case QEvent::MouseMove: {
+        if (!m_dragging)
+            break;
+        auto* me = static_cast<QMouseEvent*>(event);
+        const QPoint pos = me->position().toPoint();
+        const QPoint delta = m_lastMousePos - pos;
+        m_lastMousePos = pos;
+        QScrollBar* vBar = m_scrollArea->verticalScrollBar();
+        QScrollBar* hBar = m_scrollArea->horizontalScrollBar();
+        vBar->setValue(vBar->value() + delta.y());
+        hBar->setValue(hBar->value() + delta.x());
+        return true;
+    }
+    case QEvent::MouseButtonRelease: {
+        if (!m_dragging)
+            break;
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() != Qt::LeftButton)
+            break;
+        m_dragging = false;
+        unsetCursor();
+        return true;
+    }
+    default:
+        break;
+    }
+
+    return QFrame::eventFilter(obj, event);
 }
 
 bool ViewerWidget::nativeEvent(const QByteArray& eventType, void* message, qintptr* result) {

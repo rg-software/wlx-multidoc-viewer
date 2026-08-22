@@ -3,7 +3,7 @@
 // Continuous-mode page strip layout: SumatraPDF renders all currently-visible
 // pages into a single tall bitmap and lets the scrollbar walk through it. We
 // do the same in renderVisiblePages(), with the strip height capped at
-// 1'500'000 pixels to bound memory on very long documents (see AGENTS.md).
+// kMaxStripHeight pixels to bound memory on very long documents (see AGENTS.md).
 //
 // Paged<->continuous transition: SumatraPDF anchors the scroll position so
 // the page that was at the top of the viewport stays at the top. We do the
@@ -20,6 +20,7 @@
 // ---------------------------------------------------
 
 #include "viewercontroller.h"
+#include "viewer_settings.h"
 
 #include <algorithm>
 
@@ -27,7 +28,7 @@
 #include <QPainter>
 
 namespace {
-constexpr int kPageGap = 4;
+using viewer_settings::kPageGap;
 }
 
 ViewerController::ViewerController() = default;
@@ -254,7 +255,19 @@ int ViewerController::pageAtScrollOffset(int scrollY) const {
     int pageH = static_cast<int>(info.height * m_state.zoom() * m_dpiScale);
 
     int page = (scrollY + pageH / 2) / stride + 1;
-    return (std::clamp)(page, 1, m_state.pageCount());
+    page = (std::clamp)(page, 1, m_state.pageCount());
+
+    // When the last page is at least partially inside the viewport, report
+    // it as the current page. The Win32 scrollbar cap (nMax - nPage + 1)
+    // can prevent (scrollY + pageH/2) from ever landing on the final page,
+    // so without this fallback the info panel is stuck on (pageCount - 1).
+    const int vh = pageAreaHeight();
+    if (vh > 0) {
+        const int lastPageTop = (m_state.pageCount() - 1) * stride;
+        if (scrollY + vh > lastPageTop)
+            page = m_state.pageCount();
+    }
+    return page;
 }
 
 void ViewerController::trackCurrentPage(int page) {
@@ -293,16 +306,15 @@ QImage ViewerController::renderVisiblePages(int scrollY) {
     const int xPad = (stripW - scaledPageW) / 2;
     const long long totalH =
         static_cast<long long>(pageCount) * scaledPageH + static_cast<long long>(pageCount - 1) * kPageGap;
-    const int stripH = static_cast<int>(std::min<long long>(totalH, 1'500'000LL));
+    const int stripH = static_cast<int>(std::min<long long>(totalH, viewer_settings::kMaxStripHeight));
 
     QImage strip(stripW, stripH, QImage::Format_RGB888);
     strip.fill(0x808080);
 
-    constexpr int kBufferPages = 3;
     const int visTop = scrollY;
     const int visBot = visTop + vh;
-    const int firstPage = (std::max)(1, visTop / stride - kBufferPages);
-    const int lastPage = (std::min)(pageCount, (visBot + stride - 1) / stride + kBufferPages);
+    const int firstPage = (std::max)(1, visTop / stride - viewer_settings::kBufferPages);
+    const int lastPage = (std::min)(pageCount, (visBot + stride - 1) / stride + viewer_settings::kBufferPages);
 
     QPainter p(&strip);
     for (int page = firstPage; page <= lastPage; ++page) {

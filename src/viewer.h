@@ -4,6 +4,7 @@
 #include "viewercontroller.h"
 
 #include <QFrame>
+#include <QPoint>
 #include <QScrollArea>
 #include <QLabel>
 #include <QPixmap>
@@ -26,6 +27,7 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
     void onNextPage();
@@ -40,6 +42,7 @@ private slots:
     void onRotateCw();
     void onRotateCcw();
     void onGoToPage();
+    void onVerticalScrollChanged(int value);
 
 private:
     void onControllerChanged();
@@ -60,6 +63,9 @@ private:
 
     int m_savedScrollY = 0;
     bool m_pendingScrollRestore = false;
+
+    bool m_dragging = false;
+    QPoint m_lastMousePos;
 };
 
 #endif // VIEWER_H

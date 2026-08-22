@@ -32,6 +32,9 @@ private:
     void onMouseWheel(int delta);
     void onVScroll(int code, int pos);
     void onHScroll(int code, int pos);
+    void onDragStart(LPARAM lp);
+    void onDragMove(LPARAM lp);
+    void onDragEnd();
     void updateScrollBars();
     void updateVisiblePage();
     bool needsStripRerender() const;
@@ -51,6 +54,10 @@ private:
     int m_wheelRemainder = 0;
     int m_renderedScrollY = 0;
     int m_renderedPageCount = 0;
+
+    bool m_dragging = false;
+    int m_lastMouseX = 0;
+    int m_lastMouseY = 0;
 };
 
 #endif // Q_OS_WIN

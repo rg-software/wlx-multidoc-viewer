@@ -67,3 +67,22 @@ elseif(APPLE)
 else()
     set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".so")
 endif()
+
+option(WLX_BUILD_HARNESS "Build the Win32 drag-test harness executable" OFF)
+if(WLX_BUILD_HARNESS AND WIN32)
+    add_executable(harness-win
+        tests/harness_win.cpp
+        src/viewer_win32.cpp
+        src/viewercontroller.cpp
+        src/formatdispatcher.cpp
+        src/mupdfengine.cpp
+        src/djvuengine.cpp
+    )
+    target_include_directories(harness-win PRIVATE src)
+    target_link_libraries(harness-win
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
+        ${DJVU_TARGET}
+    )
+endif()

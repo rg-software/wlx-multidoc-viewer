@@ -2,6 +2,7 @@
 #define VIEWERCONTROLLER_H
 
 #include "document.h"
+#include "viewer_settings.h"
 #include "viewerstate.h"
 
 #include <QImage>
@@ -15,8 +16,9 @@ class ViewerController {
 public:
     enum class FitMode { Manual, FitToPage, FitToWidth };
 
-    // Shared height of the Win32 info panel / Qt info bar.
-    static constexpr int kInfoPanelHeight = 22;
+    // Shared height of the Win32 info panel / Qt info bar (single source:
+    // viewer_settings.h).
+    static constexpr int kInfoPanelHeight = viewer_settings::kInfoPanelHeight;
 
     using StateChangedCallback = std::function<void()>;
 

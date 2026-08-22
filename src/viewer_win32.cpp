@@ -1,4 +1,5 @@
 #include "viewer_win32.h"
+#include "viewer_settings.h"
 
 #ifdef Q_OS_WIN
 
@@ -7,16 +8,21 @@
 #include <QImage>
 
 #include <QFileInfo>
+#include <windowsx.h>
 
 #define WLX_VIEWER_CLASS L"WLXDocViewer"
 #define WLX_INFO_CLASS L"WLXDocInfoPanel"
 
 namespace {
-constexpr int kPageMargin = 8;
 constexpr COLORREF kBgColor = 0x808080;
 constexpr COLORREF kPanelBg = 0x202020;
 constexpr COLORREF kPanelFg = 0xFFFFFF;
 constexpr UINT kDefaultDpi = 96;
+
+using viewer_settings::kKeyboardStepPx;
+using viewer_settings::kPageMargin;
+using viewer_settings::kScrollBarLineStepPx;
+using viewer_settings::kWheelStepPx;
 }
 
 class InfoPanelWin32 {
@@ -200,6 +206,10 @@ void ViewerWin32::onControllerChanged() {
     imageToBitmap(m_currentImage);
     m_renderedScrollY = m_scrollY;
     m_renderedPageCount = m_controller->pageCount();
+    // A re-render can change m_currentImage (zoom, page count, etc.), so
+    // re-clamp before reporting the new range to the scrollbar.
+    m_scrollX = (std::max)(0, m_scrollX);
+    m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
     updateScrollBars();
     if (m_infoPanel)
         m_infoPanel->onControllerChanged();
@@ -233,6 +243,28 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
     case WM_MOUSEWHEEL:
         onMouseWheel(GET_WHEEL_DELTA_WPARAM(wp));
         return 0;
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONDBLCLK: // CS_DBLCLKS class: a fast second press must still drag
+        onDragStart(lp);
+        if (!m_dragging)
+            break;
+        return 0;
+    case WM_MOUSEMOVE:
+        if (!m_dragging)
+            break;
+        onDragMove(lp);
+        return 0;
+    case WM_LBUTTONUP:
+        if (!m_dragging)
+            break;
+        onDragEnd();
+        return 0;
+    case WM_SETCURSOR:
+        if (m_dragging && LOWORD(lp) == HTCLIENT) {
+            SetCursor(LoadCursor(nullptr, IDC_HAND));
+            return TRUE;
+        }
+        break;
     case WM_ERASEBKGND:
         return 1;
     }
@@ -268,14 +300,14 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         break;
     case VK_UP:
         if (continuous)
-            m_scrollY -= 60;
+            m_scrollY -= kKeyboardStepPx;
         else
             m_controller->prevPage();
         captured = 1;
         break;
     case VK_DOWN:
         if (continuous)
-            m_scrollY += 60;
+            m_scrollY += kKeyboardStepPx;
         else
             m_controller->nextPage();
         captured = 1;
@@ -346,6 +378,51 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
     }
 }
 
+void ViewerWin32::onDragStart(LPARAM lp) {
+    if (!m_controller || m_controller->isPagedMode())
+        return;
+    m_dragging = true;
+    m_lastMouseX = GET_X_LPARAM(lp);
+    m_lastMouseY = GET_Y_LPARAM(lp);
+    SetCapture(m_hwnd);
+    // WM_SETCURSOR is not sent while capture is held, so set the drag
+    // cursor explicitly and restore it on release.
+    SetCursor(LoadCursor(nullptr, IDC_HAND));
+}
+
+void ViewerWin32::onDragMove(LPARAM lp) {
+    if (!m_dragging)
+        return;
+    const int x = GET_X_LPARAM(lp);
+    const int y = GET_Y_LPARAM(lp);
+    m_scrollX -= x - m_lastMouseX;
+    m_scrollY -= y - m_lastMouseY;
+    m_lastMouseX = x;
+    m_lastMouseY = y;
+
+    SCROLLINFO si = {};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_ALL;
+    GetScrollInfo(m_hwnd, SB_HORZ, &si);
+    const int maxX = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage));
+    m_scrollX = (std::clamp)(m_scrollX, 0, maxX);
+    m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
+
+    updateVisiblePage();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void ViewerWin32::onDragEnd() {
+    if (!m_dragging)
+        return;
+    m_dragging = false;
+    ReleaseCapture();
+    SetCursor(LoadCursor(nullptr, IDC_ARROW));
+    updateScrollBars();
+    if (needsStripRerender())
+        onControllerChanged();
+}
+
 void ViewerWin32::onMouseWheel(int delta) {
     if (!m_controller)
         return;
@@ -360,8 +437,7 @@ void ViewerWin32::onMouseWheel(int delta) {
         // Accumulate fractional wheel deltas so high-resolution wheels and
         // trackpads (which may deliver |delta| < WHEEL_DELTA per message)
         // still produce smooth, lossless scrolling.
-        constexpr int kWheelStep = 60;
-        m_wheelRemainder += delta * kWheelStep;
+        m_wheelRemainder += delta * kWheelStepPx;
         const int applied = m_wheelRemainder / WHEEL_DELTA;
         m_wheelRemainder -= applied * WHEEL_DELTA;
         m_scrollY -= applied;
@@ -482,17 +558,16 @@ void ViewerWin32::onVScroll(int code, int pos) {
         }
     } else {
         switch (code) {
-        case SB_LINEUP:    m_scrollY -= 20; break;
-        case SB_LINEDOWN:  m_scrollY += 20; break;
+        case SB_LINEUP:    m_scrollY -= kScrollBarLineStepPx; break;
+        case SB_LINEDOWN:  m_scrollY += kScrollBarLineStepPx; break;
         case SB_PAGEUP:    m_scrollY -= si.nPage; break;
         case SB_PAGEDOWN:  m_scrollY += si.nPage; break;
         case SB_THUMBTRACK: case SB_THUMBPOSITION:
             m_scrollY = pos; break;
         case SB_TOP:       m_scrollY = 0; break;
-        case SB_BOTTOM:    m_scrollY = si.nMax; break;
+        case SB_BOTTOM:    m_scrollY = maxScrollY(); break;
         }
-        int maxY = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage));
-        m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
+        m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
         updateVisiblePage();
         updateScrollBars();
         InvalidateRect(m_hwnd, nullptr, FALSE);
@@ -510,8 +585,8 @@ void ViewerWin32::onHScroll(int code, int pos) {
     GetScrollInfo(m_hwnd, SB_HORZ, &si);
 
     switch (code) {
-    case SB_LINELEFT:   m_scrollX -= 20; break;
-    case SB_LINERIGHT:  m_scrollX += 20; break;
+    case SB_LINELEFT:   m_scrollX -= kScrollBarLineStepPx; break;
+    case SB_LINERIGHT:  m_scrollX += kScrollBarLineStepPx; break;
     case SB_PAGELEFT:   m_scrollX -= si.nPage; break;
     case SB_PAGERIGHT:  m_scrollX += si.nPage; break;
     case SB_THUMBTRACK: case SB_THUMBPOSITION:
@@ -588,11 +663,16 @@ bool ViewerWin32::needsStripRerender() const {
 int ViewerWin32::maxScrollY() const {
     if (!m_hwnd)
         return 0;
+    // The scrollbar is configured with nMax = imgH - vh and nPage = vh.
+    // Win32 clamps the reachable slider position to nMax - (nPage - 1),
+    // i.e. imgH - 2*vh + 1, so the internal scroll value and the visible
+    // scroll position must agree on that ceiling.
     RECT rc;
     GetClientRect(m_hwnd, &rc);
     const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
     const int vh = (std::max)(1, static_cast<int>(rc.bottom) - panelH - 2 * kPageMargin);
-    return (std::max)(0, m_currentImage.height() - vh);
+    const int raw = m_currentImage.height() - 2 * vh + 1;
+    return (std::max)(0, raw);
 }
 
 void ViewerWin32::imageToBitmap(const QImage& src) {
