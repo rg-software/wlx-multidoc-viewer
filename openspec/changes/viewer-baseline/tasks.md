@@ -13,7 +13,7 @@
 
 ## 2. Engine contract verification
 
-- [ ] 2.1 Extend `DocumentEngine::renderPage` with a `rotation` parameter (0/90/180/270) and update `MuPdfEngine` / `DjVuEngine` to compose the rotation into the render matrix
+- [x] 2.1 Extend `DocumentEngine::renderPage` with a `rotation` parameter (0/90/180/270) and update `MuPdfEngine` / `DjVuEngine` to compose the rotation into the render matrix
 - [x] 2.2 Confirm `MuPdfEngine::renderPage(page, zoom, dpiScale, rotation)` produces a bitmap whose pixel size after rotation is correct at integer zoom factors — implemented; pixel-perfect rotation requires a fixture PDF smoke test (covered by task 6.1).
 - [x] 2.3 Confirm `DjVuEngine::renderPage(page, zoom, dpiScale, rotation)` matches MuPDF dimensions and rotation behavior — implemented; DjVu rotation falls back to QImage post-rotation since djvulibre does not expose a rotate step; functional parity validated at task 6.1.
 - [x] 2.4 Smoke-test both engines with a known PDF at DPI scales `1.0`, `1.25`, `1.5`, `2.0` and rotations `0`, `90`, `180`, `270`; compare widths/heights and pixel-perfect rotation — covered by the spec walkthrough in task 6.1.
@@ -47,8 +47,8 @@
 - [x] 6.1 Walk every scenario under `specs/viewer-rendering/spec.md` (including rotation) against the running viewer; record passes and failures — round 1: 6.1.a (palette), 6.1.e (centering) FAIL → fixed (RGB/BGR swap in `imageToBitmap`, centered BitBlt in `onPaint`). 6.1.f (page shrinks) is expected fit-to-page behavior; 6.1.i ('0' key) is TC-side key delivery, viewer code is correct.
 - [x] 6.2 Walk every scenario under `specs/viewer-navigation/spec.md` (including viewport-preserving continuous jump) against the running viewer; record passes and failures — round 1: 6.2.i (continuous jump) FAIL → fixed (`setWidgetResizable(false)` on QScrollArea, deferred scroll restore via `QTimer::singleShot(0)` in `onControllerChanged`).
 - [x] 6.3 Walk every scenario under `specs/viewer-zoom/spec.md` (three-state fit cycle) against the running viewer; record passes and failures — round 1: 6.3.a (cycle only 2 states) FAIL → fixed (`cycleFitMode` now transitions FitToPage → FitToWidth → Manual(100%) → FitToPage).
-- [ ] 6.4 Walk every scenario under `specs/viewer-display-modes/spec.md` (continuous wheel scroll + paged wheel jump) against the running viewer; record passes and failures — needs real viewer.
-- [ ] 6.5 Walk every scenario under `specs/viewer-info-panel/spec.md` against the running viewer; record passes and failures — needs real viewer.
+- [x] 6.4 Walk every scenario under `specs/viewer-display-modes/spec.md` (continuous wheel scroll + paged wheel jump) against the running viewer; record passes and failures — tested: continuous smooth scroll, paged wheel jump, V toggle preserves page, Shift+V fit cycle. All pass on Win32.
+- [x] 6.5 Walk every scenario under `specs/viewer-info-panel/spec.md` against the running viewer; record passes and failures — tested: format `Fit: Page`/`Fit: Width`/`Zoom: X%`, rounding, panel above page area. All pass on Win32.
 - [ ] 6.6 Open a follow-up change for any scenario that fails after this change ships — depends on 6.1–6.5.
 
 ## 7. Archive superseded changes

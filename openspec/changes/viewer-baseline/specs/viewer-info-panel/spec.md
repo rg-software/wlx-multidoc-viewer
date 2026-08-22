@@ -6,15 +6,15 @@ Defines the top-of-viewport info panel that surfaces the viewer's live state —
 
 ### Requirement: Info panel is always visible while a document is open
 
-The viewer SHALL display the info panel at the top of the viewport whenever a document is loaded, and SHALL hide it when no document is open.
+The viewer SHALL display the info panel at the top of the viewport whenever a document is loaded. When no document is open, the panel SHALL remain visible but display placeholder text (e.g. `- / -`).
 
 #### Scenario: Panel visible after load
 - **WHEN** a document is successfully loaded
 - **THEN** the info panel is rendered at the top of the viewport
 
-#### Scenario: Panel hidden when no document
+#### Scenario: Panel placeholder when no document
 - **WHEN** no document is open
-- **THEN** the info panel is not rendered
+- **THEN** the info panel is visible but shows placeholder values (e.g. `- / -`)
 
 ### Requirement: Info panel shows current and total page
 

@@ -88,9 +88,9 @@ The viewer SHALL support rotating the rendered page by 90° clockwise and 90° c
 - **WHEN** the document is rotated and zoom or DPI is changed
 - **THEN** the rotated page is rendered at the new zoom and DPI without re-evaluating the rotation
 
-### Requirement: Continuous-mode strip renders all pages and centers each page horizontally
+### Requirement: Continuous-mode strip renders visible pages and centers each page horizontally
 
-When continuous mode is active, the viewer SHALL render all pages of the document stacked vertically with a small gap between consecutive pages. Each page SHALL be centered horizontally within the strip (i.e. the left margin equals the right margin within the strip row). The strip width SHALL be the wider of the rendered page width and the viewport width.
+When continuous mode is active, the viewer SHALL render pages of the document stacked vertically with a small gap between consecutive pages. Pages within and near the viewport (3 pages buffer above and below) SHALL be rendered; pages outside this range remain as background until scrolled into view. Each page SHALL be centered horizontally within the strip (i.e. the left margin equals the right margin within the strip row). The strip width SHALL be the wider of the rendered page width and the viewport width. The strip height SHALL represent the full document height for correct scrollbar range, regardless of which pages are currently rendered.
 
 #### Scenario: Pages centered in strip
 - **WHEN** continuous mode is active and the rendered page width is smaller than the viewport width
