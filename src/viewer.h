@@ -47,6 +47,7 @@ private slots:
     void onRotateCw();
     void onRotateCcw();
     void onGoToPage();
+    void onExitRequested();
     void onVerticalScrollChanged(int value);
 
 private:

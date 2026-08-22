@@ -1,5 +1,6 @@
 #include "viewer.h"
 
+#include <QCoreApplication>
 #include <QInputDialog>
 #include <QMouseEvent>
 #include <QPainter>
@@ -99,6 +100,7 @@ ViewerWidget::ViewerWidget(QWidget* parent)
 
     m_controller = std::make_unique<ViewerController>();
     m_controller->setStateChangedCallback([this]() { onControllerChanged(); });
+    m_canvas->setController(m_controller.get());
 
     connect(new QShortcut(QKeySequence(Qt::Key_Right), this), &QShortcut::activated, this, &ViewerWidget::onNextPage);
     connect(new QShortcut(QKeySequence(Qt::Key_Left), this), &QShortcut::activated, this, &ViewerWidget::onPrevPage);
@@ -115,6 +117,7 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     connect(new QShortcut(QKeySequence(Qt::Key_R), this), &QShortcut::activated, this, &ViewerWidget::onRotateCw);
     connect(new QShortcut(QKeySequence("Shift+R"), this), &QShortcut::activated, this, &ViewerWidget::onRotateCcw);
     connect(new QShortcut(QKeySequence(Qt::Key_G), this), &QShortcut::activated, this, &ViewerWidget::onGoToPage);
+    connect(new QShortcut(QKeySequence(Qt::Key_Escape), this), &QShortcut::activated, this, &ViewerWidget::onExitRequested);
 }
 
 ViewerWidget::~ViewerWidget() {
@@ -257,6 +260,21 @@ void ViewerWidget::onGoToPage() {
             m_scrollArea->verticalScrollBar()->setValue(m_controller->scrollOffsetForPage(page));
         }
     }
+}
+
+// ESC exits the viewer by forwarding a synthetic Q keypress to DC's viewer
+// panel (our parent widget), matching wlx-edge-viewer's ESC bridge: the host
+// processes Q exactly like a physical press and runs its own cm_ExitViewer /
+// lister-close path. The plugin never closes itself — that would race the
+// host's close logic.
+void ViewerWidget::onExitRequested() {
+    QWidget* parent = parentWidget();
+    if (!parent)
+        return;
+    QCoreApplication::postEvent(parent,
+        new QKeyEvent(QEvent::KeyPress, Qt::Key_Q, Qt::NoModifier));
+    QCoreApplication::postEvent(parent,
+        new QKeyEvent(QEvent::KeyRelease, Qt::Key_Q, Qt::NoModifier));
 }
 
 void ViewerWidget::keyPressEvent(QKeyEvent* event) {

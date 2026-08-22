@@ -80,6 +80,11 @@ set_target_properties(wlx-multidoc-viewer PROPERTIES
     OUTPUT_NAME "wlx-multidoc-viewer"
 )
 
+# Lister plugin destination for Double Commander: <prefix>/share/doublecmd/plugins/multidoc
+include(GNUInstallDirs)
+install(TARGETS wlx-multidoc-viewer
+        LIBRARY DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
+
 if(WIN32)
     set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".wlx64")
     target_compile_definitions(wlx-multidoc-viewer PRIVATE WLX_MULTIDOC_VIEWER_EXPORTS)

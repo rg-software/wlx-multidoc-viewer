@@ -49,7 +49,13 @@ Install system dependencies first. On Debian/Ubuntu:
 sudo apt install cmake ninja-build qt6-base-dev libmupdf-dev libdjvulibre-dev
 ```
 
-Then:
+On Arch/CachyOS:
+
+```bash
+sudo pacman -S --needed cmake ninja qt6-base mupdf djvulibre
+```
+
+Build:
 
 ```bash
 cmake --preset linux-release
@@ -57,6 +63,14 @@ cmake --build --preset linux-release
 ```
 
 Output: `build/linux-release/wlx-multidoc-viewer.wlx64`
+
+Install (user-local, no root):
+
+```bash
+cmake --install build/linux-release --prefix ~/.local
+```
+
+This places the plugin at `~/.local/share/doublecmd/plugins/multidoc/wlx-multidoc-viewer.wlx64`. For a system-wide install, use `--prefix /usr` instead (lands in `/usr/share/doublecmd/plugins/multidoc/`).
 
 ### Test harnesses (optional, Windows)
 
@@ -67,7 +81,7 @@ The project builds two real-input harnesses with `-DWLX_BUILD_HARNESS=ON`:
 
 ## Installation
 
-Copy `wlx-multidoc-viewer.wlx64` (Windows) or `wlx-multidoc-viewer.wlx64` (Linux) into Total Commander's plugin directory, then add it as a lister plugin via *Configuration → Options → Plugins → Lister plugins*. Double Commander similarly registers `.wlx` plugins in its plugin settings.
+On Linux, prefer `cmake --install build/linux-release --prefix ~/.local` (see [Building](#building)); it installs to `<prefix>/share/doublecmd/plugins/multidoc/`. Otherwise copy `wlx-multidoc-viewer.wlx64` manually. Then register the plugin in the file manager: add it as a lister plugin via *Configuration → Options → Plugins → Lister plugins* (Total Commander); Double Commander similarly registers `.wlx64` plugins in its plugin settings.
 
 ## Usage
 
@@ -83,6 +97,7 @@ Open any supported file in the lister (e.g. press `F3` in Total Commander). Use 
 | `+` / `-` / `0` | Zoom in / out / 100% |
 | `R` / `Shift+R` | Rotate CW / CCW |
 | `G` | Go to page (Qt viewer) |
+| `Esc` | Exit the viewer (Qt viewer forwards a `Q` keypress to the host) |
 | Mouse wheel | Smooth scroll (continuous) / page turn (paged) |
 | Left-drag | Pan (continuous mode) |
 

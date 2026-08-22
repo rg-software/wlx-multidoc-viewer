@@ -74,4 +74,4 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 |---|---|---|
 | **Windows `G` key go-to-page** | Low | Spec requires dialog; no handler in `viewer_win32.cpp`. Qt has `QInputDialog`. |
 | **Asynchronous rendering** | Medium | Continuous mode renders newly-visible pages synchronously on the UI thread (one-frame stall on fast jumps). The per-page cache helps; a background worker is planned in `async-render-worker`. |
-| **Qt build untested** | Medium | The Qt `viewer.*` rework compiles cleanly on Win32 by inspection but has not been built/run on Linux yet; verify `cmake --preset linux-release`. |
+| **Qt build untested** | ~~Medium~~ Resolved | Linux build verified (`cmake --preset linux-release`); offscreen smoke test confirmed paged + continuous rendering (was all-gray: `ViewerCanvas` controller was never wired via `setController`). In-host DC verification still pending. |
