@@ -117,7 +117,7 @@ QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale, int rotation
     }
 
     if (!m_fmt) {
-        m_fmt = ddjvu_format_create(DDJVU_FORMAT_BGR24, 0, nullptr);
+        m_fmt = ddjvu_format_create(DDJVU_FORMAT_RGB24, 0, nullptr);
         if (!m_fmt) {
             ddjvu_page_release(djpage);
             return {};
@@ -152,7 +152,6 @@ QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale, int rotation
 
     QImage img(buffer, scaledW, scaledH, stride, QImage::Format_RGB888);
     QImage result = img.copy();
-    result = result.flipped(Qt::Vertical);
 
     if (rotation != 0) {
         QTransform t;

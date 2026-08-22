@@ -179,6 +179,8 @@ void ViewerWin32::closeDocument() {
 void ViewerWin32::onControllerChanged() {
     m_currentImage = m_controller->renderVisiblePages(m_scrollY);
     imageToBitmap(m_currentImage);
+    m_renderedScrollY = m_scrollY;
+    m_renderedPageCount = m_controller->pageCount();
     updateScrollBars();
     if (m_infoPanel)
         m_infoPanel->onControllerChanged();
@@ -245,6 +247,20 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         }
         captured = 1;
         break;
+    case VK_UP:
+        if (continuous)
+            m_scrollY -= 60;
+        else
+            m_controller->prevPage();
+        captured = 1;
+        break;
+    case VK_DOWN:
+        if (continuous)
+            m_scrollY += 60;
+        else
+            m_controller->nextPage();
+        captured = 1;
+        break;
     case VK_HOME:
         if (continuous) {
             m_scrollY = 0;
@@ -267,7 +283,7 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         else
             m_controller->toggleMode();
         m_scrollX = 0;
-        m_scrollY = 0;
+        m_scrollY = (m_controller->currentPage() - 1) * m_controller->pageStride();
         captured = 1;
         break;
     case 'R':
@@ -296,7 +312,12 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
             int maxY = (std::max)(0, m_currentImage.height() - 1);
             m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
             updateVisiblePage();
-            onControllerChanged();
+            if (needsStripRerender())
+                onControllerChanged();
+            else {
+                updateScrollBars();
+                InvalidateRect(m_hwnd, nullptr, FALSE);
+            }
         } else if (wp == VK_RIGHT || wp == VK_LEFT || wp == VK_NEXT || wp == VK_PRIOR
                    || wp == VK_HOME || wp == VK_END || wp == 'V') {
             m_scrollX = 0;
@@ -321,7 +342,12 @@ void ViewerWin32::onMouseWheel(int delta) {
         int maxY = (std::max)(0, m_currentImage.height() - 1);
         m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
         updateVisiblePage();
-        onControllerChanged();
+        if (needsStripRerender())
+            onControllerChanged();
+        else {
+            updateScrollBars();
+            InvalidateRect(m_hwnd, nullptr, FALSE);
+        }
         return;
     }
     updateScrollBars();
@@ -440,7 +466,8 @@ void ViewerWin32::onVScroll(int code, int pos) {
         int maxY = (std::max)(0, static_cast<int>(si.nMax) - static_cast<int>(si.nPage));
         m_scrollY = (std::clamp)(m_scrollY, 0, maxY);
         updateVisiblePage();
-        onControllerChanged();
+        updateScrollBars();
+        InvalidateRect(m_hwnd, nullptr, FALSE);
         return;
     }
 
@@ -518,6 +545,16 @@ void ViewerWin32::updateVisiblePage() {
         if (m_infoPanel)
             m_infoPanel->onControllerChanged();
     }
+}
+
+bool ViewerWin32::needsStripRerender() const {
+    if (!m_controller || !m_controller->hasDocument())
+        return false;
+    if (m_renderedPageCount != m_controller->pageCount())
+        return true;
+    int vh = m_controller->pageAreaHeight();
+    int dist = abs(m_scrollY - m_renderedScrollY);
+    return dist > vh;
 }
 
 void ViewerWin32::imageToBitmap(const QImage& src) {

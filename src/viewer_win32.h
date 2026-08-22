@@ -34,6 +34,7 @@ private:
     void onHScroll(int code, int pos);
     void updateScrollBars();
     void updateVisiblePage();
+    bool needsStripRerender() const;
     void imageToBitmap(const QImage& src);
     void onControllerChanged();
     void ensureInfoPanel();
@@ -48,6 +49,8 @@ private:
 
     int m_scrollX = 0;
     int m_scrollY = 0;
+    int m_renderedScrollY = 0;
+    int m_renderedPageCount = 0;
     int m_rotationShortcutPressed = 0;
 };
 
