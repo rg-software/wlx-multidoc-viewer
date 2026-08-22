@@ -6,10 +6,34 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # --- MuPDF -----------------------------------------------------------
-find_package(unofficial-libmupdf CONFIG REQUIRED)
+if(WIN32)
+    find_package(unofficial-libmupdf CONFIG REQUIRED)
+    set(MUPDF_TARGET unofficial::libmupdf::libmupdf)
+else()
+    find_library(MUPDF_LIBRARY NAMES mupdf REQUIRED)
+    find_path(MUPDF_INCLUDE_DIR NAMES mupdf/fitz.h REQUIRED)
+    add_library(unofficial::libmupdf::libmupdf UNKNOWN IMPORTED)
+    set_target_properties(unofficial::libmupdf::libmupdf PROPERTIES
+        IMPORTED_LOCATION "${MUPDF_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${MUPDF_INCLUDE_DIR}"
+    )
+    set(MUPDF_TARGET unofficial::libmupdf::libmupdf)
+endif()
 
 # --- DjVuLibre ------------------------------------------------------
-find_package(djvulibre CONFIG REQUIRED)
+if(WIN32)
+    find_package(djvulibre CONFIG REQUIRED)
+    set(DJVU_TARGET djvulibre::djvulibre)
+else()
+    find_library(DJVULIBRE_LIBRARY NAMES djvulibre REQUIRED)
+    find_path(DJVULIBRE_INCLUDE_DIR NAMES libdjvu/ddjvuapi.h REQUIRED)
+    add_library(djvulibre::djvulibre UNKNOWN IMPORTED)
+    set_target_properties(djvulibre::djvulibre PROPERTIES
+        IMPORTED_LOCATION "${DJVULIBRE_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${DJVULIBRE_INCLUDE_DIR}"
+    )
+    set(DJVU_TARGET djvulibre::djvulibre)
+endif()
 
 # --- Platform-specific Qt -------------------------------------------
 if(WIN32)
@@ -35,9 +59,6 @@ else()
 endif()
 
 target_include_directories(wlx-multidoc-viewer PRIVATE src)
-
-set(MUPDF_TARGET unofficial::libmupdf::libmupdf)
-set(DJVU_TARGET djvulibre::djvulibre)
 
 if(WIN32)
     target_link_libraries(wlx-multidoc-viewer
@@ -65,7 +86,7 @@ if(WIN32)
 elseif(APPLE)
     set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".wlx")
 else()
-    set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".so")
+    set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".wlx64")
 endif()
 
 option(WLX_BUILD_HARNESS "Build the Win32 drag-test harness executable" OFF)
