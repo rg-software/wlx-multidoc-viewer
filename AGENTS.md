@@ -28,6 +28,7 @@ src/
   formatdispatcher.cpp  Routes file extensions to the right engine
   mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML)
   djvuengine.*          DjVuLibre backend (DJVU, DJV)
+  viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache
   viewer_win32.*        Win32 viewer (Windows) — pure HWND, per-page BitBlt paint
   viewer.*              Qt viewer (Linux) — QFrame, QScrollArea, ViewerCanvas widget
 ```
@@ -72,6 +73,6 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 
 | Gap | Severity | Note |
 |---|---|---|
-| **Windows `G` key go-to-page** | Low | Spec requires dialog; no handler in `viewer_win32.cpp`. Qt has `QInputDialog`. |
-| **Asynchronous rendering** | Medium | Continuous mode renders newly-visible pages synchronously on the UI thread (one-frame stall on fast jumps). The per-page cache helps; a background worker is planned in `async-render-worker`. |
-| **Qt build untested** | ~~Medium~~ Resolved | Linux build verified (`cmake --preset linux-release`); offscreen smoke test confirmed paged + continuous rendering (was all-gray: `ViewerCanvas` controller was never wired via `setController`). In-host DC verification still pending. |
+| **Windows `G` key go-to-page** | Low | Qt has `QInputDialog` (`viewer.cpp` `onGoToPage`); Win32 has no dialog equivalent. Add one in `viewer_win32.cpp` if wanted. |
+| **Synchronous first-render of a new page** | Low | Rendering happens on the UI thread only the first time a page enters the viewport; the per-page LRU cache (`kCacheWindowPages`) makes revisits instant. A background render worker was tried and reverted — thread-safety + FIFO-order complexity did not justify the latency gain for a single lister (see `async-render-worker` change, abandoned). |
+| **Qt in-host verification** | Medium | The continuous-mode rework changed `viewer.*`; Linux must re-verify `cmake --preset linux-release` and scroll behavior in Total/Double Commander. |
