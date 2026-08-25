@@ -2,7 +2,7 @@
 #define TOOLBAR_ICONS_H
 
 #include "toolbar.h"
-#include "la_fontdata.h"
+#include "material_symbols_fontdata.h"
 
 #include <QImage>
 

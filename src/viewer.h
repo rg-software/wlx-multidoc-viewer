@@ -67,7 +67,6 @@ private:
     void extendSelection(const QPoint& pos);
     void endSelectionGesture();
     void clearSelectionUi();
-    void copySelection();
     void paintSearch(QPainter& p, const QRect& vis);
 
     std::unique_ptr<ViewerController> m_controller;

@@ -54,7 +54,7 @@ bool printDocumentQt(QWidget* parent, ViewerController* controller) {
                          : controller->pageCount();
 
     for (int page = first; page <= last; ++page) {
-        const QImage img = renderPage(parent, controller, page, printable, rotation);
+        const QImage img = renderPage(parent, controller, page, printable.size(), rotation);
         if (!img.isNull()) {
             QRectF dst = printable;
             const double scale = std::min(printable.width() / img.width(),

@@ -77,8 +77,8 @@ int laFontId() {
     if (fontId == -2) {
         ensureGuiApp();
         fontId = QFontDatabase::addApplicationFontFromData(
-            QByteArray::fromRawData(reinterpret_cast<const char*>(kLineAwesomeTtf),
-                                    static_cast<int>(kLineAwesomeTtfSize)));
+            QByteArray::fromRawData(reinterpret_cast<const char*>(kMaterialSymbolsTtf),
+                                    static_cast<int>(kMaterialSymbolsTtfSize)));
     }
     return fontId;
 }

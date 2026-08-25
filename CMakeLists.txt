@@ -46,14 +46,14 @@ endif()
 # --- Embed the toolbar icon font (Material Symbols Outlined). -----------------
 # A variable TTF is turned into a byte-array header at configure time so the
 # plugin needs no runtime asset file on either platform.
-set(LA_FONT_SRC "${CMAKE_SOURCE_DIR}/assets/MaterialSymbolsOutlined.ttf")
-set(LA_FONT_HEADER "${CMAKE_CURRENT_BINARY_DIR}/la_fontdata.h")
+set(MS_FONT_SRC "${CMAKE_SOURCE_DIR}/assets/MaterialSymbolsOutlined.ttf")
+set(MS_FONT_HEADER "${CMAKE_CURRENT_BINARY_DIR}/material_symbols_fontdata.h")
 add_custom_command(
-    OUTPUT "${LA_FONT_HEADER}"
+    OUTPUT "${MS_FONT_HEADER}"
     COMMAND ${CMAKE_COMMAND}
-        -DIN=${LA_FONT_SRC} -DOUT=${LA_FONT_HEADER} -DVARNAME=LineAwesomeTtf
+        -DIN=${MS_FONT_SRC} -DOUT=${MS_FONT_HEADER} -DVARNAME=MaterialSymbolsTtf
         -P ${CMAKE_SOURCE_DIR}/cmake/embed_font.cmake
-    DEPENDS "${LA_FONT_SRC}"
+    DEPENDS "${MS_FONT_SRC}"
     VERBATIM
 )
 
@@ -88,10 +88,10 @@ else()
     )
 endif()
 
-add_custom_target(la_font_header DEPENDS "${LA_FONT_HEADER}")
+add_custom_target(material_symbols_font_header DEPENDS "${MS_FONT_HEADER}")
 
 target_include_directories(wlx-multidoc-viewer PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
-add_dependencies(wlx-multidoc-viewer la_font_header)
+add_dependencies(wlx-multidoc-viewer material_symbols_font_header)
 
 if(WIN32)
     target_link_libraries(wlx-multidoc-viewer
@@ -147,7 +147,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/print_win32.cpp
     )
     target_include_directories(harness-win PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
-    add_dependencies(harness-win la_font_header)
+    add_dependencies(harness-win material_symbols_font_header)
     target_link_libraries(harness-win
         Qt6::Core
         Qt6::Gui
@@ -172,7 +172,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/print_win32.cpp
     )
     target_include_directories(harness-scroll PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
-    add_dependencies(harness-scroll la_font_header)
+    add_dependencies(harness-scroll material_symbols_font_header)
     target_link_libraries(harness-scroll
         Qt6::Core
         Qt6::Gui

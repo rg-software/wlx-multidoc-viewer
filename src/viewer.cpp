@@ -586,8 +586,6 @@ if (!m_dragging) {
             }
             break;
         }
-            break;
-        }
         const QPoint delta = m_lastMousePos - pos;
         m_lastMousePos = pos;
         QScrollBar* vBar = m_scrollArea->verticalScrollBar();
