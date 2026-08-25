@@ -26,12 +26,24 @@ src/
   wlxplugin.h           WLX API types and DCPCALL macro
   document.h            DocumentEngine interface (open/render/text/outline + pageText/PageText)
   formatdispatcher.cpp  Routes file extensions to the right engine
-  mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML); pageText from fz_stext
-  djvuengine.*          DjVuLibre backend (DJVU, DJV); pageText unavailable (see AGENTS gaps)
-  viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache + selection
+  mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML); pageText from fz_stext; searchText from fz_search_page_cb
+  djvuengine.*          DjVuLibre backend (DJVU, DJV); pageText/search unavailable (see AGENTS gaps)
+  viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache + selection + text search state
   textselection.*       Platform-agnostic text-selection model (anchor/focus, ranges)
-  viewer_win32.*        Win32 viewer (Windows) — pure HWND, per-page BitBlt paint
-  viewer.*              Qt viewer (Linux) — QFrame, QScrollArea, ViewerCanvas widget
+  searchcontroller.*    Whole-document search worker thread (progressive per-page results, atomic cancel)
+  toolbar.*             Shared toolbar interface + ToolbarPresenter (controller state <-> backend)
+  toolbar_icons.*       Programmatic monochrome toolbar glyphs (QImage), no binary assets
+  toolbar_win32.*       Win32 toolbar backend (child HWND + owner-drawn BUTTON/EDIT/STATIC)
+  toolbar_qt.*          Qt toolbar backend (QToolButtons/QLineEdit/QLabel row)
+  sidebar.*             Shared outline sidebar presenter/backend contract (flat ids, lazy children)
+  sidebar_win32.*       Win32 sidebar backend (WC_TREEVIEW, per-level lazy population)
+  sidebar_qt.*          Qt sidebar backend (QTreeWidget dock area, lazy population)
+  printcoordinator.*    Shared print job pipeline (pages × copies, printer-resolution render worker)
+  print_win32.cpp       PrintDlgEx -> printer DC -> StretchDIBits spool
+  print_qt.cpp          QPrintDialog + QPrinter painting (Linux only)
+  textselection.*       Platform-agnostic text-selection model (anchor/focus, ranges)
+  viewer_win32.*        Win32 viewer (Windows) — pure HWND, per-page BitBlt paint, hosts toolbar/sidebar
+  viewer.*              Qt viewer (Linux) — QFrame + ViewerCanvas widget, hosts toolbar/sidebar
 ```
 
 ### Platform split
@@ -49,14 +61,15 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 - `CMakePresets.json`: VS 2022 generator + `x64-windows-static-md` triplet (Windows); Ninja (Linux)
 - `vcpkg.json`: manifest mode with builtin-baseline (Windows only)
 - `overlay-ports/djvulibre/`: custom port with manual config.cmake (debug+release imported locations, empty API macros for static linking)
-- `CMakeLists.txt`: platform-conditional — `Qt6::Core`+`Qt6::Gui` on Windows, `Qt6::Widgets` on Linux; `find_package` on Windows vs `find_library` on Linux
+- `CMakeLists.txt`: platform-conditional — `Qt6::Core`+`Qt6::Gui` on Windows, `Qt6::Widgets`+`Qt6::PrintSupport` on Linux; `find_package` on Windows vs `find_library` on Linux
 
 ## Conventions
 
 - C++17, no exceptions in engine code (fz_try/fz_catch)
 - WLX API uses `DCPCALL` for exports, `HANDLE` for opaque window pointers
 - Detect string must fit in 260 chars (WLX buffer limit)
-- No toolbar — TC provides its own navigation UI
+- The viewer hosts its own toolbar: one shared `ToolbarPresenter`/`SidebarPresenter` pair drives thin per-platform backends (`toolbar_win32.*`/`toolbar_qt.*`, `sidebar_win32.*`/`sidebar_qt.*`). State flows controller -> presenter -> backend and backend events -> presenter -> controller, so keyboard and toolbar never diverge.
+- The toolbar copy button is a permanently-disabled placeholder: text selection is owned by a separate future change, so no fallback copy action is wired (toolbar_* backends + ToolbarPresenter::onCopy).
 - `ListLoad` returns an HWND (Windows) or widget pointer (Linux)
 
 ## Known Issues
@@ -68,13 +81,13 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 - ~~DPI awareness hardcoded~~ — fixed: viewers pass system DPI scale (`GetDpiForWindow` / Qt `devicePixelRatioF`) into `ViewerController::setDpiScale()`; fit math and strip geometry are DPI-aware
 - ~~Strip height cap (1.5M px) truncates scroll range~~ — fixed: continuous mode uses a per-page virtual canvas (`m_pageRects`/`m_contentSize`); the scrollbar covers the full document and memory is bounded by the per-page render cache (`kCacheWindowPages` instead of a single tall bitmap)
 - ~~Mixed page sizes misalign in continuous strip~~ — fixed: each page is laid out with its own scaled dimensions and centered; uniform stride removed
-- ~~Fit-to-page overflow (~16px clip)~~ — fixed: fit zoom and continuous paint now use the same page-area size (info panel height subtracted, no margin inset)
+- ~~Fit-to-page overflow (~16px clip)~~ — fixed: fit zoom and continuous paint now use the same page-area size (no margin inset)
 
 ### Open gaps
 
 | Gap | Severity | Note |
 |---|---|---|
-| **Windows `G` key go-to-page** | Low | Qt has `QInputDialog` (`viewer.cpp` `onGoToPage`); Win32 has no dialog equivalent. Add one in `viewer_win32.cpp` if wanted. |
 | **Synchronous first-render of a new page** | Low | Rendering happens on the UI thread only the first time a page enters the viewport; the per-page LRU cache (`kCacheWindowPages`) makes revisits instant. A background render worker was tried and reverted — thread-safety + FIFO-order complexity did not justify the latency gain for a single lister (see `async-render-worker` change, abandoned). |
-| **DjVu text-layer selection** | Low | The vcpkg djvulibre static build does not export the core miniexp accessors (`miniexp_car/cdr/consp/symbolp/to_int`), so `ddjvu_document_get_pagetext` trees cannot be walked. DjVu pages report no text layer (selection works only for MuPDF-backed formats). Revisit if a djvulibre build with the miniexp public API is available, or add a local miniexp.h overlay. |
-| **Qt in-host verification** | Medium | The continuous-mode rework and text-selection changed `viewer.*`; Linux must re-verify `cmake --preset linux-release` and scroll + selection behavior in Total/Double Commander. |
+| **DjVu text-layer selection & search** | Low | The vcpkg djvulibre static build does not export the core miniexp accessors (`miniexp_car/cdr/consp/symbolp/to_int`), so `ddjvu_document_get_pagetext` trees cannot be walked. DjVu pages report no text layer and `supportsSearch() == false` (selection and find work only for MuPDF-backed formats). Revisit if a djvulibre build with the miniexp public API is available, or add a local miniexp.h overlay. |
+| **Qt in-host verification** | Medium | The toolbar/sidebar/print rework changed `viewer.*`, `toolbar_qt.*`, `sidebar_qt.*`, `print_qt.cpp`; Linux must re-verify `cmake --preset linux-release` (new `Qt6::PrintSupport` dependency) and scroll + selection + toolbar behavior in Total/Double Commander. Windows interactive smoke tests (task 4.4) are likewise pending. |
+| **Print worker on Qt** | Low | QPrinter must be used on the main thread, so the Qt print path renders synchronously instead of on a `PrintCoordinator` worker; the Win32 path uses the worker. Page/copy resolution and fit math are still shared. |

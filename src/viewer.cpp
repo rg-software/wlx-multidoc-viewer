@@ -1,4 +1,7 @@
 #include "viewer.h"
+#include "toolbar_qt.h"
+#include "sidebar_qt.h"
+#include "print_qt.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -17,7 +20,7 @@
 
 void ViewerCanvas::paintEvent(QPaintEvent* event) {
     QPainter p(this);
-    p.fillRect(event->rect(), QColor(0x80, 0x80, 0x80));
+    p.fillRect(event->rect(), QColor(0xE8, 0xE8, 0xE8));
 
     if (!m_controller || !m_controller->hasDocument())
         return;
@@ -33,6 +36,7 @@ void ViewerCanvas::paintEvent(QPaintEvent* event) {
         const int y = (height() - img.height()) / 2;
         p.drawImage(std::max(0, x), std::max(0, y), img);
         paintSelection(p, rect());
+        paintSearchOverlay(p, rect());
         return;
     }
 
@@ -56,6 +60,99 @@ void ViewerCanvas::paintEvent(QPaintEvent* event) {
     }
     m_controller->trimRenderCache(vis.y());
     paintSelection(p, vis);
+    paintSearchOverlay(p, vis);
+}
+
+void ViewerCanvas::paintSelection(QPainter& p, const QRect& vis) const {
+    if (!m_controller || !m_controller->hasSelection())
+        return;
+
+    if (m_controller->isPagedMode()) {
+        const int page = m_controller->currentPage();
+        const QRect pr = m_controller->pageRect(page);
+        if (!pr.isValid())
+            return;
+        const QVector<QRectF> rects = m_controller->highlightRects(page);
+        if (rects.isEmpty())
+            return;
+        const QSize vp = size();
+        const int dx = (vp.width() - pr.width()) / 2;
+        const int dy = (vp.height() - pr.height()) / 2;
+        p.setBrush(QColor(255, 240, 105, 105));
+        p.setPen(Qt::NoPen);
+        for (const QRectF& r : rects)
+            p.drawRect(r.translated(dx - pr.x(), dy - pr.y()));
+        return;
+    }
+
+    const int first = m_controller->firstPageAtScroll(vis.y());
+    for (int page = first; page <= m_controller->pageCount(); ++page) {
+        const QRect pr = m_controller->pageRect(page);
+        if (pr.y() > vis.bottom())
+            break;
+        if (pr.bottom() < vis.y())
+            continue;
+        const QVector<QRectF> rects = m_controller->highlightRects(page);
+        if (rects.isEmpty())
+            continue;
+        p.setBrush(QColor(255, 240, 105, 105));
+        p.setPen(Qt::NoPen);
+        for (const QRectF& r : rects)
+            p.drawRect(r);
+    }
+}
+
+void ViewerCanvas::paintSearchOverlay(QPainter& p, const QRect& vis) const {
+    if (!m_controller || !m_controller->hasSearchHighlights())
+        return;
+
+    const bool paged = m_controller->isPagedMode();
+    const int first = paged ? m_controller->currentPage() : m_controller->firstPageAtScroll(vis.y());
+    const int last = paged ? m_controller->currentPage() : m_controller->pageCount();
+
+    for (int page = first; page <= last; ++page) {
+        const QRect pr = m_controller->pageRect(page);
+        if (!pr.isValid())
+            continue;
+        if (!paged && (pr.y() > vis.bottom() || pr.bottom() < vis.y()))
+            continue;
+
+        const QVector<QRectF> rects = m_controller->searchRectsOnPage(page);
+        const QRectF active = m_controller->activeSearchRectOnPage(page);
+
+        QPointF origin(0, 0);
+        if (paged) {
+            const QSize vp = size();
+            origin = QPointF((vp.width() - pr.width()) / 2 - pr.x(),
+                             (vp.height() - pr.height()) / 2 - pr.y());
+        }
+
+p.setPen(Qt::NoPen);
+        p.setBrush(QColor(255, 240, 105, 105));
+        for (const QRectF& r : rects) {
+            const QRectF rr = r.translated(origin);
+            p.drawRect(rr);
+        }
+
+        if (!active.isNull()) {
+            const QRectF rr = active.translated(origin);
+            p.setBrush(QColor(0, 220, 220, 150));   // cyan active match
+            p.setPen(QPen(QColor(0, 130, 130), 1));
+            p.drawRect(rr);
+        }
+    }
+}
+
+// ESC exits the viewer by forwarding a synthetic Q keypress to DC's viewer
+// panel (our parent widget), matching wlx-edge-viewer's ESC bridge.
+void ViewerWidget::onExitRequested() {
+    QWidget* parent = parentWidget();
+    if (!parent)
+        return;
+    QCoreApplication::postEvent(parent,
+        new QKeyEvent(QEvent::KeyPress, Qt::Key_Q, Qt::NoModifier));
+    QCoreApplication::postEvent(parent,
+        new QKeyEvent(QEvent::KeyRelease, Qt::Key_Q, Qt::NoModifier));
 }
 
 ViewerWidget::ViewerWidget(QWidget* parent)
@@ -67,35 +164,25 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     layout->setSpacing(0);
     layout->setContentsMargins(0, 0, 0, 0);
 
-    m_infoBar = new QFrame(this);
-    m_infoBar->setFixedHeight(ViewerController::kInfoPanelHeight);
-    m_infoBar->setStyleSheet("QFrame { background: #202020; }");
+    m_toolbar = new ToolbarQt(this);
+    layout->addWidget(m_toolbar);
 
-    m_infoLayout = new QHBoxLayout(m_infoBar);
-    m_infoLayout->setContentsMargins(8, 0, 8, 0);
-    m_infoLayout->setSpacing(16);
+    auto* mid = new QWidget(this);
+    m_midLayout = new QHBoxLayout(mid);
+    m_midLayout->setContentsMargins(0, 0, 0, 0);
+    m_midLayout->setSpacing(0);
 
-    m_pageIndicator = new QLabel("- / -", m_infoBar);
-    m_pageIndicator->setStyleSheet("QLabel { color: white; font-size: 11px; }");
-    m_infoLayout->addWidget(m_pageIndicator);
+    m_sidebar = new SidebarQt(mid);
+    m_sidebar->setVisible(false);
+    m_midLayout->addWidget(m_sidebar);
 
-    m_continuousIndicator = new QLabel("Continuous: OFF", m_infoBar);
-    m_continuousIndicator->setStyleSheet("QLabel { color: white; font-size: 11px; }");
-    m_infoLayout->addWidget(m_continuousIndicator);
-
-    m_fitIndicator = new QLabel("Fit to page: OFF", m_infoBar);
-    m_fitIndicator->setStyleSheet("QLabel { color: white; font-size: 11px; }");
-    m_infoLayout->addWidget(m_fitIndicator);
-
-    m_infoLayout->addStretch();
-
-    layout->addWidget(m_infoBar);
-
-    m_scrollArea = new QScrollArea(this);
+    m_scrollArea = new QScrollArea(mid);
     m_scrollArea->setWidgetResizable(false);
     m_scrollArea->setAlignment(Qt::AlignCenter);
     m_scrollArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    layout->addWidget(m_scrollArea);
+    m_midLayout->addWidget(m_scrollArea, 1);
+
+    layout->addWidget(mid, 1);
 
     m_canvas = new ViewerCanvas(m_scrollArea);
     m_scrollArea->setWidget(m_canvas);
@@ -107,8 +194,35 @@ ViewerWidget::ViewerWidget(QWidget* parent)
 
     m_controller = std::make_unique<ViewerController>();
     m_controller->setStateChangedCallback([this]() { onControllerChanged(); });
+    m_controller->setUiMarshal([this](std::function<void()> task) {
+        if (task)
+            QMetaObject::invokeMethod(this, std::move(task), Qt::QueuedConnection);
+    });
     m_canvas->setController(m_controller.get());
+    m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
 
+    m_toolbarPresenter.attach(m_controller.get(), m_toolbar);
+    m_toolbarPresenter.setScrollApplier([this](int scrollY) {
+        m_controller->setScrollAnchor(scrollY);
+        m_scrollArea->verticalScrollBar()->setValue(scrollY);
+    });
+    m_toolbarPresenter.printHandler = [this]() { printDocumentQt(this, m_controller.get()); };
+    m_toolbarPresenter.sidebarToggleHandler = [this]() { onSidebarToggle(); };
+
+    m_sidebarPresenter.attach(m_controller.get(), m_sidebar);
+    m_sidebarPresenter.setScrollApplier([this](int scrollY) {
+        m_controller->setScrollAnchor(scrollY);
+        m_scrollArea->verticalScrollBar()->setValue(scrollY);
+    });
+    m_toolbarPresenter.sidebarAvailable = [this]() { return m_sidebarPresenter.hasOutline(); };
+    m_toolbarPresenter.copyHandler = [this](const QString& text) {
+        QGuiApplication::clipboard()->setText(text);
+        m_canvas->update(); // drop the active selection highlight after copy
+    };
+    m_toolbarPresenter.sidebarVisible = [this]() { return m_sidebarVisible; };
+
+    // Keyboard shortcuts (unchanged; focus neutrality is natural in Qt: line
+    // edits consume their own keys).
     connect(new QShortcut(QKeySequence(Qt::Key_Right), this), &QShortcut::activated, this, &ViewerWidget::onNextPage);
     connect(new QShortcut(QKeySequence(Qt::Key_Left), this), &QShortcut::activated, this, &ViewerWidget::onPrevPage);
     connect(new QShortcut(QKeySequence(Qt::Key_Home), this), &QShortcut::activated, this, &ViewerWidget::onFirstPage);
@@ -126,6 +240,8 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     connect(new QShortcut(QKeySequence(Qt::Key_G), this), &QShortcut::activated, this, &ViewerWidget::onGoToPage);
     connect(new QShortcut(QKeySequence(Qt::Key_Escape), this), &QShortcut::activated, this, &ViewerWidget::onEscapePressed);
     connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_C), this), &QShortcut::activated, this, &ViewerWidget::copySelection);
+
+    m_toolbarPresenter.refreshState();
 }
 
 ViewerWidget::~ViewerWidget() {
@@ -138,21 +254,59 @@ bool ViewerWidget::loadDocument(const QString& path) {
     m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
     if (!m_controller->openDocument(path))
         return false;
+    m_sidebarPresenter.reload();
+    m_sidebarVisible = false;
+    m_sidebar->setVisible(false);
+    refreshChrome();
     resizeCanvas();
+    // reload() runs after openDocument() (which already fired refreshState),
+    // so re-sync the toolbar now that sidebarAvailable()/hasOutline() are real.
+    m_toolbarPresenter.refreshState();
     return true;
 }
 
 void ViewerWidget::closeDocument() {
     if (m_controller)
         m_controller->closeDocument();
+    m_sidebarPresenter.reload();
     if (m_canvas)
         m_canvas->setContentSize(QSize(1, 1));
-    updateInfoPanel();
+    if (m_toolbarPresenter.backend())
+        m_toolbarPresenter.refreshState();
+}
+
+void ViewerWidget::refreshChrome() {
+    if (!m_controller)
+        return;
+    m_controller->setTopChrome(m_toolbar ? m_toolbar->height() : 0);
+    m_controller->setBottomChrome(0);
+    m_controller->setLeftChrome(m_sidebarVisible && m_sidebar ? m_sidebar->width() : 0);
+}
+
+void ViewerWidget::onSidebarToggle() {
+    if (!m_sidebarPresenter.hasOutline() || !m_controller || !m_controller->hasDocument())
+        return;
+    m_sidebarVisible = !m_sidebarVisible;
+    m_sidebar->setVisible(m_sidebarVisible);
+    refreshChrome();
+    const int y = scrollYValue();
+    m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(y));
+    m_toolbar->setChecked(toolbar::Control::SidebarToggle, m_sidebarVisible);
+    resizeCanvas();
 }
 
 void ViewerWidget::onControllerChanged() {
+    if (m_toolbarPresenter.backend())
+        m_toolbarPresenter.refreshState();
+    m_sidebarPresenter.onPageChanged(m_controller->currentPage());
+
+    // A search that found matches should bring the first match into view.
+    if (m_controller->hasPendingSearchJump()) {
+        const int jump = m_controller->takeSearchJump();
+        m_scrollArea->verticalScrollBar()->setValue(jump);
+    }
+
     resizeCanvas();
-    updateInfoPanel();
 }
 
 void ViewerWidget::resizeCanvas() {
@@ -162,10 +316,6 @@ void ViewerWidget::resizeCanvas() {
         return;
     }
     if (m_controller->isPagedMode()) {
-        // Paged mode: the canvas is at least the viewport; if the current page
-        // overflows, the canvas grows to the page so the scroll area offers
-        // horizontal (and, for a tall page, vertical) panning while centered
-        // when it fits.
         const QSize vp = m_scrollArea->viewport()->size();
         const QRect pr = m_controller->pageRect(m_controller->currentPage());
         if (pr.isValid()) {
@@ -186,28 +336,6 @@ void ViewerWidget::resizeCanvas() {
 
 int ViewerWidget::scrollYValue() const {
     return m_scrollArea->verticalScrollBar()->value();
-}
-
-void ViewerWidget::updateInfoPanel() {
-    if (!m_controller || !m_controller->hasDocument()) {
-        if (m_pageIndicator) m_pageIndicator->setText("- / -");
-        if (m_continuousIndicator) m_continuousIndicator->setText("Continuous: -");
-        if (m_fitIndicator) m_fitIndicator->setText("Fit: -");
-        return;
-    }
-    m_pageIndicator->setText(QString("%1 / %2").arg(m_controller->currentPage()).arg(m_controller->pageCount()));
-    m_continuousIndicator->setText(m_controller->isPagedMode() ? "Continuous: OFF" : "Continuous: ON");
-    QString fitLabel;
-    switch (m_controller->fitMode()) {
-    case ViewerController::FitMode::FitToPage:  fitLabel = "Fit: Page"; break;
-    case ViewerController::FitMode::FitToWidth: fitLabel = "Fit: Width"; break;
-    case ViewerController::FitMode::Manual: {
-        int pct = static_cast<int>(m_controller->zoom() * 100 + 0.5);
-        fitLabel = QString("Zoom: %1%").arg(pct);
-        break;
-    }
-    }
-    m_fitIndicator->setText(fitLabel);
 }
 
 void ViewerWidget::onNextPage() {
@@ -258,10 +386,6 @@ void ViewerWidget::onToggleMode() {
         return;
     }
     resizeCanvas();
-    // The widget resize that sets the scrollbar's maximum may be deferred, so
-    // set the value on the next event-loop spin (range is correct by then).
-    // Suppression stays on so a transient valueChanged(0) during the resize
-    // cannot reset the tracked page to 1.
     QTimer::singleShot(0, this, [this, page, target = m_controller->scrollOffsetForPage(page)]() {
         m_scrollArea->verticalScrollBar()->setValue(target);
         m_suppressScrollTracking = false;
@@ -281,16 +405,14 @@ void ViewerWidget::onRotateCcw() {
 void ViewerWidget::onGoToPage() {
     if (!m_controller || !m_controller->hasDocument())
         return;
-
     bool ok;
     int page = QInputDialog::getInt(this, tr("Go to page"),
                                      tr("Page number:"), m_controller->currentPage(),
                                      1, m_controller->pageCount(), 1, &ok);
     if (ok) {
         m_controller->goToPage(page);
-        if (!m_controller->isPagedMode()) {
+        if (!m_controller->isPagedMode())
             m_scrollArea->verticalScrollBar()->setValue(m_controller->scrollOffsetForPage(page));
-        }
     }
 }
 
@@ -307,6 +429,11 @@ void ViewerWidget::onEscapePressed() {
         clearSelectionUi();
         return; // Esc clears the selection; a second Esc exits the viewer.
     }
+    m_controller->clearSearch();
+    if (m_controller->searchActive()) {
+        m_canvas->update();
+        return;
+    }
     onExitRequested();
 }
 
@@ -319,10 +446,6 @@ void ViewerWidget::clearSelectionUi() {
         m_canvas->update();
 }
 
-// Map a widget (canvas) position to content-canvas coordinates. Continuous
-// mode: the canvas IS the content canvas (scrollbar offsets applied by
-// QScrollArea). Paged mode: the canvas is the viewport and the page is
-// centered; shift to the pageRect space the controller expects.
 QPointF ViewerWidget::widgetToCanvas(const QPoint& pos) const {
     if (m_controller->isPagedMode()) {
         const QRect pr = m_controller->pageRect(m_controller->currentPage());
@@ -351,10 +474,12 @@ bool ViewerWidget::startSelection(const QPoint& pos) {
     const int page = pageAtCanvas(canvasPt);
     if (page < 1 || !m_controller->pageHasText(page))
         return false;
-    const int word = m_controller->wordAtCanvas(page, canvasPt);
+    const int word = m_controller->wordAtCanvas(page, canvasPt,
+                                                viewer_settings::kSelectionHitTolerancePx);
     if (word < 0)
-        return false;
-    m_controller->beginSelection(page, word);
+        return false; // empty area -> pan gesture proceeds
+    const int ch = m_controller->charAtCanvas(page, word, canvasPt);
+    m_controller->beginSelection(page, word, ch);
     m_selecting = true;
     setCursor(Qt::IBeamCursor);
     return true;
@@ -367,10 +492,11 @@ void ViewerWidget::extendSelection(const QPoint& pos) {
     int page = pageAtCanvas(canvasPt);
     if (page < 1)
         page = m_controller->currentPage();
-    const int word = m_controller->wordAtCanvas(page, canvasPt);
+    const int word = m_controller->wordAtCanvas(page, canvasPt); // nearest while dragging
     if (word < 0)
         return;
-    m_controller->updateSelection(page, word);
+    const int ch = m_controller->charAtCanvas(page, word, canvasPt);
+    m_controller->updateSelection(page, word, ch);
     if (m_canvas)
         m_canvas->update();
 }
@@ -381,64 +507,6 @@ void ViewerWidget::endSelectionGesture() {
     m_selecting = false;
     m_controller->endSelection();
     setCursor(Qt::ArrowCursor);
-}
-
-void ViewerWidget::paintSelection(QPainter& p, const QRect& vis) {
-    if (!m_controller || !m_controller->hasSelection())
-        return;
-
-    if (m_controller->isPagedMode()) {
-        // Paged: the current page is centered on the viewport-sized canvas.
-        const int page = m_controller->currentPage();
-        const QRect pr = m_controller->pageRect(page);
-        if (!pr.isValid())
-            return;
-        const QVector<QRectF> rects = m_controller->highlightRects(page);
-        if (rects.isEmpty())
-            return;
-        const QSize vp = m_scrollArea->viewport()->size();
-        const int dx = (vp.width() - pr.width()) / 2;
-        const int dy = (vp.height() - pr.height()) / 2;
-        p.setBrush(QColor(120, 140, 255, 90));
-        p.setPen(Qt::NoPen);
-        for (const QRectF& r : rects) {
-            p.drawRect(r.translated(dx - pr.x(), dy - pr.y()));
-        }
-        return;
-    }
-
-    // Continuous: highlight rects are canvas-space; paint pages in the band.
-    const int first = m_controller->firstPageAtScroll(vis.y());
-    for (int page = first; page <= m_controller->pageCount(); ++page) {
-        const QRect pr = m_controller->pageRect(page);
-        if (pr.y() > vis.bottom())
-            break;
-        if (pr.bottom() < vis.y())
-            continue;
-        const QVector<QRectF> rects = m_controller->highlightRects(page);
-        if (rects.isEmpty())
-            continue;
-        p.setBrush(QColor(120, 140, 255, 90));
-        p.setPen(Qt::NoPen);
-        for (const QRectF& r : rects) {
-            p.drawRect(r);
-        }
-    }
-}
-
-// ESC exits the viewer by forwarding a synthetic Q keypress to DC's viewer
-// panel (our parent widget), matching wlx-edge-viewer's ESC bridge: the host
-// processes Q exactly like a physical press and runs its own cm_ExitViewer /
-// lister-close path. The plugin never closes itself — that would race the
-// host's close logic.
-void ViewerWidget::onExitRequested() {
-    QWidget* parent = parentWidget();
-    if (!parent)
-        return;
-    QCoreApplication::postEvent(parent,
-        new QKeyEvent(QEvent::KeyPress, Qt::Key_Q, Qt::NoModifier));
-    QCoreApplication::postEvent(parent,
-        new QKeyEvent(QEvent::KeyRelease, Qt::Key_Q, Qt::NoModifier));
 }
 
 void ViewerWidget::keyPressEvent(QKeyEvent* event) {
@@ -462,10 +530,11 @@ void ViewerWidget::onVerticalScrollChanged(int value) {
         return;
     if (!m_controller || !m_controller->hasDocument() || m_controller->isPagedMode())
         return;
+    m_controller->setScrollAnchor(value);
     const int page = m_controller->pageAtScrollOffset(value);
     if (page != m_controller->currentPage()) {
         m_controller->trackCurrentPage(page);
-        updateInfoPanel();
+        m_sidebarPresenter.onPageChanged(page);
     }
     m_controller->trimRenderCache(value);
 }
@@ -485,10 +554,8 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
         if (me->button() != Qt::LeftButton)
             break;
         const QPoint pos = me->position().toPoint();
-        // Selection first: press on selectable text starts a selection.
         if (startSelection(pos))
             return true;
-        // Otherwise the existing pan path, with the same overflow policy.
         if (m_controller->isPagedMode()) {
             const QRect pr = m_controller->pageRect(m_controller->currentPage());
             const QSize vp = m_scrollArea->viewport()->size();
@@ -508,15 +575,17 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
             extendSelection(pos);
             return true;
         }
-        if (!m_dragging) {
-            // Hover: I-beam over selectable text.
+if (!m_dragging) {
             if (m_controller && m_controller->hasDocument()) {
                 const QPointF canvasPt = widgetToCanvas(pos);
                 const int page = pageAtCanvas(canvasPt);
                 const bool overText = page >= 1 && m_controller->pageHasText(page) &&
-                                      m_controller->wordAtCanvas(page, canvasPt) >= 0;
-                setCursor(overText ? Qt::IBeamCursor : (m_dragging ? Qt::OpenHandCursor : Qt::ArrowCursor));
+                                      m_controller->wordAtCanvas(page, canvasPt,
+                                          viewer_settings::kSelectionHitTolerancePx) >= 0;
+                setCursor(overText ? Qt::IBeamCursor : Qt::ArrowCursor);
             }
+            break;
+        }
             break;
         }
         const QPoint delta = m_lastMousePos - pos;
@@ -576,8 +645,8 @@ void ViewerWidget::resizeEvent(QResizeEvent* event) {
     if (m_controller) {
         m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
         m_controller->setViewportSize(QSize(width(), height()));
-        const int y = scrollYValue();
-        m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(y));
+        refreshChrome();
+        m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(scrollYValue()));
         resizeCanvas();
     }
 }

@@ -1,9 +1,17 @@
 #include "viewer_win32.h"
 #include "viewer_settings.h"
+#include "toolbar_win32.h"
+#include "sidebar_win32.h"
+#include "print_win32.h"
 
 #ifdef Q_OS_WIN
 
 #include <algorithm>
+#include <mutex>
+#include <deque>
+#include <functional>
+#include <unordered_map>
+#include <cstring>
 
 #include <QClipboard>
 #include <QGuiApplication>
@@ -13,15 +21,46 @@
 #include <windowsx.h>
 
 #define WLX_VIEWER_CLASS L"WLXDocViewer"
-#define WLX_INFO_CLASS L"WLXDocInfoPanel"
 
 namespace {
 inline void setClipboardText(const QString& text) {
-    QGuiApplication::clipboard()->setText(text);
+    if (text.isEmpty())
+        return;
+    // Native clipboard (works regardless of any Qt app state in the DLL).
+    if (OpenClipboard(nullptr)) {
+        EmptyClipboard();
+        QByteArray utf16(reinterpret_cast<const char*>(text.utf16()),
+                         (text.size() + 1) * static_cast<int>(sizeof(ushort)));
+        HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, utf16.size());
+        if (h) {
+            void* p = GlobalLock(h);
+            memcpy(p, utf16.constData(), utf16.size());
+            GlobalUnlock(h);
+            SetClipboardData(CF_UNICODETEXT, h);
+        }
+        CloseClipboard();
+    }
 }
-constexpr COLORREF kBgColor = 0x808080;
-constexpr COLORREF kPanelBg = 0x202020;
-constexpr COLORREF kPanelFg = 0xFFFFFF;
+
+// UI marshaling for background search/print callbacks: the worker thread
+// enqueues a task and posts a custom message; the viewer's wndProc drains the
+// queue on its UI thread. Each viewer HWND owns its own mailbox so stale tasks
+// never touch a replaced controller.
+std::mutex g_marshalMutex;
+std::unordered_map<HWND, std::deque<std::function<void()>>> g_marshalQueues;
+constexpr UINT WM_PLUGIN_MARSHAL = WM_APP + 1;
+
+void marshalToWnd(HWND hwnd, std::function<void()> task) {
+    if (!hwnd)
+        return;
+    {
+        std::lock_guard<std::mutex> lock(g_marshalMutex);
+        g_marshalQueues[hwnd].push_back(std::move(task));
+    }
+    PostMessageW(hwnd, WM_PLUGIN_MARSHAL, 0, 0);
+}
+
+constexpr COLORREF kBgColor = 0xE8E8E8; // light page background (toolbar-ish)
 constexpr UINT kDefaultDpi = 96;
 
 using viewer_settings::kKeyboardStepPx;
@@ -73,120 +112,6 @@ HBITMAP QImageToBitmap(const QImage& src) {
 }
 } // namespace
 
-class InfoPanelWin32 {
-public:
-    explicit InfoPanelWin32(HWND hParent);
-    void setController(ViewerController* controller);
-    HWND hwnd() const { return m_hwnd; }
-    int height() const;
-    void onControllerChanged();
-    void onSize(int w, int h);
-
-private:
-    static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
-    LRESULT handleMsg(UINT msg, WPARAM wp, LPARAM lp);
-    void onPaint();
-
-    HWND m_hwnd = nullptr;
-    ViewerController* m_controller = nullptr;
-};
-
-InfoPanelWin32::InfoPanelWin32(HWND hParent) {
-    HINSTANCE hInst = GetModuleHandleW(nullptr);
-
-    WNDCLASSEXW wc = {};
-    wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = wndProc;
-    wc.hInstance = hInst;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-    wc.lpszClassName = WLX_INFO_CLASS;
-
-    static bool registered = false;
-    if (!registered) {
-        RegisterClassExW(&wc);
-        registered = true;
-    }
-
-    m_hwnd = CreateWindowExW(
-        0, WLX_INFO_CLASS, L"",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-        0, 0, 0, 0,
-        hParent, nullptr, hInst, this);
-
-    SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-}
-
-void InfoPanelWin32::setController(ViewerController* controller) {
-    m_controller = controller;
-}
-
-int InfoPanelWin32::height() const {
-    return ViewerController::kInfoPanelHeight;
-}
-
-void InfoPanelWin32::onControllerChanged() {
-    InvalidateRect(m_hwnd, nullptr, FALSE);
-}
-
-void InfoPanelWin32::onSize(int w, int h) {
-    Q_UNUSED(h)
-    MoveWindow(m_hwnd, 0, 0, w, height(), TRUE);
-}
-
-LRESULT CALLBACK InfoPanelWin32::wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    auto* self = reinterpret_cast<InfoPanelWin32*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (self)
-        return self->handleMsg(msg, wp, lp);
-    return DefWindowProcW(hwnd, msg, wp, lp);
-}
-
-LRESULT InfoPanelWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
-    if (msg == WM_PAINT) {
-        onPaint();
-        return 0;
-    }
-    return DefWindowProcW(m_hwnd, msg, wp, lp);
-}
-
-void InfoPanelWin32::onPaint() {
-    PAINTSTRUCT ps;
-    HDC hdc = BeginPaint(m_hwnd, &ps);
-
-    RECT rc;
-    GetClientRect(m_hwnd, &rc);
-    HBRUSH bg = CreateSolidBrush(kPanelBg);
-    FillRect(hdc, &rc, bg);
-    DeleteObject(bg);
-
-    if (m_controller && m_controller->hasDocument()) {
-        const bool continuous = !m_controller->isPagedMode();
-        QString mode = continuous ? QStringLiteral("Continuous: ON") : QStringLiteral("Continuous: OFF");
-        QString fitMode;
-        switch (m_controller->fitMode()) {
-        case ViewerController::FitMode::FitToPage:  fitMode = QStringLiteral("Fit: Page"); break;
-        case ViewerController::FitMode::FitToWidth: fitMode = QStringLiteral("Fit: Width"); break;
-        case ViewerController::FitMode::Manual: {
-            int pct = static_cast<int>(m_controller->zoom() * 100 + 0.5);
-            fitMode = QStringLiteral("Zoom: %1%").arg(pct);
-            break;
-        }
-        }
-        QString text = QStringLiteral("%1 / %2   |   %3   |   %4")
-                           .arg(m_controller->currentPage())
-                           .arg(m_controller->pageCount())
-                           .arg(mode)
-                           .arg(fitMode);
-        SetTextColor(hdc, kPanelFg);
-        SetBkMode(hdc, TRANSPARENT);
-        DrawTextW(hdc, reinterpret_cast<LPCWSTR>(text.utf16()), -1, &rc,
-                  DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-    }
-
-    EndPaint(m_hwnd, &ps);
-}
-
 ViewerWin32::ViewerWin32(HWND hParent) {
     HINSTANCE hInst = GetModuleHandleW(nullptr);
 
@@ -207,21 +132,46 @@ ViewerWin32::ViewerWin32(HWND hParent) {
 
     m_hwnd = CreateWindowExW(
         0, WLX_VIEWER_CLASS, L"",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_VSCROLL | WS_HSCROLL,
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_VSCROLL | WS_HSCROLL,
         0, 0, 0, 0,
         hParent, nullptr, hInst, this);
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
-    m_infoPanel = std::make_unique<InfoPanelWin32>(m_hwnd);
     m_controller = std::make_unique<ViewerController>();
     m_controller->setStateChangedCallback([this]() { onControllerChanged(); });
     m_controller->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
-    m_infoPanel->setController(m_controller.get());
+    m_controller->setUiMarshal([this](std::function<void()> task) {
+        marshalToWnd(m_hwnd, std::move(task));
+    });
+
+    m_toolbar = std::make_unique<ToolbarWin32>(m_hwnd);
+    m_toolbar->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
+    m_toolbarPresenter.attach(m_controller.get(), m_toolbar.get());
+    m_toolbarPresenter.setScrollApplier([this](int scrollY) { applyScroll(scrollY); });
+    m_toolbarPresenter.sidebarToggleHandler = [this]() { onSidebarToggle(); };
+    m_toolbarPresenter.printHandler = [this]() { onToolbarPrint(); };
+
+    m_sidebar = std::make_unique<SidebarWin32>(m_hwnd);
+    m_sidebar->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
+    m_sidebarPresenter.attach(m_controller.get(), m_sidebar.get());
+    m_sidebarPresenter.setScrollApplier([this](int scrollY) { applyScroll(scrollY); });
+    m_toolbarPresenter.sidebarAvailable = [this]() { return m_sidebarPresenter.hasOutline(); };
+    m_toolbarPresenter.copyHandler = [this](const QString& text) { setClipboardText(text); };
+    m_toolbarPresenter.sidebarVisible = [this]() { return m_sidebarVisible; };
+    m_toolbarPresenter.refreshState();
 }
 
 ViewerWin32::~ViewerWin32() {
     closeDocument();
+    if (m_overlayBitmap) {
+        DeleteObject(m_overlayBitmap);
+        m_overlayBitmap = nullptr;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_marshalMutex);
+        g_marshalQueues.erase(m_hwnd);
+    }
     if (m_hwnd)
         DestroyWindow(m_hwnd);
 }
@@ -233,7 +183,13 @@ bool ViewerWin32::loadDocument(const QString& path) {
         return false;
     m_scrollX = 0;
     m_scrollY = 0;
+    m_sidebarPresenter.reload();
+    showHideSidebar(false);
+    m_toolbar->setChecked(toolbar::Control::SidebarToggle, false);
     onControllerChanged();
+    // reload() runs after openDocument() (which already fired refreshState),
+    // so re-sync the toolbar now that sidebarAvailable()/hasOutline() are real.
+    m_toolbarPresenter.refreshState();
     return true;
 }
 
@@ -243,6 +199,10 @@ void ViewerWin32::closeDocument() {
         m_controller->closeDocument();
     m_scrollX = 0;
     m_scrollY = 0;
+    m_sidebarPresenter.reload();
+    showHideSidebar(false);
+    if (m_sidebar)
+        m_sidebar->setVisible(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -252,12 +212,114 @@ void ViewerWin32::closeDocument() {
 void ViewerWin32::onControllerChanged() {
     if (!m_controller)
         return;
+
+    // While a text selection is being dragged the only thing that changes is
+    // the highlight overlay. Repaint just the page area (never the toolbar)
+    // so selection updates don't flicker the chrome. Still refresh
+    // the toolbar so Copy's enabled state tracks the selection (it is idempotent
+    // thanks to the per-control change guards).
+    if (m_selecting) {
+        RECT rc;
+        GetClientRect(m_hwnd, &rc);
+        RECT pa = {
+            static_cast<LONG>(sidebarLeft()),
+            static_cast<LONG>(pageAreaTop()),
+            rc.right,
+            rc.bottom - 0
+        };
+        InvalidateRect(m_hwnd, &pa, FALSE);
+        if (m_toolbar)
+            m_toolbarPresenter.refreshState();
+        return;
+    }
+
     m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
     m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
+    m_controller->setScrollAnchor(m_scrollY);
     updateScrollBars();
-    if (m_infoPanel)
-        m_infoPanel->onControllerChanged();
+    m_toolbarPresenter.refreshState();
+    m_sidebarPresenter.onPageChanged(m_controller->currentPage());
+
+    // A search that found matches wants the first match brought into view.
+    if (m_controller->hasPendingSearchJump()) {
+        m_scrollY = (std::clamp)(m_controller->takeSearchJump(), 0, maxScrollY());
+        m_scrollX = 0;
+        updateVisiblePage();
+        updateScrollBars();
+    }
     InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar / sidebar chrome
+// ---------------------------------------------------------------------------
+
+int ViewerWin32::toolbarHeight() const {
+    return m_toolbar ? m_toolbar->heightPx() : 0;
+}
+
+int ViewerWin32::sidebarLeft() const {
+    return (m_sidebarVisible && m_sidebar) ? m_sidebar->widthPx() : 0;
+}
+
+void ViewerWin32::layoutChrome() {
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    const int w = static_cast<int>(rc.right);
+    const int h = static_cast<int>(rc.bottom);
+
+    if (m_toolbar && m_toolbar->hwnd())
+        MoveWindow(m_toolbar->hwnd(), 0, 0, w, toolbarHeight(), TRUE);
+    if (m_sidebar && m_sidebar->hwnd()) {
+        const int sw = m_sidebar->widthPx();
+        MoveWindow(m_sidebar->hwnd(), 0, toolbarHeight(), sw,
+                   (std::max)(0, h - toolbarHeight()), TRUE);
+    }
+}
+
+void ViewerWin32::showHideSidebar(bool visible) {
+    m_sidebarVisible = visible;
+    if (m_sidebar)
+        m_sidebar->setVisible(visible);
+    layoutChrome();
+    if (m_controller) {
+        m_controller->setLeftChrome(sidebarLeft());
+        m_scrollY = m_controller->relayout(m_scrollY);
+        m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
+        m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
+        onControllerChanged();
+    }
+}
+
+void ViewerWin32::onSidebarToggle() {
+    if (!m_sidebarPresenter.hasOutline() || !m_controller || !m_controller->hasDocument())
+        return;
+    const bool now = !m_sidebarVisible;
+    showHideSidebar(now);
+    if (m_toolbar)
+        m_toolbar->setChecked(toolbar::Control::SidebarToggle, now);
+}
+
+void ViewerWin32::applyScroll(int scrollY) {
+    if (!m_controller || !m_controller->hasDocument())
+        return;
+    m_scrollY = (std::clamp)(scrollY, 0, maxScrollY());
+    m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
+    m_controller->setScrollAnchor(m_scrollY);
+    updateVisiblePage();
+    updateScrollBars();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void ViewerWin32::onToolbarPrint() {
+    printCurrentDocument();
+}
+
+// Print backend lives in print_win32.cpp (tasks 10.1/11.x): opens the native
+// dialog and spools the chosen range at printer resolution.
+void ViewerWin32::printCurrentDocument() {
+    if (m_controller)
+        printDocumentWin32(m_hwnd, m_controller.get());
 }
 
 LRESULT CALLBACK ViewerWin32::wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -284,18 +346,55 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
     case WM_KEYDOWN:
         onKeyDown(wp, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
         return 0;
+    case WM_PLUGIN_MARSHAL: {
+        // Run every task posted by a background worker on this UI thread.
+        std::deque<std::function<void()>> tasks;
+        {
+            std::lock_guard<std::mutex> lock(g_marshalMutex);
+            auto it = g_marshalQueues.find(m_hwnd);
+            if (it != g_marshalQueues.end())
+                tasks.swap(it->second);
+        }
+        for (auto& task : tasks)
+            task();
+        return 0;
+    }
+    case WM_DPICHANGED: {
+        const float dpi = static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi;
+        if (m_toolbar) m_toolbar->setDpiScale(dpi);
+        if (m_sidebar) m_sidebar->setDpiScale(dpi);
+        RECT rc;
+        if (GetClientRect(m_hwnd, &rc))
+            onSize(static_cast<int>(rc.right), static_cast<int>(rc.bottom));
+        return 0;
+    }
     case WM_MOUSEWHEEL:
         onMouseWheel(GET_WHEEL_DELTA_WPARAM(wp));
         return 0;
+    case WM_COPY:
+        // Standard copy message (some hosts send this instead of a hotkey).
+        if (m_controller && m_controller->hasSelection()) {
+            const QString text = m_controller->selectedText();
+            if (!text.isEmpty())
+                setClipboardText(text);
+        }
+        return 0;
     case WM_LBUTTONDOWN:
     case WM_LBUTTONDBLCLK: // CS_DBLCLKS class: a fast second press must still drag
-        // Branch: press on selectable text starts a text selection; anywhere
-        // else starts the existing pan gesture.
+        // Clicking the reading area takes over keyboard focus from the TOC/
+        // toolbar so page hotkeys (arrows, PageUp/Down, Esc) work again.
+        if (GetFocus() != m_hwnd)
+            SetFocus(m_hwnd);
+        // Branch: press on selectable text (within the hit tolerance) starts a
+        // char-level text selection; empty page area falls through to the pan
+        // gesture so users can still drag the page around (SumatraPDF-style).
         if (m_controller && m_controller->hasDocument()) {
             const int page = pageUnderPoint(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
             const QPointF canvasPt = clientToCanvas(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
-            const int word = (page >= 1) ? m_controller->wordAtCanvas(page, canvasPt) : -1;
-            if (m_controller->pageHasText(page > 0 ? page : 1) && word >= 0) {
+            const int word = (page >= 1)
+                ? m_controller->wordAtCanvas(page, canvasPt, viewer_settings::kSelectionHitTolerancePx)
+                : -1;
+            if (word >= 0 && m_controller->pageHasText(page)) {
                 onSelectionStart(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
                 if (m_selecting)
                     return 0;
@@ -334,15 +433,15 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
             SetCursor(LoadCursor(nullptr, IDC_IBEAM));
             return TRUE;
         }
-        // Hover: I-beam over selectable text, arrow elsewhere.
+        // Hover: I-beam only when the pointer is actually over selectable text
+        // (hit tolerance); empty page areas keep the arrow so users know they
+        // can drag.
         if (!m_dragging && !m_selecting && LOWORD(lp) == HTCLIENT &&
             m_controller && m_controller->hasDocument()) {
             const int page = (std::max)(1, pageUnderPoint(m_hoverX, m_hoverY));
             if (m_controller->pageHasText(page)) {
-                const QPointF canvasPt = m_controller->isPagedMode()
-                    ? clientToCanvas(m_hoverX, m_hoverY)
-                    : clientToCanvas(m_hoverX, m_hoverY);
-                if (m_controller->wordAtCanvas(page, canvasPt) >= 0) {
+                const QPointF canvasPt = clientToCanvas(m_hoverX, m_hoverY);
+                if (m_controller->wordAtCanvas(page, canvasPt, viewer_settings::kSelectionHitTolerancePx) >= 0) {
                     SetCursor(LoadCursor(nullptr, IDC_IBEAM));
                     return TRUE;
                 }
@@ -374,12 +473,14 @@ void ViewerWin32::onPaint() {
     FillRect(hdcMem, &rc, bgBrush);
     DeleteObject(bgBrush);
 
-    const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
+    const int top = pageAreaTop();
+    const int left = sidebarLeft();
+    const int vw = (std::max)(1, w - left);
+    const int vh = (std::max)(1, h - top);
 
     const bool paged = !m_controller || m_controller->isPagedMode();
     if (paged) {
         if (m_controller && m_controller->hasDocument()) {
-            const int vh = h - panelH;
             if (vh > 0) {
                 QRect r = m_controller->pageRect(m_controller->currentPage());
                 int imgW = r.isValid() ? r.width() : 0;
@@ -387,17 +488,16 @@ void ViewerWin32::onPaint() {
                 if (imgW > 0 && imgH > 0) {
                     // Center the page only when it fits; otherwise scroll the
                     // visible part with m_scrollX/m_scrollY offset.
-                    int dstX = (imgW <= w) ? (std::max)(0, (w - imgW) / 2) : -m_scrollX;
-                    int dstY = panelH + ((imgH <= vh) ? (std::max)(0, (vh - imgH) / 2) : -m_scrollY);
+                    int dstX = left + ((imgW <= vw) ? (std::max)(0, (vw - imgW) / 2) : -m_scrollX);
+                    int dstY = top + ((imgH <= vh) ? (std::max)(0, (vh - imgH) / 2) : -m_scrollY);
                     drawPageBitmap(hdcMem, bitmapForPage(m_controller->currentPage()),
                                    dstX, dstY, 0, 0, imgW, imgH);
                 }
             }
         }
     } else {
-        const int vh = h - panelH;
         const QSize cs = m_controller->contentSize();
-        const int cx = (std::max)(0, (w - cs.width()) / 2);
+        const int cx = (std::max)(0, (vw - cs.width()) / 2);
         const int cy = (std::max)(0, (vh - cs.height()) / 2);
 
         const int firstVisible = m_controller->firstPageAtScroll(m_scrollY);
@@ -407,8 +507,8 @@ void ViewerWin32::onPaint() {
                 continue;
             if (r.top() > m_scrollY + vh)
                 break;
-            const int dstX = cx + r.x() - m_scrollX;
-            const int dstY = panelH + cy + (r.y() - m_scrollY);
+            const int dstX = left + cx + r.x() - m_scrollX;
+            const int dstY = top + cy + (r.y() - m_scrollY);
             if (dstX >= w || dstY >= h)
                 continue;
             drawPageBitmap(hdcMem, bitmapForPage(page), dstX, dstY, 0, 0, r.width(), r.height());
@@ -418,10 +518,11 @@ void ViewerWin32::onPaint() {
 
     BitBlt(hdc, 0, 0, w, h, hdcMem, 0, 0, SRCCOPY);
 
-    // Selection highlight overlay (drawn on the primary DC, on top of the
-    // rendered content).
-    if (m_controller && m_controller->hasSelection())
-        paintSelectionOverlay(hdc, rc, panelH);
+    // Selection + search match overlays drawn through ONE translucent surface so
+    // both use the identical light-yellow and avoid a second blit/paint.
+    if (m_controller &&
+        (m_controller->hasSelection() || m_controller->hasSearchHighlights()))
+        paintSelectionOverlay(hdc, rc, top);
 
     SelectObject(hdcMem, hOldBmp);
     DeleteObject(hbmMem);
@@ -488,12 +589,18 @@ int ViewerWin32::maxScrollY() const {
 }
 
 void ViewerWin32::onSize(int w, int h) {
-    if (m_infoPanel)
-        m_infoPanel->onSize(w, h);
+    const float dpi = m_hwnd ? static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi : 1.0f;
+    if (m_toolbar)
+        m_toolbar->setDpiScale(dpi);
+    if (m_sidebar)
+        m_sidebar->setDpiScale(dpi);
+    layoutChrome();
     if (m_controller) {
-        if (m_hwnd)
-            m_controller->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
+        m_controller->setDpiScale(dpi);
         m_controller->setViewportSize(QSize(w, h));
+        m_controller->setTopChrome(toolbarHeight());
+        m_controller->setBottomChrome(0);
+        m_controller->setLeftChrome(sidebarLeft());
         m_scrollY = m_controller->relayout(m_scrollY);
         m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
         m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
@@ -515,6 +622,10 @@ void ViewerWin32::pageJumpContinuous(int delta) {
 }
 
 void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
+    // Focus neutrality (design D8): typed characters belong to a focused
+    // toolbar edit box and must never trigger viewer shortcuts.
+    if (m_toolbar && m_toolbar->isEditFocused())
+        return;
     if (!m_controller || !m_controller->hasDocument())
         return;
 
@@ -592,6 +703,17 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         captured = true;
         break;
     case 'C':
+        if (ctrl) {
+            if (m_controller && m_controller->hasSelection()) {
+                const QString text = m_controller->selectedText();
+                if (!text.isEmpty())
+                    setClipboardText(text);
+            }
+            captured = true;
+        }
+        break;
+    case VK_INSERT:
+        // Ctrl+Ins copies the selection (standard shortcut).
         if (ctrl) {
             if (m_controller && m_controller->hasSelection()) {
                 const QString text = m_controller->selectedText();
@@ -723,18 +845,19 @@ QPointF ViewerWin32::clientToCanvas(int x, int y) const {
     // Mirror the paint math: content is centered in the viewport when smaller,
     // otherwise shifted by scroll. In paged mode the current page is centered
     // when it fits; otherwise it starts at -scroll.
-    const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
+    const int top = pageAreaTop();
+    const int left = sidebarLeft();
     RECT cr;
     GetClientRect(m_hwnd, &cr);
-    const double viewW = cr.right;
-    const double viewH = (cr.bottom - panelH);
+    const double viewW = cr.right - left;
+    const double viewH = (cr.bottom - top);
 
     if (m_controller->isPagedMode()) {
         const QRect r = m_controller->pageRect(m_controller->currentPage());
         const int imgW = r.isValid() ? r.width() : 0;
         const int imgH = r.isValid() ? r.height() : 0;
-        const double dstX = (imgW <= viewW) ? std::max(0, (int)((viewW - imgW) / 2)) : -m_scrollX;
-        const double dstY = panelH + ((imgH <= viewH) ? std::max(0, (int)((viewH - imgH) / 2)) : -m_scrollY);
+        const double dstX = left + ((imgW <= viewW) ? std::max(0, (int)((viewW - imgW) / 2)) : -m_scrollX);
+        const double dstY = top + ((imgH <= viewH) ? std::max(0, (int)((viewH - imgH) / 2)) : -m_scrollY);
         // Page-local canvas: the on-screen page starts at (dstX,dstY), but the
         // controller's transform places it at pageRect.topLeft(). Shift so the
         // returned canvas point is in the same space as pageRect.
@@ -744,7 +867,7 @@ QPointF ViewerWin32::clientToCanvas(int x, int y) const {
     const QSize cs = m_controller->contentSize();
     const double cx = std::max(0, (int)((viewW - cs.width()) / 2));
     const double cy = std::max(0, (int)((viewH - cs.height()) / 2));
-    return QPointF(x - cx + m_scrollX, (y - panelH) - cy + m_scrollY);
+    return QPointF(x - left - cx + m_scrollX, (y - top) - cy + m_scrollY);
 }
 
 void ViewerWin32::onMouseIdleMove(LPARAM lp) {
@@ -761,12 +884,13 @@ void ViewerWin32::onSelectionStart(int x, int y) {
     if (page < 1)
         return;
     const QPointF cpt = clientToCanvas(x, y);
-    const int word = m_controller->wordAtCanvas(page, cpt);
+    const int word = m_controller->wordAtCanvas(page, cpt, viewer_settings::kSelectionHitTolerancePx);
     if (word < 0)
-        return;
+        return; // empty area -> stays in pan mode
+    const int ch = m_controller->charAtCanvas(page, word, cpt);
     m_controller->clearSelection();
     m_selecting = true;
-    m_controller->beginSelection(page, word);
+    m_controller->beginSelection(page, word, ch);
     SetCapture(m_hwnd);
     SetCursor(LoadCursor(nullptr, IDC_IBEAM));
 }
@@ -778,10 +902,11 @@ void ViewerWin32::onSelectionMove(int x, int y) {
     if (page < 1)
         return;
     const QPointF canvas = clientToCanvas(x, y);
-    const int word = m_controller->wordAtCanvas(page, canvas);
+    const int word = m_controller->wordAtCanvas(page, canvas); // nearest while dragging
     if (word < 0)
         return;
-    m_controller->updateSelection(page, word);
+    const int ch = m_controller->charAtCanvas(page, word, canvas);
+    m_controller->updateSelection(page, word, ch);
 }
 
 void ViewerWin32::onSelectionEnd() {
@@ -791,53 +916,165 @@ void ViewerWin32::onSelectionEnd() {
     ReleaseCapture();
     m_controller->endSelection();
     InvalidateRect(m_hwnd, nullptr, FALSE);
+    // The cursor was pinned to an I-beam; restore it to whatever the pointer is
+    // over now (normally the arrow, since selection release is outside text).
+    const POINT pt = { m_hoverX, m_hoverY };
+    RECT cr;
+    GetClientRect(m_hwnd, &cr);
+    if (PtInRect(&cr, pt)) {
+        const int page = (std::max)(1, pageUnderPoint(m_hoverX, m_hoverY));
+        QPointF canvasPt = clientToCanvas(m_hoverX, m_hoverY);
+        const bool overText = m_controller && page <= m_controller->pageCount() &&
+                              m_controller->pageHasText(page) &&
+                              m_controller->wordAtCanvas(page, canvasPt,
+                                 viewer_settings::kSelectionHitTolerancePx) >= 0;
+        SetCursor(LoadCursor(nullptr, overText ? IDC_IBEAM : IDC_ARROW));
+    } else {
+        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+    }
 }
 
-void ViewerWin32::paintSelectionOverlay(HDC hdc, const RECT& rc, int panelH) {
-    if (!m_controller || !m_controller->hasSelection() || !hdc)
+void ViewerWin32::paintSelectionOverlay(HDC hdc, const RECT& rc, int topChrome) {
+    // Runs for text-selection and/or search-match highlights. The inner loops
+    // already gate per-mode, so do NOT bail out when only search exists.
+    if (!m_controller || !hdc)
         return;
 
-    const int vw = rc.right;
-    const int vh = rc.bottom - panelH;
+    const int w = static_cast<int>(rc.right - rc.left);
+    const int hgt = static_cast<int>(rc.bottom - rc.top);
+    if (w <= 0 || hgt <= 0)
+        return;
+
+    // Cache the overlay surface; recreate only when the client size changes so
+    // dragging a selection doesn't allocate + destroy a DIB every WM_PAINT.
+    if (!m_overlayBitmap || m_overlayW != w || m_overlayH != hgt) {
+        if (m_overlayBitmap) {
+            DeleteObject(m_overlayBitmap);
+            m_overlayBitmap = nullptr;
+        }
+        BITMAPINFO bi = {};
+        bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bi.bmiHeader.biWidth = w;
+        bi.bmiHeader.biHeight = -hgt;
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr;
+        m_overlayBitmap = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!m_overlayBitmap || !bits) {
+            if (m_overlayBitmap) {
+                DeleteObject(m_overlayBitmap);
+                m_overlayBitmap = nullptr;
+            }
+            return;
+        }
+        m_overlayW = w;
+        m_overlayH = hgt;
+    }
+
+    BITMAP biInfo;
+    if (!GetObjectW(m_overlayBitmap, sizeof(biInfo), &biInfo) || !biInfo.bmBits)
+        return;
+    auto* bits = static_cast<uchar*>(biInfo.bmBits);
+    const int stride = ((w * 4 + 3) / 4) * 4;
+    memset(bits, 0, static_cast<size_t>(stride) * hgt);
+
+    // Light yellow, ~40% alpha (premultiplied into the DIB); active matches use
+    // semi-transparent cyan below.
+    constexpr BYTE kAr = 255, kAg = 240, kAb = 105, kAa = 105;
+    constexpr BYTE kCr = 0, kCg = 220, kCb = 220, kCa = 150;
+    auto fillOverlayC = [&](const RECT& r, BYTE rr, BYTE gg, BYTE bb, BYTE aa) {
+        const int x = (std::max)(0L, static_cast<long>(r.left));
+        const int y = (std::max)(0L, static_cast<long>(r.top));
+        const int rw = (std::min)(r.right, static_cast<long>(w)) - x;
+        const int rh = (std::min)(r.bottom, static_cast<long>(hgt)) - y;
+        if (rw <= 0 || rh <= 0)
+            return;
+        for (int yy = 0; yy < rh; ++yy) {
+            auto* row = bits + static_cast<size_t>(y + yy) * stride;
+            for (int xx = 0; xx < rw; ++xx) {
+                auto* px = row + static_cast<size_t>(x + xx) * 4;
+                px[0] = static_cast<BYTE>((bb * aa) / 255);
+                px[1] = static_cast<BYTE>((gg * aa) / 255);
+                px[2] = static_cast<BYTE>((rr * aa) / 255);
+                px[3] = aa;
+            }
+        }
+    };
+    auto fillOverlay = [&](const RECT& r) {
+        fillOverlayC(r, kAr, kAg, kAb, kAa);
+    };
+
+    const int left = sidebarLeft();
+    const int vw = (std::max)(1, w - left);
+    const int vh = (std::max)(1, hgt - topChrome);
     const QSize cs = m_controller->contentSize();
     const bool paged = m_controller->isPagedMode();
 
-    // Paint each visible page's highlight rects. Rects are canvas-space; convert
-    // to client by mirroring onPaint placement (canvas pageRect -> on-screen).
+    // Rects are canvas-space; convert to client by mirroring onPaint placement
+    // (canvas pageRect -> on-screen), then draw into the overlay surface.
+    auto pageOrigin = [&](const QRect& pr) -> QPointF {
+        if (paged) {
+            const int imgW = pr.width();
+            const int imgH = pr.height();
+            return QPointF(left + ((imgW <= vw) ? std::max(0, (vw - imgW) / 2) : -m_scrollX),
+                           topChrome + ((imgH <= vh) ? std::max(0, (vh - imgH) / 2) : -m_scrollY));
+        }
+        const int cx = std::max(0, (vw - cs.width()) / 2);
+        const int cy = std::max(0, (vh - cs.height()) / 2);
+        return QPointF(left + cx + pr.x() - m_scrollX,
+                       topChrome + cy + pr.y() - m_scrollY);
+    };
+    auto addClientSpan = [&](const QRectF& r, const QRect& pr, const QPointF& org,
+                              BYTE rr, BYTE gg, BYTE bb, BYTE aa) {
+        RECT ov;
+        ov.left = (LONG)(r.x() - pr.x() + org.x());
+        ov.top = (LONG)(r.y() - pr.y() + org.y());
+        ov.right = (LONG)(ov.left + r.width()) + 1;
+        ov.bottom = (LONG)(ov.top + r.height()) + 1;
+        fillOverlayC(ov, rr, gg, bb, aa);
+    };
+    auto addSpanYellow = [&](const QRectF& r, const QRect& pr, const QPointF& org) {
+        addClientSpan(r, pr, org, kAr, kAg, kAb, kAa);
+    };
+
     for (int page = (paged ? m_controller->currentPage() : 1);
          page <= (paged ? m_controller->currentPage() : m_controller->pageCount()); ++page) {
         const QRect pr = m_controller->pageRect(page);
         if (!pr.isValid())
             continue;
-        const QVector<QRectF> rects = m_controller->highlightRects(page);
-        if (rects.isEmpty())
-            continue;
-        // On-screen origin of this page in client coords.
-        int onScreenX;
-        int onScreenY;
-        if (paged) {
-            const int imgW = pr.width();
-            const int imgH = pr.height();
-            onScreenX = (imgW <= vw) ? std::max(0, (vw - imgW) / 2) : -m_scrollX;
-            onScreenY = panelH + ((imgH <= vh) ? std::max(0, (vh - imgH) / 2) : -m_scrollY);
-        } else {
-            const int cx = std::max(0, (vw - cs.width()) / 2);
-            const int cy = std::max(0, (vh - cs.height()) / 2);
-            onScreenX = cx + pr.x() - m_scrollX;
-            onScreenY = panelH + cy + pr.y() - m_scrollY;
+        const QPointF origin = pageOrigin(pr);
+
+        // Text selection rects.
+        if (m_controller->hasSelection()) {
+            const QVector<QRectF> rects = m_controller->highlightRects(page);
+            for (const QRectF& r : rects)
+                addSpanYellow(r, pr, origin);
         }
-        HBRUSH hb = CreateSolidBrush(RGB(120, 140, 255));
-        HGDIOBJ old = SelectObject(hdc, hb);
-        for (const QRectF& r : rects) {
-            QRect rcSel((int)(r.x() - pr.x() + onScreenX),
-                        (int)(r.y() - pr.y() + onScreenY),
-                        (int)r.width() + 1, (int)r.height() + 1);
-            RECT wr = { rcSel.left(), rcSel.top(), rcSel.right(), rcSel.bottom() };
-            FillRect(hdc, &wr, hb);
+        // Search match rects (all matches yellow; the active one is cyan so it
+        // stands out clearly).
+        if (m_controller->hasSearchHighlights()) {
+            const QVector<QRectF> rects = m_controller->searchRectsOnPage(page);
+            for (const QRectF& r : rects)
+                addSpanYellow(r, pr, origin);
+            const QRectF active = m_controller->activeSearchRectOnPage(page);
+            if (!active.isNull())
+                addClientSpan(active, pr, origin, kCr, kCg, kCb, kCa);
         }
-        SelectObject(hdc, old);
-        DeleteObject(hb);
     }
+
+    HDC mem = CreateCompatibleDC(hdc);
+    HGDIOBJ old = SelectObject(mem, m_overlayBitmap);
+    BLENDFUNCTION bf = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    AlphaBlend(hdc, 0, 0, w, hgt, mem, 0, 0, w, hgt, bf);
+    SelectObject(mem, old);
+    DeleteDC(mem);
+}
+
+void ViewerWin32::paintSearchOverlay(HDC hdc, const RECT& rc, int panelH) {
+    Q_UNUSED(hdc)
+    Q_UNUSED(rc)
+    Q_UNUSED(panelH)
 }
 
 void ViewerWin32::onMouseWheel(int delta) {
@@ -981,9 +1218,8 @@ void ViewerWin32::onHScroll(int code, int pos) {
 void ViewerWin32::updateScrollBars() {
     RECT rc;
     GetClientRect(m_hwnd, &rc);
-    const int panelH = m_infoPanel ? m_infoPanel->height() : 0;
-    const int vw = (std::max)(1, static_cast<int>(rc.right));
-    const int vh = (std::max)(1, static_cast<int>(rc.bottom) - panelH);
+    const int vw = (std::max)(1, static_cast<int>(rc.right) - sidebarLeft());
+    const int vh = (std::max)(1, static_cast<int>(rc.bottom) - pageAreaTop());
 
     SCROLLINFO si = {};
     si.cbSize = sizeof(si);
@@ -1038,11 +1274,12 @@ void ViewerWin32::updateScrollBars() {
 void ViewerWin32::updateVisiblePage() {
     if (!m_controller || m_controller->isPagedMode())
         return;
-    int page = m_controller->pageAtScrollOffset(m_scrollY);
+    const int page = m_controller->pageAtScrollOffset(m_scrollY);
     if (page != m_controller->currentPage()) {
         m_controller->trackCurrentPage(page);
-        if (m_infoPanel)
-            m_infoPanel->onControllerChanged();
+        m_controller->setScrollAnchor(m_scrollY);
+        m_toolbarPresenter.refreshState();
+        m_sidebarPresenter.onPageChanged(page);
     }
 }
 

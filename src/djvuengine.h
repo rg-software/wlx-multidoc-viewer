@@ -4,6 +4,7 @@
 #include "document.h"
 
 #include <libdjvu/ddjvuapi.h>
+#include <QHash>
 #include <QString>
 #include <QVector>
 
@@ -23,6 +24,8 @@ public:
     QString metadata(const QString& key) const override;
     QVector<OutlineItem> outline() const override;
     PageInfo pageDimensions(int page) const override;
+    bool supportsSearch() const override { return false; }
+    QVector<TextMatch> searchText(int page, const QString& needle, bool matchCase) override;
 
 private:
     ddjvu_context_t* m_ctx = nullptr;
@@ -30,6 +33,11 @@ private:
     ddjvu_format_t* m_fmt = nullptr;
     int m_pageCount = 0;
     QString m_path;
+
+    // Measuring a page dimension is expensive in DjVuLibre (very page create +
+    // synchronous decode wait), and the viewer asks for every page's dimensions
+    // on each layout rebuild. Cache per-page PageInfo; cleared on close().
+    mutable QHash<int, PageInfo> m_dimCache;
 };
 
 #endif // DJVUENGINE_H

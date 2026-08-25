@@ -2,10 +2,11 @@
 #define VIEWER_H
 
 #include "viewercontroller.h"
+#include "sidebar.h"
+#include "toolbar.h"
 
 #include <QFrame>
 #include <QKeyEvent>
-#include <QLabel>
 #include <QPoint>
 #include <QResizeEvent>
 #include <QScrollArea>
@@ -14,6 +15,8 @@
 #include <QHBoxLayout>
 #include <memory>
 
+class ToolbarQt;
+class SidebarQt;
 class ViewerCanvas;
 
 class ViewerWidget : public QFrame {
@@ -54,8 +57,9 @@ private slots:
 
 private:
     void onControllerChanged();
-    void updateInfoPanel();
     void resizeCanvas();
+    void onSidebarToggle();
+    void refreshChrome();
     int scrollYValue() const;
     QPointF widgetToCanvas(const QPoint& pos) const;
     int pageAtCanvas(const QPointF& canvasPt) const;
@@ -64,16 +68,18 @@ private:
     void endSelectionGesture();
     void clearSelectionUi();
     void copySelection();
-    void paintSelection(QPainter& p, const QRect& vis);
+    void paintSearch(QPainter& p, const QRect& vis);
 
     std::unique_ptr<ViewerController> m_controller;
 
-    QHBoxLayout* m_infoLayout = nullptr;
-    QLabel* m_pageIndicator = nullptr;
-    QLabel* m_continuousIndicator = nullptr;
-    QLabel* m_fitIndicator = nullptr;
-    QFrame* m_infoBar = nullptr;
+    ToolbarQt* m_toolbar = nullptr;
+    SidebarQt* m_sidebar = nullptr;
+    toolbar::ToolbarPresenter m_toolbarPresenter;
+    SidebarPresenter m_sidebarPresenter;
+    bool m_sidebarVisible = false;
 
+
+    QHBoxLayout* m_midLayout = nullptr;
     QScrollArea* m_scrollArea = nullptr;
     ViewerCanvas* m_canvas = nullptr;
 
@@ -84,8 +90,9 @@ private:
 };
 
 // Pure-paint canvas that draws each page from the controller's render cache at
-// its layout rect. Continuous mode makes this widget the full virtual canvas;
-// paged mode sizes it to the current page.
+// its layout rect, plus text-selection and search-match overlays. Continuous
+// mode makes this widget the full virtual canvas; paged mode sizes it to the
+// current page.
 class ViewerCanvas : public QWidget {
 public:
     explicit ViewerCanvas(QWidget* parent = nullptr)
@@ -101,6 +108,9 @@ protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
+    void paintSelection(QPainter& p, const QRect& vis) const;
+    void paintSearchOverlay(QPainter& p, const QRect& vis) const;
+
     ViewerController* m_controller = nullptr;
 };
 

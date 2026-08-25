@@ -39,8 +39,12 @@ bool DjVuEngine::open(const QString& path) {
         return false;
     }
 
-    QByteArray pathBytes = path.toLocal8Bit();
-    m_doc = ddjvu_document_create_by_filename(m_ctx, pathBytes.constData(), 1);
+    // DjVuLibre's filename-taking constructors accept a narrow char*; the
+    // plain create_by_filename interprets it in the locale (ANSI) codepage, so
+    // CJK/Cyrillic paths break. Use the dedicated UTF-8 variant instead: our
+    // QString paths are UTF-16; toUtf8() round-trips every Unicode filename.
+    const QByteArray pathBytes = path.toUtf8();
+    m_doc = ddjvu_document_create_by_filename_utf8(m_ctx, pathBytes.constData(), 1);
     if (!m_doc) {
         qWarning() << "DjVuEngine: ddjvu_document_create_by_filename failed for" << path;
         ddjvu_context_release(m_ctx);
@@ -77,6 +81,7 @@ void DjVuEngine::close() {
     }
     m_pageCount = 0;
     m_path.clear();
+    m_dimCache.clear();
 }
 
 bool DjVuEngine::isOpen() const {
@@ -177,6 +182,18 @@ PageText DjVuEngine::pageText(int page) {
     return {};
 }
 
+// DjVu positional search is intentionally unavailable. Like pageText, it would
+// require walking the `ddjvu_document_get_pagetext` miniexp tree, whose core
+// accessors (miniexp_car/cdr/consp/symbolp/to_int) are not exported by the
+// static djvulibre build used here (see AGENTS.md). supportsSearch() reports
+// false so the viewer disables find controls for DjVu instead of failing.
+QVector<TextMatch> DjVuEngine::searchText(int page, const QString& needle, bool matchCase) {
+    Q_UNUSED(page)
+    Q_UNUSED(needle)
+    Q_UNUSED(matchCase)
+    return {};
+}
+
 QString DjVuEngine::extractText(int page) {
     Q_UNUSED(page)
     return {};
@@ -195,16 +212,24 @@ PageInfo DjVuEngine::pageDimensions(int page) const {
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
-    ddjvu_page_t* djpage = ddjvu_page_create_by_pageno(m_doc, page - 1);
-    if (!djpage)
-        return {};
+    // Memoized: fetching page shape is the expensive part of layout rebuilds.
+    const auto it = m_dimCache.constFind(page);
+    if (it != m_dimCache.constEnd())
+        return it.value();
 
-    while (!ddjvu_page_decoding_done(djpage))
+    // Use the document-level pageinfo API: it only decodes the page header /
+    // shape (never the full pixel data), so measuring all pages for the layout
+    // stays cheap in contrast to ddjvu_page_create_by_pageno + decoding_done.
+    ddjvu_pageinfo_t info = {};
+    ddjvu_status_t r;
+    while ((r = ddjvu_document_get_pageinfo(m_doc, page - 1, &info)) < DDJVU_JOB_OK)
         ddjvu_message_wait(m_ctx);
 
-    int w = ddjvu_page_get_width(djpage);
-    int h = ddjvu_page_get_height(djpage);
-
-    ddjvu_page_release(djpage);
-    return {w, h};
+    PageInfo out;
+    if (r == DDJVU_JOB_OK && info.width > 0 && info.height > 0) {
+        out.width = info.width;
+        out.height = info.height;
+        m_dimCache.insert(page, out); // mutable cache; const method
+    }
+    return out;
 }

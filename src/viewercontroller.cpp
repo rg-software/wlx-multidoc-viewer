@@ -68,6 +68,18 @@ bool ViewerController::openDocument(const QString& path) {
 }
 
 void ViewerController::closeDocument() {
+    // Any in-flight search must finish (or be cancelled and joined) before the
+    // engine is torn down: the worker may be mid-searchText on the engine.
+    stopSearchThread();
+    ++m_searchGeneration;
+    m_searchHits.clear();
+    m_searchQuery.clear();
+    m_activeHit = -1;
+    m_searchStarted = false;
+    m_searchFinished = false;
+    m_searchCancelled = false;
+    m_searchNoMatch = false;
+
     if (m_engine)
         m_engine->close();
     m_state = ViewerState();
@@ -201,11 +213,11 @@ void ViewerController::setViewportSize(const QSize& size) {
 }
 
 int ViewerController::pageAreaWidth() const {
-    return std::max(1, m_viewportSize.width());
+    return std::max(1, m_viewportSize.width() - m_leftChromePx);
 }
 
 int ViewerController::pageAreaHeight() const {
-    return std::max(1, m_viewportSize.height() - kInfoPanelHeight);
+    return std::max(1, m_viewportSize.height() - m_topChromePx - m_bottomChromePx);
 }
 
 // Re-layout using the current zoom/rotation/fit, anchoring scrollY to the same
@@ -346,32 +358,11 @@ int ViewerController::firstPageAtScroll(int scrollY) const {
 }
 
 int ViewerController::pageAtScrollOffset(int scrollY) const {
-    if (m_pageRects.isEmpty())
-        return m_state.currentPage();
-
-    const int visBottom = scrollY + pageAreaHeight();
-    const int first = firstPageAtScroll(scrollY);
-
-    // Most-visible page: the page that occupies the largest share of the
-    // viewport. At the document end the last page only takes over once it is
-    // the dominant page, so the counter advances page-by-page (…, 132, 133,
-    // 134) instead of jumping to the last page the moment it peeks into the
-    // viewport bottom.
-    int bestPage = first;
-    int bestVisible = -1;
-    for (int p = first; p <= m_pageRects.size(); ++p) {
-        const QRect r = m_pageRects[p - 1];
-        if (r.y() > visBottom)
-            break;
-        const int top = (std::max)(r.y(), scrollY);
-        const int bot = (std::min)(r.bottom(), visBottom);
-        const int visible = bot - top;
-        if (visible > bestVisible) {
-            bestVisible = visible;
-            bestPage = p;
-        }
-    }
-    return (std::clamp)(bestPage, 1, m_state.pageCount());
+    // The "current page" in continuous mode is the page whose top is at/near
+    // the top of the viewport. This advances only when you have scrolled the
+    // previous page fully off (a full page height), so it never "jumps to the
+    // next page" at a half-page split.
+    return firstPageAtScroll(scrollY);
 }
 
 QRect ViewerController::pageRect(int page) const {
@@ -456,7 +447,7 @@ QImage ViewerController::renderCachedViewport(int scrollY, int scrollX) {
         return renderPageCached(m_state.currentPage());
 
     QImage slice(vw, vh, QImage::Format_RGB888);
-    slice.fill(0x808080);
+    slice.fill(0xE8E8E8); // light page background
 
     const int visTop = scrollY;
     const int visBot = scrollY + vh;
@@ -569,27 +560,53 @@ QPointF ViewerController::canvasToPagePoint(int page, const QPointF& canvasPt) c
     return pageTransform(page).inverted().map(canvasPt);
 }
 
-int ViewerController::wordAtCanvas(int page, const QPointF& canvasPt) const {
+// Nearest word measured in CANVAS pixels so the tolerance compares directly
+// with the pointer position. tolerancePx >= 0 returns -1 when nothing is within
+// that distance (empty area -> pan, not selection).
+int ViewerController::wordAtCanvas(int page, const QPointF& canvasPt, double tolerancePx) const {
     const PageText pt = const_cast<ViewerController*>(this)->pageText(page);
     if (pt.words.isEmpty())
         return -1;
-    const QTransform inv = pageTransform(page).inverted();
-    const QPointF p = inv.map(canvasPt);
+    const QTransform t = pageTransform(page);
+    if (!t.isInvertible())
+        return -1;
 
-    // Nearest word by center distance (within or near its bbox).
     double best = std::numeric_limits<double>::max();
     int bestIdx = -1;
     for (int i = 0; i < pt.words.size(); ++i) {
-        QRectF b = pt.words[i].bbox;
-        double dx = std::max({b.left() - p.x(), 0.0, p.x() - b.right()});
-        double dy = std::max({b.top() - p.y(), 0.0, p.y() - b.bottom()});
-        double d = dx * dx + dy * dy;
+        const QRectF cr = t.mapRect(pt.words[i].bbox);
+        const double dx = std::max({cr.left() - canvasPt.x(), 0.0, canvasPt.x() - cr.right()});
+        const double dy = std::max({cr.top() - canvasPt.y(), 0.0, canvasPt.y() - cr.bottom()});
+        const double d = std::sqrt(dx * dx + dy * dy);
         if (d < best) {
             best = d;
             bestIdx = i;
         }
     }
+    if (tolerancePx >= 0.0 && best > tolerancePx)
+        return -1;
     return bestIdx;
+}
+
+// Map an x-position within a word to a character offset (0..wordLen) by
+// proportional advance across the word's bbox.
+int ViewerController::charAtCanvas(int page, int wordIndex, const QPointF& canvasPt) const {
+    const PageText pt = pageText(page);
+    if (wordIndex < 0 || wordIndex >= pt.words.size())
+        return 0;
+    const TextWord& w = pt.words[wordIndex];
+    const int len = w.text.size();
+    if (len <= 0)
+        return 0;
+    const QTransform t = pageTransform(page);
+    if (!t.isInvertible())
+        return 0;
+    const QPointF p = t.inverted().map(canvasPt);
+    const QRectF b = w.bbox;
+    if (b.width() <= 0.0)
+        return 0;
+    const double fx = (p.x() - b.left()) / b.width();
+    return (std::clamp)(static_cast<int>(std::round(fx * len)), 0, len);
 }
 
 QRectF ViewerController::wordRectOnCanvas(int page, int wordIndex) const {
@@ -599,19 +616,19 @@ QRectF ViewerController::wordRectOnCanvas(int page, int wordIndex) const {
     return pageTransform(page).mapRect(pt.words[wordIndex].bbox);
 }
 
-void ViewerController::beginSelection(int page, int wordIndex) {
+void ViewerController::beginSelection(int page, int wordIndex, int charIndex) {
     // Only start a selection over selectable text.
-    if (!pageHasText(page))
+    if (!pageHasText(page) || wordIndex < 0)
         return;
-    m_textSelection.begin(page, wordIndex);
+    m_textSelection.begin(page, wordIndex, charIndex);
     m_selecting = true;
     notifyChanged();
 }
 
-void ViewerController::updateSelection(int page, int wordIndex) {
-    if (!m_selecting)
+void ViewerController::updateSelection(int page, int wordIndex, int charIndex) {
+    if (!m_selecting || wordIndex < 0)
         return;
-    m_textSelection.setFocus(page, wordIndex);
+    m_textSelection.setFocus(page, wordIndex, charIndex);
     notifyChanged();
 }
 
@@ -632,30 +649,44 @@ QVector<QRectF> ViewerController::highlightRects(int page) const {
     QVector<QRectF> out;
     if (!m_textSelection.isActive())
         return out;
-    const SelectionWordRange wr = m_textSelection.wordRangeOnPage(page);
-    if (wr.first < 0)
-        return out;
     const PageText pt = pageText(page);
-    const int last = (std::min)(wr.last, static_cast<int>(pt.words.size()) - 1);
-    if (wr.first > last)
+    if (pt.words.isEmpty())
         return out;
     const QTransform t = pageTransform(page);
+    if (!t.isInvertible())
+        return out;
+    const QVector<SelectionCharSpan> spans =
+        m_textSelection.charSpansOnPage(page, pt.words.size());
+    if (spans.isEmpty())
+        return out;
 
-    // Merge the selected words per line into one contiguous span (spaces
-    // between the words on the same line are included in the highlight).
+    // Per-word slice rects; union contiguous spans that share a line into one
+    // highlight box (partial first/last words keep their cut boundaries).
     QRectF run;
-    int curLine = -1;
+    int runLine = -1;
     bool inRun = false;
-    for (int i = wr.first; i <= last; ++i) {
-        const TextWord& w = pt.words[i];
-        if (w.lineIndex != curLine) {
+    for (const SelectionCharSpan& sp : spans) {
+        if (sp.wordIndex < 0 || sp.wordIndex >= pt.words.size())
+            continue;
+        const TextWord& w = pt.words[sp.wordIndex];
+        const int len = w.text.size();
+        QRectF slice = w.bbox;
+        if (len > 0 && w.bbox.width() > 0.0) {
+            const int from = (std::clamp)(sp.from, 0, len);
+            const int to = (sp.to < 0) ? len : (std::clamp)(sp.to, 0, len);
+            if (to > from) {
+                slice.setLeft(w.bbox.left() + w.bbox.width() * (from / static_cast<double>(len)));
+                slice.setRight(w.bbox.left() + w.bbox.width() * (to / static_cast<double>(len)));
+            }
+        }
+        if (w.lineIndex != runLine) {
             if (inRun)
                 out.append(t.mapRect(run.normalized()));
-            curLine = w.lineIndex;
-            run = w.bbox;
+            runLine = w.lineIndex;
+            run = slice;
             inRun = true;
         } else {
-            run = run.united(w.bbox);
+            run = run.united(slice);
         }
     }
     if (inRun)
@@ -667,29 +698,250 @@ QString ViewerController::selectedText() const {
     if (!m_textSelection.isActive())
         return {};
     QString result;
-    int prevLine = -1;
     int prevPage = -1;
+    int prevLine = -1;
     for (int page = m_textSelection.firstPage(); page <= m_textSelection.lastPage(); ++page) {
         const PageText pt = pageText(page);
-        const SelectionWordRange wr = m_textSelection.wordRangeOnPage(page);
-        if (wr.first < 0 || pt.words.isEmpty())
+        if (pt.words.isEmpty())
             continue;
-        const int last = (std::min)(wr.last, static_cast<int>(pt.words.size()) - 1);
-        for (int i = wr.first; i <= last; ++i) {
-            const TextWord& w = pt.words[i];
-            if (page != prevPage) {
+        const QVector<SelectionCharSpan> spans =
+            m_textSelection.charSpansOnPage(page, pt.words.size());
+        for (const SelectionCharSpan& sp : spans) {
+            if (sp.wordIndex < 0 || sp.wordIndex >= pt.words.size())
+                continue;
+            const TextWord& w = pt.words[sp.wordIndex];
+            const int len = w.text.size();
+            if (len <= 0)
+                continue;
+            const int from = (std::clamp)(sp.from, 0, len);
+            const int to = (sp.to < 0) ? len : (std::clamp)(sp.to, 0, len);
+            if (to <= from)
+                continue;
+            const QString piece = w.text.mid(from, to - from);
+            if (page != prevPage || w.lineIndex != prevLine) {
                 if (!result.isEmpty())
                     result += '\n';
                 prevPage = page;
-                prevLine = -1;
-            }
-            if (w.lineIndex != prevLine && !result.isEmpty())
-                result += '\n';
-            result += w.text;
-            if (i < last && w.lineIndex == pt.words[i + 1].lineIndex)
+                prevLine = w.lineIndex;
+            } else {
                 result += ' ';
-            prevLine = w.lineIndex;
+            }
+            result += piece;
         }
     }
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// Text search
+// ---------------------------------------------------------------------------
+
+bool ViewerController::startSearch(const QString& term, bool matchCase) {
+    if (!searchAvailable() || term.isEmpty()) {
+        clearSearch();
+        return false;
+    }
+
+    // A new search supersedes any text selection so only match highlights show.
+    if (m_textSelection.isActive()) {
+        m_textSelection.clear();
+        m_selecting = false;
+    }
+
+    // Restart semantics: cancel/join any running scan, then reset state.
+    stopSearchThread();
+    const int generation = ++m_searchGeneration;
+    m_searchHits.clear();
+    m_activeHit = -1;
+    m_searchQuery = term;
+    m_matchCase = matchCase;
+    m_searchStarted = false;
+    m_searchFinished = false;
+    m_searchCancelled = false;
+    m_searchNoMatch = false;
+    m_searchJumpPending = false;
+
+    if (!m_search)
+        m_search = std::make_unique<SearchController>();
+
+    // Copy the marshaller so the worker lambdas do not touch shared state.
+    const UiMarshalFn marshal = m_uiMarshal;
+    const bool started = m_search->start(
+        m_engine.get(), m_state.pageCount(), m_state.currentPage(), term, matchCase,
+        [this, marshal, generation](const QVector<TextMatch>& matches) {
+            std::function<void()> task = [this, matches, generation]() {
+                receiveSearchPage(matches, generation);
+            };
+            if (marshal) marshal(std::move(task)); else task();
+        },
+        [this, marshal, generation](bool cancelled) {
+            std::function<void()> task = [this, cancelled, generation]() {
+                receiveSearchComplete(cancelled, generation);
+            };
+            if (marshal) marshal(std::move(task)); else task();
+        });
+
+    m_searchStarted = started;
+    notifyChanged();
+    return started;
+}
+
+void ViewerController::clearSearch() {
+    if (m_searchQuery.isEmpty() && m_searchHits.isEmpty() && !m_searchStarted)
+        return;
+    stopSearchThread();
+    ++m_searchGeneration;
+    m_searchHits.clear();
+    m_activeHit = -1;
+    m_searchQuery.clear();
+    m_searchStarted = false;
+    m_searchFinished = false;
+    m_searchCancelled = false;
+    m_searchNoMatch = false;
+    m_searchJumpPending = false;
+    notifyChanged();
+}
+
+void ViewerController::stopSearchThread() {
+    if (m_search) {
+        m_search->cancel();
+        m_search->join();
+    }
+}
+
+void ViewerController::receiveSearchPage(const QVector<TextMatch>& matches, int generation) {
+    if (generation != m_searchGeneration || m_searchQuery.isEmpty())
+        return;
+    if (matches.isEmpty())
+        return;
+    const bool hadHits = !m_searchHits.isEmpty();
+    for (const TextMatch& m : matches) {
+        for (const QRectF& r : m.rects)
+            m_searchHits.append(SearchHit{m.page, r});
+    }
+    // The worker scans forward from the start page, so the first hit appended
+    // is the first match at or after the starting reading position.
+    if (!hadHits)
+        m_activeHit = 0;
+    notifyChanged();
+}
+
+void ViewerController::receiveSearchComplete(bool cancelled, int generation) {
+    if (generation != m_searchGeneration)
+        return;
+    m_searchFinished = true;
+    m_searchCancelled = cancelled;
+    if (!cancelled) {
+        if (m_searchHits.isEmpty()) {
+            m_searchNoMatch = true;
+        } else {
+            if (m_activeHit < 0)
+                m_activeHit = 0;
+            // Signal the viewer to bring the first match into view.
+            m_searchJumpPending = true;
+        }
+    }
+    notifyChanged();
+}
+
+int ViewerController::takeSearchJump() {
+    if (!m_searchJumpPending) {
+        // Resolve is cheap; still fall through so callers can clear state.
+    }
+    m_searchJumpPending = false;
+    if (m_activeHit < 0 || m_activeHit >= m_searchHits.size())
+        return 0;
+    m_state.goToPage(m_searchHits[m_activeHit].page);
+    return scrollToActiveMatch(0);
+}
+
+bool ViewerController::searchActive() const {
+    return !m_searchHits.isEmpty() || m_searchStarted || searchNoMatch();
+}
+
+QRectF ViewerController::normalizedHitToCanvas(const SearchHit& hit) const {
+    const PageInfo info = m_engine ? m_engine->pageDimensions(hit.page) : PageInfo();
+    if (info.width <= 0 || info.height <= 0)
+        return {};
+    const QRectF pageSpace(hit.normalized.x() * info.width,
+                           hit.normalized.y() * info.height,
+                           hit.normalized.width() * info.width,
+                           hit.normalized.height() * info.height);
+    const QTransform t = pageTransform(hit.page);
+    if (!t.isInvertible())
+        return {};
+    return t.mapRect(pageSpace);
+}
+
+QVector<QRectF> ViewerController::searchRectsOnPage(int page) const {
+    QVector<QRectF> out;
+    if (m_searchHits.isEmpty() || !hasDocument())
+        return out;
+    for (int i = 0; i < m_searchHits.size(); ++i) {
+        if (m_searchHits[i].page != page)
+            continue;
+        if (i == m_activeHit)
+            continue; // drawn separately with the distinct active style
+        const QRectF r = normalizedHitToCanvas(m_searchHits[i]);
+        if (r.isValid())
+            out.append(r);
+    }
+    return out;
+}
+
+QRectF ViewerController::activeSearchRectOnPage(int page) const {
+    if (m_activeHit < 0 || m_activeHit >= m_searchHits.size() || !hasDocument())
+        return {};
+    const SearchHit& hit = m_searchHits[m_activeHit];
+    if (hit.page != page)
+        return {};
+    return normalizedHitToCanvas(hit);
+}
+
+int ViewerController::nextMatch(int scrollY) {
+    if (m_searchHits.isEmpty())
+        return scrollY;
+    if (m_activeHit < 0)
+        m_activeHit = 0;
+    else
+        m_activeHit = (m_activeHit + 1) % m_searchHits.size();
+    m_state.goToPage(m_searchHits[m_activeHit].page);
+    const int out = scrollToActiveMatch(scrollY);
+    notifyChanged();
+    return out;
+}
+
+int ViewerController::prevMatch(int scrollY) {
+    if (m_searchHits.isEmpty())
+        return scrollY;
+    if (m_activeHit < 0)
+        m_activeHit = 0;
+    else
+        m_activeHit = (m_activeHit > 0) ? m_activeHit - 1 : m_searchHits.size() - 1;
+    m_state.goToPage(m_searchHits[m_activeHit].page);
+    const int out = scrollToActiveMatch(scrollY);
+    notifyChanged();
+    return out;
+}
+
+// Computes the scroll offset that brings the active match into view (upper
+// third of the viewport). Paged mode returns an in-page overflow offset when
+// the page is taller than the viewport; the surrounding commands already moved
+// the current page to the match's page.
+int ViewerController::scrollToActiveMatch(int scrollY) const {
+    Q_UNUSED(scrollY)
+    if (m_activeHit < 0 || m_activeHit >= m_searchHits.size())
+        return 0;
+    const SearchHit& hit = m_searchHits[m_activeHit];
+    const QRectF canvas = normalizedHitToCanvas(hit);
+    if (canvas.isNull())
+        return 0;
+    const int vh = pageAreaHeight();
+    if (m_state.isPagedMode()) {
+        const QRect pr = pageRect(hit.page);
+        const int rel = std::max(0, static_cast<int>(canvas.center().y()) - pr.y());
+        const int maxRel = std::max(0, pr.height() - vh);
+        return (std::clamp)(rel - vh / 3, 0, maxRel);
+    }
+    return clampScroll(std::max(0, static_cast<int>(canvas.center().y()) - vh / 3));
 }

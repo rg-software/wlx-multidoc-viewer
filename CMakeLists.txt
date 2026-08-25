@@ -39,9 +39,23 @@ endif()
 if(WIN32)
     find_package(Qt6 REQUIRED COMPONENTS Core Gui)
 else()
-    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport)
     set(CMAKE_AUTOMOC ON)
 endif()
+
+# --- Embed the toolbar icon font (Material Symbols Outlined). -----------------
+# A variable TTF is turned into a byte-array header at configure time so the
+# plugin needs no runtime asset file on either platform.
+set(LA_FONT_SRC "${CMAKE_SOURCE_DIR}/assets/MaterialSymbolsOutlined.ttf")
+set(LA_FONT_HEADER "${CMAKE_CURRENT_BINARY_DIR}/la_fontdata.h")
+add_custom_command(
+    OUTPUT "${LA_FONT_HEADER}"
+    COMMAND ${CMAKE_COMMAND}
+        -DIN=${LA_FONT_SRC} -DOUT=${LA_FONT_HEADER} -DVARNAME=LineAwesomeTtf
+        -P ${CMAKE_SOURCE_DIR}/cmake/embed_font.cmake
+    DEPENDS "${LA_FONT_SRC}"
+    VERBATIM
+)
 
 # --- Library ---------------------------------------------------------
 add_library(wlx-multidoc-viewer SHARED
@@ -51,15 +65,33 @@ add_library(wlx-multidoc-viewer SHARED
     src/djvuengine.cpp
     src/viewercontroller.cpp
     src/textselection.cpp
+    src/searchcontroller.cpp
+    src/toolbar.cpp
+    src/toolbar_icons.cpp
+    src/printcoordinator.cpp
 )
 
 if(NOT WIN32)
-    target_sources(wlx-multidoc-viewer PRIVATE src/viewer.cpp)
+    target_sources(wlx-multidoc-viewer PRIVATE
+        src/viewer.cpp
+        src/toolbar_qt.cpp
+        src/sidebar_qt.cpp
+        src/print_qt.cpp
+    )
 else()
-    target_sources(wlx-multidoc-viewer PRIVATE src/viewer_win32.cpp)
+    target_sources(wlx-multidoc-viewer PRIVATE
+        src/viewer_win32.cpp
+        src/toolbar_win32.cpp
+        src/sidebar_win32.cpp
+        src/print_win32.cpp
+        src/version.rc
+    )
 endif()
 
-target_include_directories(wlx-multidoc-viewer PRIVATE src)
+add_custom_target(la_font_header DEPENDS "${LA_FONT_HEADER}")
+
+target_include_directories(wlx-multidoc-viewer PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
+add_dependencies(wlx-multidoc-viewer la_font_header)
 
 if(WIN32)
     target_link_libraries(wlx-multidoc-viewer
@@ -71,6 +103,7 @@ if(WIN32)
 else()
     target_link_libraries(wlx-multidoc-viewer
         Qt6::Widgets
+        Qt6::PrintSupport
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
     )
@@ -100,13 +133,21 @@ if(WLX_BUILD_HARNESS AND WIN32)
     add_executable(harness-win
         tests/harness_win.cpp
         src/viewer_win32.cpp
+        src/toolbar_win32.cpp
+        src/sidebar_win32.cpp
         src/viewercontroller.cpp
         src/textselection.cpp
         src/formatdispatcher.cpp
         src/mupdfengine.cpp
         src/djvuengine.cpp
+        src/searchcontroller.cpp
+        src/toolbar.cpp
+        src/toolbar_icons.cpp
+        src/printcoordinator.cpp
+        src/print_win32.cpp
     )
-    target_include_directories(harness-win PRIVATE src)
+    target_include_directories(harness-win PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
+    add_dependencies(harness-win la_font_header)
     target_link_libraries(harness-win
         Qt6::Core
         Qt6::Gui
@@ -117,13 +158,21 @@ if(WLX_BUILD_HARNESS AND WIN32)
     add_executable(harness-scroll
         tests/harness_scroll.cpp
         src/viewer_win32.cpp
+        src/toolbar_win32.cpp
+        src/sidebar_win32.cpp
         src/viewercontroller.cpp
         src/textselection.cpp
         src/formatdispatcher.cpp
         src/mupdfengine.cpp
         src/djvuengine.cpp
+        src/searchcontroller.cpp
+        src/toolbar.cpp
+        src/toolbar_icons.cpp
+        src/printcoordinator.cpp
+        src/print_win32.cpp
     )
-    target_include_directories(harness-scroll PRIVATE src)
+    target_include_directories(harness-scroll PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
+    add_dependencies(harness-scroll la_font_header)
     target_link_libraries(harness-scroll
         Qt6::Core
         Qt6::Gui

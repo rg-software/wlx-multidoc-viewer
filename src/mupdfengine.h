@@ -5,6 +5,7 @@
 
 #include <mupdf/fitz.h>
 #include <QString>
+#include <mutex>
 
 class MuPdfEngine : public DocumentEngine {
 public:
@@ -23,7 +24,18 @@ public:
     QVector<OutlineItem> outline() const override;
     PageInfo pageDimensions(int page) const override;
 
+    bool supportsSearch() const override { return true; }
+    QVector<TextMatch> searchText(int page, const QString& needle, bool matchCase) override;
+
 private:
+    // Drops all MuPDF state; caller must hold m_mutex.
+    void dropDocument();
+
+    // Serializes every fz_* call: the search worker thread shares the context
+    // with the UI thread's render path, so all engine calls are locked. Rendering
+    // may pause momentarily while a page is being searched.
+    mutable std::mutex m_mutex;
+
     fz_context* m_ctx = nullptr;
     fz_document* m_doc = nullptr;
     int m_pageCount = 0;

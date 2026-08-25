@@ -18,6 +18,15 @@ struct PageInfo {
     int height = 0;
 };
 
+// One page's worth of text-search hits. page is 1-based; rects are normalized
+// (0..1 in each axis relative to the page size from pageDimensions(), y-down,
+// unrotated, pre-zoom), so highlight overlays survive zoom/rotation changes and
+// stay anchored to the underlying glyphs.
+struct TextMatch {
+    int page = 0;
+    QVector<QRectF> rects;
+};
+
 // A word of selectable text with its geometry. bbox is in page space (y-down,
 // page dimensions from pageDimensions(), unrotated, pre-zoom). lineIndex groups
 // words into visual lines for text assembly and highlight joins.
@@ -54,6 +63,19 @@ public:
     // without extraction, etc.) are correct without override.
     virtual bool hasSelectableText(int page) { return !pageText(page).words.isEmpty(); }
     virtual PageText pageText(int page) { return {}; }
+
+    // Positional whole-document text search. Rects in returned TextMatch are
+    // normalized page space (see TextMatch). Default implementations report no
+    // capability, so engines that cannot expose a positional text layer are
+    // correct without override (the viewer then disables find controls).
+    virtual bool supportsSearch() const { return false; }
+    virtual QVector<TextMatch> searchText(int page, const QString& needle, bool matchCase)
+    {
+        Q_UNUSED(page)
+        Q_UNUSED(needle)
+        Q_UNUSED(matchCase)
+        return {};
+    }
 };
 
 std::unique_ptr<DocumentEngine> createEngine(const QString& path);

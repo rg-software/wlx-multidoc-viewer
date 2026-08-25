@@ -1,0 +1,45 @@
+# embed_font.cmake - turns a binary .ttf into a C++ byte-array header.
+# Usage: cmake -DIN=<font.ttf> -DOUT=<out.h> -DVARNAME=<name> -P embed_font.cmake
+
+file(READ "${IN}" HEXDATA HEX)
+string(LENGTH "${HEXDATA}" HEXLEN)
+
+set(BODY "")
+math(EXPR BLOCKCOUNT "${HEXLEN} / 64") # 64 hex chars = 32 bytes
+math(EXPR REMAINDER "${HEXLEN} % 64")
+math(EXPR LAST_BLOCK "${BLOCKCOUNT} - 1")
+
+if(BLOCKCOUNT GREATER 0)
+    foreach(B RANGE 0 ${LAST_BLOCK})
+        math(EXPR OFF "${B} * 64")
+        string(SUBSTRING "${HEXDATA}" ${OFF} 64 SLICE)
+        string(REGEX MATCHALL ".." BYTES "${SLICE}")
+        set(INNER "")
+        foreach(BY IN LISTS BYTES)
+            string(APPEND INNER "0x${BY}, ")
+        endforeach()
+        string(APPEND BODY "    ${INNER}\n")
+    endforeach()
+endif()
+if(REMAINDER GREATER 0)
+    math(EXPR OFF "${BLOCKCOUNT} * 64")
+    string(SUBSTRING "${HEXDATA}" ${OFF} ${REMAINDER} SLICE)
+    string(REGEX MATCHALL ".." BYTES "${SLICE}")
+    set(INNER "")
+    foreach(BY IN LISTS BYTES)
+        string(APPEND INNER "0x${BY}, ")
+    endforeach()
+    string(APPEND BODY "    ${INNER}\n")
+endif()
+
+set(GENDATA "#pragma once\n")
+string(APPEND GENDATA "// Generated from ${IN} by cmake/embed_font.cmake - do not edit.\n")
+string(APPEND GENDATA "namespace toolbar {\n")
+string(APPEND GENDATA "inline constexpr unsigned char k${VARNAME}[] = {\n")
+string(APPEND GENDATA "${BODY}")
+string(APPEND GENDATA "};\n")
+string(APPEND GENDATA "inline constexpr unsigned int k${VARNAME}Size = sizeof(k${VARNAME});\n")
+string(APPEND GENDATA "} // namespace toolbar\n")
+
+file(WRITE "${OUT}" "${GENDATA}")
+message(STATUS "embed_font: wrote ${VARNAME} (${HEXLEN} hex chars) -> ${OUT}")

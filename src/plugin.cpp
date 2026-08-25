@@ -32,16 +32,17 @@ static bool ensureQApplication() {
 static_assert(sizeof(SUPPORTED_EXTENSIONS) <= 260,
     "Detect string exceeds WLX buffer limit of 260 chars");
 
-DCPCALL HANDLE ListLoad(HANDLE ParentWin, char* FileToLoad, int ShowFlags) {
-    Q_UNUSED(ShowFlags)
-
+// Shared document-open core used by both the ANSI and wide (W) entry points.
+// The WLX interface hands plugins a narrow char* file name in the ANSI code
+// page, which cannot represent CJK/Cyrillic filenames on a mismatched system
+// locale. Total Commander (and Double Commander on Windows) call the `...W`
+// variants with UTF-16 whenever they are exported, so every viewer path must go
+// through here with a proper QString.
+static HANDLE loadDocumentIntoViewer(HANDLE ParentWin, const QString& path) {
     if (!ParentWin)
         return nullptr;
 
-    QString path = QString::fromLocal8Bit(FileToLoad);
-    qDebug() << "ListLoad:" << path;
-
-#ifdef _WIN32
+#if defined(_WIN32)
     auto* viewer = new ViewerWin32(static_cast<HWND>(ParentWin));
     if (!viewer->loadDocument(path)) {
         qWarning() << "ListLoad: failed to load" << path;
@@ -59,7 +60,7 @@ DCPCALL HANDLE ListLoad(HANDLE ParentWin, char* FileToLoad, int ShowFlags) {
     auto* viewer = new ViewerWidget(parent);
     viewer->show();
 
-    if (!viewer->loadDocument(QString::fromLocal8Bit(FileToLoad))) {
+    if (!viewer->loadDocument(path)) {
         delete viewer;
         return nullptr;
     }
@@ -68,12 +69,29 @@ DCPCALL HANDLE ListLoad(HANDLE ParentWin, char* FileToLoad, int ShowFlags) {
 #endif
 }
 
+DCPCALL HANDLE ListLoad(HANDLE ParentWin, char* FileToLoad, int ShowFlags) {
+    Q_UNUSED(ShowFlags)
+    const QString path = QString::fromLocal8Bit(FileToLoad);
+    qDebug() << "ListLoad:" << path;
+    return loadDocumentIntoViewer(ParentWin, path);
+}
+
+// Wide (UTF-16 filename) entry points — preferred by TC/DC when exported.
+#ifdef _WIN32
+DCPCALL HANDLE ListLoadW(HANDLE ParentWin, wchar_t* FileToLoad, int ShowFlags) {
+    Q_UNUSED(ShowFlags)
+    const QString path = QString::fromWCharArray(FileToLoad);
+    qDebug() << "ListLoadW:" << path;
+    return loadDocumentIntoViewer(ParentWin, path);
+}
+#endif
+
 DCPCALL int ListLoadNext(HANDLE ParentWin, HANDLE PluginWin,
                           char* FileToLoad, int ShowFlags) {
     Q_UNUSED(ParentWin)
     Q_UNUSED(ShowFlags)
 
-#ifdef _WIN32
+#if defined(_WIN32)
     HWND hViewer = static_cast<HWND>(PluginWin);
     if (!hViewer)
         return LISTPLUGIN_ERROR;
@@ -85,7 +103,7 @@ DCPCALL int ListLoadNext(HANDLE ParentWin, HANDLE PluginWin,
 
     if (viewer->loadDocument(QString::fromLocal8Bit(FileToLoad)))
         return LISTPLUGIN_OK;
-#else
+#elif defined(__linux__)
     auto* viewer = static_cast<ViewerWidget*>(PluginWin);
     if (!viewer)
         return LISTPLUGIN_ERROR;
@@ -96,6 +114,37 @@ DCPCALL int ListLoadNext(HANDLE ParentWin, HANDLE PluginWin,
 
     return LISTPLUGIN_ERROR;
 }
+
+#ifdef _WIN32
+DCPCALL int ListLoadNextW(HANDLE ParentWin, HANDLE PluginWin,
+                          wchar_t* FileToLoad, int ShowFlags) {
+    Q_UNUSED(ParentWin)
+    Q_UNUSED(ShowFlags)
+
+    HWND hViewer = static_cast<HWND>(PluginWin);
+    if (!hViewer)
+        return LISTPLUGIN_ERROR;
+
+    auto* viewer = reinterpret_cast<ViewerWin32*>(
+        GetWindowLongPtrW(hViewer, GWLP_USERDATA));
+    if (!viewer)
+        return LISTPLUGIN_ERROR;
+
+    if (viewer->loadDocument(QString::fromWCharArray(FileToLoad)))
+        return LISTPLUGIN_OK;
+
+    return LISTPLUGIN_ERROR;
+}
+
+DCPCALL void ListCloseWindowW(HANDLE ListWin); // defined below after ListCloseWindow
+
+DCPCALL int ListSearchDialogW(HWND ListWin, int FindNext, wchar_t* FindText) {
+    Q_UNUSED(ListWin)
+    Q_UNUSED(FindNext)
+    Q_UNUSED(FindText)
+    return LISTPLUGIN_OK;
+}
+#endif // _WIN32
 
 DCPCALL void ListCloseWindow(HANDLE ListWin) {
     if (!ListWin)
@@ -117,6 +166,12 @@ DCPCALL void ListCloseWindow(HANDLE ListWin) {
 #endif
 }
 
+#ifdef _WIN32
+DCPCALL void ListCloseWindowW(HANDLE ListWin) {
+    ListCloseWindow(ListWin);
+}
+#endif // _WIN32
+
 DCPCALL void ListGetDetectString(char* DetectString, int maxlen) {
     snprintf(DetectString, maxlen - 1, "%s", SUPPORTED_EXTENSIONS);
 }
@@ -136,8 +191,10 @@ DCPCALL int ListSendCommand(HWND ListWin, int Command, int Parameter) {
 
     if (viewer && Command == lc_copy) {
         QString text;
-        if (auto* c = viewer->controller(); c && c->hasDocument())
-            text = QString("%1 / %2").arg(c->currentPage()).arg(c->pageCount());
+        if (auto* c = viewer->controller(); c && c->hasSelection()) {
+            // Copy the actual selected text (not the page indicator).
+            text = c->selectedText();
+        }
         if (!text.isEmpty()) {
             if (OpenClipboard(nullptr)) {
                 EmptyClipboard();
@@ -166,3 +223,9 @@ DCPCALL int ListSendCommand(HWND ListWin, int Command, int Parameter) {
 DCPCALL void ListSetDefaultParams(ListDefaultParamStruct* dps) {
     Q_UNUSED(dps)
 }
+
+#ifdef _WIN32
+DCPCALL int ListSendCommandW(HWND ListWin, int Command, int Parameter) {
+    return ListSendCommand(ListWin, Command, Parameter);
+}
+#endif // _WIN32

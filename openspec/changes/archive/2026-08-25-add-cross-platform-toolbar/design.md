@@ -43,7 +43,7 @@ virtual bool supportsSearch() const;
 virtual QVector<TextMatch> searchText(int page, const QString& needle, bool matchCase);
 ```
 
-Per-page contract; normalized rectangles make highlighting zoom/rotation-independent by construction. MuPDF implements it with `fz_search_page` (quads → normalized); DjVuLibre with `ddjvu_document_get_pagetext(DJVU_TXT_WORD)` word boxes filtered by term. Engines lacking positional text report `supportsSearch() == false`.
+Per-page contract; normalized rectangles make highlighting zoom/rotation-independent by construction. MuPDF implements it with `fz_search_page_cb` (quads → normalized; case-sensitive searches walk stext characters because MuPDF's built-in search is always case-insensitive); DjVuLibre reports no capability (`supportsSearch() == false`) — the static djvulibre build does not export the miniexp accessors needed to walk `ddjvu_document_get_pagetext` trees (see AGENTS.md open gaps), so the word-box search is not linkable and find controls stay disabled for DjVu. Engines lacking positional text report `supportsSearch() == false`.
 
 ### D5: Search orchestration on a worker thread
 New `src/searchcontroller.*`: owns a `std::thread` walking pages from the current page (wrapping), calling `engine->searchText`, delivering results via callbacks. Thread-safety: each engine serializes its MuPDF/DjVu calls behind a per-engine mutex (rendering may pause momentarily while a page is searched). Cancellation via atomic flag checked per page; a new search or cleared term resets. Alternative considered (separate second engine instance per document for search) rejected as doubling memory for little gain at plugin scale.

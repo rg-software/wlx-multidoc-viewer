@@ -5,6 +5,23 @@
 #include <QFile>
 #include <QDebug>
 
+namespace {
+
+// Bounding rect of one fz_quad in page space (y-down, page dimensions from
+// fz_bound_page), matching the convention used for word bboxes elsewhere.
+QRectF quadRect(const fz_quad& q) {
+    return QRectF(QPointF(q.ul.x, q.ul.y), QPointF(q.lr.x, q.lr.y)).normalized();
+}
+
+// One page-space rect carrying its reading-order line index (for spacing).
+struct SearchGlyph {
+    QChar c;
+    QRectF box;
+    int line = 0;
+};
+
+} // namespace
+
 MuPdfEngine::MuPdfEngine() = default;
 
 MuPdfEngine::~MuPdfEngine() {
@@ -12,7 +29,9 @@ MuPdfEngine::~MuPdfEngine() {
 }
 
 bool MuPdfEngine::open(const QString& path) {
-    close();
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    dropDocument();
 
     if (!QFile::exists(path)) {
         qWarning() << "MuPdfEngine: file does not exist:" << path;
@@ -27,9 +46,27 @@ bool MuPdfEngine::open(const QString& path) {
 
     fz_register_document_handlers(m_ctx);
 
-    QByteArray pathBytes = path.toUtf8();
+    // Open via a FILE stream so names with CJK/Cyrillic work regardless of the
+    // ANSI code page: on Windows use the wide-char API; elsewhere UTF-8.
+    fz_stream* stm = nullptr;
+    bool opened = false;
     fz_try(m_ctx) {
-        m_doc = fz_open_document(m_ctx, pathBytes.constData());
+#ifdef _WIN32
+        stm = fz_open_file_w(m_ctx, reinterpret_cast<const wchar_t*>(path.utf16()));
+#else
+        const QByteArray utf8 = path.toUtf8();
+        stm = fz_open_file(m_ctx, utf8.constData());
+#endif
+        // Pass the path as the "magic" hint so format detection uses the file
+        // extension (like fz_open_document did) instead of sniffing only.
+        const QByteArray magic = path.toUtf8();
+        m_doc = fz_open_document_with_stream(m_ctx, magic.constData(), stm);
+        opened = (m_doc != nullptr);
+    }
+    fz_always(m_ctx) {
+        // The document keeps its own stream reference; drop ours on success.
+        if (opened && stm)
+            fz_drop_stream(m_ctx, stm);
     }
     fz_catch(m_ctx) {
         qWarning() << "MuPdfEngine: fz_open_document failed for" << path;
@@ -50,7 +87,7 @@ bool MuPdfEngine::open(const QString& path) {
     return m_doc != nullptr;
 }
 
-void MuPdfEngine::close() {
+void MuPdfEngine::dropDocument() {
     if (m_doc) {
         fz_drop_document(m_ctx, m_doc);
         m_doc = nullptr;
@@ -62,15 +99,23 @@ void MuPdfEngine::close() {
     m_pageCount = 0;
 }
 
+void MuPdfEngine::close() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    dropDocument();
+}
+
 bool MuPdfEngine::isOpen() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return m_doc != nullptr;
 }
 
 int MuPdfEngine::pageCount() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return m_pageCount;
 }
 
 QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale, int rotation) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -118,6 +163,7 @@ QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale, int rotatio
 }
 
 PageText MuPdfEngine::pageText(int page) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -194,6 +240,7 @@ PageText MuPdfEngine::pageText(int page) {
 }
 
 QString MuPdfEngine::extractText(int page) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -237,6 +284,7 @@ QString MuPdfEngine::extractText(int page) {
 }
 
 QString MuPdfEngine::metadata(const QString& key) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_ctx || !m_doc)
         return {};
 
@@ -255,6 +303,7 @@ QString MuPdfEngine::metadata(const QString& key) const {
 }
 
 QVector<OutlineItem> MuPdfEngine::outline() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_ctx || !m_doc)
         return {};
 
@@ -291,6 +340,7 @@ QVector<OutlineItem> MuPdfEngine::outline() const {
 }
 
 PageInfo MuPdfEngine::pageDimensions(int page) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -312,4 +362,120 @@ PageInfo MuPdfEngine::pageDimensions(int page) const {
     }
 
     return info;
+}
+
+QVector<TextMatch> MuPdfEngine::searchText(int page, const QString& needle, bool matchCase) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_ctx || !m_doc || page < 1 || page > m_pageCount || needle.isEmpty())
+        return {};
+
+    fz_page* fzpage = nullptr;
+    fz_stext_page* stext = nullptr;
+    float pageWidth = 0.0f;
+    float pageHeight = 0.0f;
+
+    // Normalized match rects for this page (filled inside fz_try).
+    QVector<QRectF> rects;
+
+    // Search always walks the structured-text glyphs ourselves so case
+    // sensitivity is exactly what the toolbar requests (Qt::CaseSensitive /
+    // Qt::CaseInsensitive). MuPDF's built-in fz_search only does
+    // case-insensitive and has extra normalization quirks, so it is not used;
+    // this keeps "match case off" / "match case on" deterministic.
+    const Qt::CaseSensitivity cs = matchCase ? Qt::CaseSensitive : Qt::CaseInsensitive;
+    const QString needleNorm = matchCase ? needle : needle.toLower();
+
+    fz_try(m_ctx) {
+        fzpage = fz_load_page(m_ctx, m_doc, page - 1);
+
+        const fz_rect bounds = fz_bound_page(m_ctx, fzpage);
+        pageWidth = bounds.x1 - bounds.x0;
+        pageHeight = bounds.y1 - bounds.y0;
+        if (pageWidth < 1.0f || pageHeight < 1.0f) {
+            // Page too small to hold coordinates; no hits are possible.
+        } else {
+            fz_stext_options opts;
+            opts.flags = FZ_STEXT_ACCURATE_BBOXES;
+            stext = fz_new_stext_page_from_page(m_ctx, fzpage, &opts);
+
+            QVector<SearchGlyph> glyphs;
+            int lineNo = 0;
+            for (fz_stext_block* block = stext->first_block; block; block = block->next) {
+                if (block->type != FZ_STEXT_BLOCK_TEXT)
+                    continue;
+                for (fz_stext_line* line = block->u.t.first_line; line; line = line->next) {
+                    for (fz_stext_char* ch = line->first_char; ch; ch = ch->next) {
+                        const QChar c(ch->c);
+                        if (c.isSpace())
+                            continue;
+                        glyphs.append(SearchGlyph{c, quadRect(ch->quad).normalized(), lineNo});
+                    }
+                    ++lineNo;
+                }
+            }
+
+            if (!glyphs.isEmpty()) {
+                // Flatten glyphs to a string: a space is inserted between
+                // glyphs from different reading-order lines so multi-word
+                // terms match; separators carry no geometry (index -1).
+                QString run;
+                QVector<int> runGlyph; // glyph index or -1 for a separator
+                run.reserve(glyphs.size());
+                runGlyph.reserve(glyphs.size());
+                int lastLine = glyphs.first().line;
+                for (int i = 0; i < glyphs.size(); ++i) {
+                    const SearchGlyph& g = glyphs[i];
+                    if (i > 0 && g.line != lastLine) {
+                        run.append(QLatin1Char(' '));
+                        runGlyph.append(-1);
+                    }
+                    run.append(g.c);
+                    runGlyph.append(i);
+                    lastLine = g.line;
+                }
+                const QString runNorm = matchCase ? run : run.toLower();
+
+                // Substring search over the run honoring the case mode; union
+                // each match's glyph rects into one normalized page-space rect.
+                int from = 0;
+                while (from <= run.size()) {
+                    const int pos = runNorm.indexOf(needleNorm, from, cs);
+                    if (pos < 0)
+                        break;
+                    QRectF box;
+                    const int last = pos + needle.size();
+                    for (int i = pos; i < last; ++i) {
+                        const int gi = runGlyph[i];
+                        if (gi >= 0 && gi < glyphs.size()) {
+                            const QRectF r = glyphs[gi].box;
+                            box = box.isNull() ? r : box.united(r);
+                        }
+                    }
+                    if (!box.isNull()) {
+                        rects.append(QRectF(box.x() / pageWidth,
+                                            box.y() / pageHeight,
+                                            box.width() / pageWidth,
+                                            box.height() / pageHeight));
+                    }
+                    from = pos + 1;
+                }
+            }
+        }
+    }
+    fz_always(m_ctx) {
+        if (stext)
+            fz_drop_stext_page(m_ctx, stext);
+        if (fzpage)
+            fz_drop_page(m_ctx, fzpage);
+    }
+    fz_catch(m_ctx) {
+        return {};
+    }
+
+    if (rects.isEmpty())
+        return {};
+    TextMatch match;
+    match.page = page;
+    match.rects = std::move(rects);
+    return {match};
 }

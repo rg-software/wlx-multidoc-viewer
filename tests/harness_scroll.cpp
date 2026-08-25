@@ -231,7 +231,9 @@ viewer.controller()->setManualZoom(1.0f, 0);
         pump(80);
 
         const qint64 contentH = viewer.controller()->contentSize().height();
-        const int vhPx = 600 - ViewerController::kInfoPanelHeight; // ~578 client
+        // Page area now subtracts the toolbar top; derive
+        // it from the controller instead of assuming a fixed height.
+        const int vhPx = viewer.controller()->pageAreaHeight();
         RECT cr{}; GetClientRect(vh, &cr);
         std::printf("  [dbg] contentH=%lld vh=%d maxScroll=%d isOpen=%d pageCount=%d cs=(%d,%d) clientH=%d vMaxScroll=%d\n",
                     (long long)contentH, vhPx, viewer.controller()->maxScrollOffset(),
@@ -334,13 +336,17 @@ viewer.controller()->setManualZoom(1.0f, 0);
         std::printf("  [dbg] p1=(%d,%d %dx%d) p2=(%d,%d %dx%d)\n",
                     p1.x(), p1.y(), p1.width(), p1.height(),
                     p2.x(), p2.y(), p2.width(), p2.height());
-        CHECK("B1 page 1 keeps portrait geometry (420x595)",
-              p1.width() == 420 && p1.height() == 595);
-        CHECK("B2 page 2 keeps landscape geometry (595x420)",
-              p2.width() == 595 && p2.height() == 420);
         CHECK("B3 page 2 stacked below page 1 + gap",
-              p1.y() == 0 && p2.y() == 595 + viewer_settings::kPageGap);
+              p1.y() == 0 && p2.y() == p1.height() + viewer_settings::kPageGap);
         const int canvasW = viewer.controller()->contentSize().width();
+        // Ratio checks (robust to the toolbar/DPI chrome height changing the
+        // absolute fit size): page 1 stays portrait, page 2 stays landscape.
+        const double r1 = static_cast<double>(p1.width()) / p1.height();
+        const double r2 = static_cast<double>(p2.width()) / p2.height();
+        CHECK("B1 page 1 portrait aspect (w/h == 420/595)",
+              std::abs(r1 - 420.0 / 595.0) < 0.003);
+        CHECK("B2 page 2 landscape aspect (w/h == 595/420)",
+              std::abs(r2 - 595.0 / 420.0) < 0.003);
         CHECK("B4 each page centered within the canvas width",
               p1.x() == (canvasW - p1.width()) / 2 && p2.x() == (canvasW - p2.width()) / 2);
 
@@ -635,9 +641,10 @@ viewer.controller()->setManualZoom(1.0f, 0);
         const int hitIdx = viewer.controller()->wordAtCanvas(1, firstWordCanvas);
         CHECK("E5 hit-test at word center returns the word", hitIdx == 0);
 
-        // Begin/update selection then read the copied text.
-        viewer.controller()->beginSelection(1, 0);
-        viewer.controller()->updateSelection(1, (int)pt.words.size() - 1);
+        // Begin/update selection then read the copied text (char-level:
+        // anchor at the start of word 0 through the end of the last word).
+        viewer.controller()->beginSelection(1, 0, 0);
+        viewer.controller()->updateSelection(1, (int)pt.words.size() - 1, -1);
         viewer.controller()->endSelection();
         const QString sel = viewer.controller()->selectedText();
         std::printf("  [dbg] E selectedText: '%s'\n", sel.toUtf8().constData());
@@ -679,22 +686,29 @@ viewer.controller()->setManualZoom(1.0f, 0);
         const QRect pr = viewer.controller()->pageRect(1);
         const QTransform t = viewer.controller()->pageTransform(1);
 
-        // On-screen page origin in paged mode (fit page is centered).
-        const int panelH = ViewerController::kInfoPanelHeight;
+        // On-screen page origin in paged mode, mirroring onPaint: centered only when
+// the page fits the page area, otherwise pinned to the area's top-left (0
+// scroll). Client point = canvas point - pageRect.topLeft + on-screen origin
+// (the exact inverse of ViewerWin32::clientToCanvas).
+        const int topChrome = viewer_settings::kToolbarBaseHeight;
+        const int bottomChrome = 0;
         RECT cr;
         GetClientRect(vh, &cr);
         const int viewW = cr.right;
-        const int viewH = cr.bottom - panelH;
-        const int screenX0 = (viewW - pr.width()) / 2;
-        const int screenY0 = panelH + (viewH - pr.height()) / 2;
+        const int viewH = cr.bottom - topChrome - bottomChrome;
+        const int prW = pr.width();
+        const int prH = pr.height();
+        const int ox = (prW <= viewW) ? (viewW - prW) / 2 : 0;
+        const int oy = topChrome + ((prH <= viewH) ? (viewH - prH) / 2 : 0);
 
-        // Down on word 0, drag to the last word's right edge, release.
+        // Down on the LEFT edge of word 0 (char 0), drag to the last word's
+        // right edge, release. Char-level selection starts at the first char.
         const QRectF w0 = t.mapRect(pt.words[0].bbox);
         const QRectF wLast = t.mapRect(pt.words[pt.words.size() - 1].bbox);
-        const int downX = screenX0 + (int)w0.center().x();
-        const int downY = screenY0 + (int)w0.center().y();
-        const int upX = screenX0 + (int)wLast.right();
-        const int upY = screenY0 + (int)wLast.center().y();
+        const int downX = (int)w0.left() + 2 - pr.x() + ox;
+        const int downY = (int)w0.center().y() - pr.y() + oy;
+        const int upX = (int)wLast.right() - pr.x() + ox;
+        const int upY = (int)wLast.center().y() - pr.y() + oy;
 
         PostMessageW(vh, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(downX, downY));
         pump(40);
