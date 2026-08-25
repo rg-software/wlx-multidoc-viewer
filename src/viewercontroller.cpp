@@ -265,10 +265,12 @@ void ViewerController::computeFitZoom() {
     if (info.width <= 0 || info.height <= 0)
         return;
 
-    // Fit targets are expressed in logical (DPI-independent) pixels: the
-    // rendered bitmap is page * zoom * dpiScale device pixels, so the zoom
-    // that fits the physical viewport is viewport / dpiScale.
-    const float invScale = 1.0f / m_dpiScale;
+    // Fit targets live in layout units (the same units as the viewport):
+    // the rendered bitmap is page * zoom * renderScale pixels, but geometry
+    // only ever uses page * zoom * layoutScale, so compensating by anything
+    // other than layoutScale would misfit. Qt keeps both at 1; Win32 uses
+    // DPI/96 for both.
+    const float invScale = 1.0f / m_layoutScale;
     const int vw = std::max(1, static_cast<int>(pageAreaWidth() * invScale));
     const int vh = std::max(1, static_cast<int>(pageAreaHeight() * invScale));
 
@@ -300,7 +302,7 @@ void ViewerController::computeLayout() {
 
     const int vw = pageAreaWidth();
     const int vh = pageAreaHeight();
-    const float z = m_state.zoom() * m_dpiScale;
+    const float z = m_state.zoom() * m_layoutScale;
 
     QVector<QSize> sizes;
     sizes.reserve(m_state.pageCount());
@@ -427,7 +429,7 @@ QImage ViewerController::renderPageCached(int page) {
         return m_pageCache[idx];
     }
 
-    QImage img = m_engine->renderPage(page, m_state.zoom(), m_dpiScale, m_rotation);
+    QImage img = m_engine->renderPage(page, m_state.zoom(), m_renderScale, m_rotation);
     m_pageCache[idx] = img;
     const int pos = m_cacheRecency.indexOf(idx);
     if (pos >= 0)
@@ -453,6 +455,7 @@ QImage ViewerController::renderCachedViewport(int scrollY, int scrollX) {
     const int visBot = scrollY + vh;
     QPainter pm;
     pm.begin(&slice);
+    pm.setRenderHint(QPainter::SmoothPixmapTransform, true);
     for (int p = 1; p <= m_pageRects.size(); ++p) {
         const QRect r = m_pageRects[p - 1];
         if (r.top() > visBot)
@@ -462,7 +465,9 @@ QImage ViewerController::renderCachedViewport(int scrollY, int scrollX) {
         const QImage img = renderPageCached(p);
         if (img.isNull())
             continue;
-        pm.drawImage(r.x() - scrollX, r.y() - scrollY, img);
+        // Bitmap is zoom*renderScale px; the layout rect is zoom*layoutScale
+        // units. drawImage(target) maps one onto the other for any scale pair.
+        pm.drawImage(QRect(r.x() - scrollX, r.y() - scrollY, r.width(), r.height()), img);
     }
     pm.end();
     return slice;
@@ -532,7 +537,7 @@ PageText ViewerController::pageText(int page) const {
 
 // Map a page-space point (y-down, page dimensions before zoom) to the content
 // canvas. Word bboxes are in page space; the canvas places the page rect at
-// m_pageRects[page-1].topLeft() scaled by zoom*dpiScale and rotated about the
+// m_pageRects[page-1].topLeft() scaled by zoom*layoutScale and rotated about the
 // page center. The rotation convention matches renderPage's ctm (about center).
 QTransform ViewerController::pageTransform(int page) const {
     if (page < 1 || page > m_pageRects.size())
@@ -542,7 +547,7 @@ QTransform ViewerController::pageTransform(int page) const {
     if (info.width <= 0 || info.height <= 0 || r.isEmpty())
         return {};
 
-    const float scale = m_state.zoom() * m_dpiScale;
+    const float scale = m_state.zoom() * m_layoutScale;
     const float centerX = info.width * 0.5f;
     const float centerY = info.height * 0.5f;
 

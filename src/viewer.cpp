@@ -25,6 +25,15 @@ void ViewerCanvas::paintEvent(QPaintEvent* event) {
     if (!m_controller || !m_controller->hasDocument())
         return;
 
+    // Bitmaps are rasterized at zoom*renderScale pixels while geometry lives
+    // in layout units (logical px under Qt HiDPI). Drawing through an explicit
+    // target rect maps one bitmap pixel onto one physical screen pixel without
+    // touching the shared cached QImage (mutating its DPR would deep-copy).
+    const float rs = m_controller->renderScale() > 0.0f ? m_controller->renderScale() : 1.0f;
+    const float invRs = 1.0f / rs;
+    if (rs > 1.0f)
+        p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
     const bool paged = m_controller->isPagedMode();
     if (paged) {
         const int page = m_controller->currentPage();
@@ -32,9 +41,11 @@ void ViewerCanvas::paintEvent(QPaintEvent* event) {
         if (img.isNull())
             return;
         // Canvas is at least the viewport; center the page only if it fits.
-        const int x = (width() - img.width()) / 2;
-        const int y = (height() - img.height()) / 2;
-        p.drawImage(std::max(0, x), std::max(0, y), img);
+        const int lw = qRound(img.width() * invRs);
+        const int lh = qRound(img.height() * invRs);
+        const int x = (width() - lw) / 2;
+        const int y = (height() - lh) / 2;
+        p.drawImage(QRect(std::max(0, x), std::max(0, y), lw, lh), img);
         paintSelection(p, rect());
         paintSearchOverlay(p, rect());
         return;
@@ -56,7 +67,7 @@ void ViewerCanvas::paintEvent(QPaintEvent* event) {
         QImage img = m_controller->renderPageCached(page);
         if (img.isNull())
             continue;
-        p.drawImage(r.x(), r.y(), img);
+        p.drawImage(r, img);
     }
     m_controller->trimRenderCache(vis.y());
     paintSelection(p, vis);
@@ -199,7 +210,7 @@ ViewerWidget::ViewerWidget(QWidget* parent)
             QMetaObject::invokeMethod(this, std::move(task), Qt::QueuedConnection);
     });
     m_canvas->setController(m_controller.get());
-    m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
+    m_controller->setRenderScale(static_cast<float>(devicePixelRatioF()));
 
     m_toolbarPresenter.attach(m_controller.get(), m_toolbar);
     m_toolbarPresenter.setScrollApplier([this](int scrollY) {
@@ -251,7 +262,7 @@ ViewerWidget::~ViewerWidget() {
 bool ViewerWidget::loadDocument(const QString& path) {
     closeDocument();
     m_controller->setEngine(createEngine(path));
-    m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
+    m_controller->setRenderScale(static_cast<float>(devicePixelRatioF()));
     if (!m_controller->openDocument(path))
         return false;
     m_sidebarPresenter.reload();
@@ -641,7 +652,7 @@ bool ViewerWidget::nativeEvent(const QByteArray& eventType, void* message, qintp
 void ViewerWidget::resizeEvent(QResizeEvent* event) {
     QFrame::resizeEvent(event);
     if (m_controller) {
-        m_controller->setDpiScale(static_cast<float>(devicePixelRatioF()));
+        m_controller->setRenderScale(static_cast<float>(devicePixelRatioF()));
         m_controller->setViewportSize(QSize(width(), height()));
         refreshChrome();
         m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(scrollYValue()));

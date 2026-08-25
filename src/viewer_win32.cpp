@@ -140,7 +140,8 @@ ViewerWin32::ViewerWin32(HWND hParent) {
 
     m_controller = std::make_unique<ViewerController>();
     m_controller->setStateChangedCallback([this]() { onControllerChanged(); });
-    m_controller->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
+    m_controller->setLayoutScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
+    m_controller->setRenderScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
     m_controller->setUiMarshal([this](std::function<void()> task) {
         marshalToWnd(m_hwnd, std::move(task));
     });
@@ -596,7 +597,8 @@ void ViewerWin32::onSize(int w, int h) {
         m_sidebar->setDpiScale(dpi);
     layoutChrome();
     if (m_controller) {
-        m_controller->setDpiScale(dpi);
+        m_controller->setLayoutScale(dpi);
+        m_controller->setRenderScale(dpi);
         m_controller->setViewportSize(QSize(w, h));
         m_controller->setTopChrome(toolbarHeight());
         m_controller->setBottomChrome(0);

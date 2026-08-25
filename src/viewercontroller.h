@@ -60,8 +60,18 @@ public:
     void setViewportSize(const QSize& size);
     int pageAreaHeight() const;
     int pageAreaWidth() const;
-    void setDpiScale(float scale) { m_dpiScale = std::max(0.25f, std::min(scale, 8.0f)); }
-    float dpiScale() const { return m_dpiScale; }
+    // Two scale roles, both defaulting to 1:
+    // - layoutScale multiplies page geometry (pageRects, contentSize). Win32
+    //   uses DPI/96 because HWND coordinates are physical device pixels; Qt
+    //   keeps 1.0 because widget coordinates are logical (HiDPI is applied by
+    //   the backing store, not by our geometry).
+    // - renderScale is bitmap density only: pages are rasterized at
+    //   zoom * renderScale pixels so one bitmap pixel maps onto one physical
+    //   screen pixel at any display scaling.
+    void setLayoutScale(float scale) { m_layoutScale = clampScale(scale); }
+    void setRenderScale(float scale) { m_renderScale = clampScale(scale); }
+    float layoutScale() const { return m_layoutScale; }
+    float renderScale() const { return m_renderScale; }
     // Chrome (toolbar strip top, optional sidebar left)
     // subtracted from the viewport size to form the page area. Device pixels,
     // set by the viewers.
@@ -198,20 +208,23 @@ public:
     int takeSearchJump();
 
 private:
+    static float clampScale(float s) { return std::max(0.25f, std::min(s, 8.0f)); }
 
     std::unique_ptr<DocumentEngine> m_engine;
     ViewerState m_state;
     FitMode m_fitMode = FitMode::FitToPage;
     int m_rotation = 0;
     QSize m_viewportSize;
-    float m_dpiScale = 1.0f;
+    float m_layoutScale = 1.0f;
+    float m_renderScale = 1.0f;
     StateChangedCallback m_onChanged;
     int m_topChromePx = 0;
     int m_bottomChromePx = 0;
     int m_leftChromePx = 0;
     int m_scrollAnchor = 0;
 
-    // Per-page layout in device pixels. m_pageRects[page-1].top() is the
+    // Per-page layout in canvas units (logical px on Qt, device px on Win32).
+    // m_pageRects[page-1].top() is the
     // cumulative top of the page in the (unbounded) content canvas; the canvas
     // width is max(page widths, viewport width) and pages are centered in it.
     QVector<QRect> m_pageRects;
