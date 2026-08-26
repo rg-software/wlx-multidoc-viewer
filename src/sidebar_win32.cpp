@@ -49,6 +49,14 @@ SidebarWin32::SidebarWin32(HWND hParent)
         0, 0, 10, 10, m_hwnd,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(1)),
         hInst, nullptr);
+
+    // Subclass the tree so keys typed while it has focus behave like they do
+    // when the viewer window has them (Esc in particular).
+    if (m_tree) {
+        const auto orig = SetWindowLongPtrW(m_tree, GWLP_WNDPROC,
+                                            reinterpret_cast<LONG_PTR>(treeProc));
+        SetWindowLongPtrW(m_tree, GWLP_USERDATA, orig);
+    }
 }
 
 SidebarWin32::~SidebarWin32() {
@@ -178,6 +186,31 @@ void SidebarWin32::addEntry(int id, int parentId, const QString& title) {
     Q_UNUSED(parentId)
 }
 
+void SidebarWin32::forwardEscape() {
+    // Hand ESC to the viewer window with focus restored, so it runs the same
+    // path (clear selection, host sees the key) as when the reading area has
+    // keyboard focus.
+    const HWND viewer = m_parent ? m_parent : GetParent(m_hwnd);
+    if (!viewer)
+        return;
+    if (GetFocus() != viewer)
+        SetFocus(viewer);
+    SendMessageW(viewer, WM_KEYDOWN, VK_ESCAPE, 0);
+}
+
+LRESULT CALLBACK SidebarWin32::treeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    const auto origProc = reinterpret_cast<WNDPROC>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (msg == WM_KEYDOWN && wp == VK_ESCAPE) {
+        const auto* panel = reinterpret_cast<const SidebarWin32*>(
+            GetWindowLongPtrW(GetParent(hwnd), GWLP_USERDATA));
+        if (panel) {
+            const_cast<SidebarWin32*>(panel)->forwardEscape();
+            return 0;
+        }
+    }
+    return CallWindowProcW(origProc, hwnd, msg, wp, lp);
+}
+
 void SidebarWin32::selectEntry(int id) {
     if (!m_tree || id < 0)
         return;
@@ -188,11 +221,19 @@ void SidebarWin32::selectEntry(int id) {
     m_lastSelected = id;
     ensureMaterialized(id);
     const QHash<int, HTREEITEM>::iterator it = m_items.find(id);
-    if (it != m_items.end()) {
-        // Select without scrolling if the item is already visible.
-        TreeView_SelectSetFirstVisible(m_tree, TreeView_GetVisibleCount(m_tree));
-        SendMessageW(m_tree, TVM_SELECTITEM, TVGN_CARET, (LPARAM)it.value());
-    }
+    if (it == m_items.end())
+        return;
+
+    // Programmatic sync must not re-enter activation: TVN_SELCHANGED would
+    // otherwise jump the reading position to this entry's page start while
+    // the user is merely scrolling across sections.
+    m_internalMutation = true;
+    SendMessageW(m_tree, TVM_SELECTITEM, TVGN_CARET, (LPARAM)it.value());
+    m_internalMutation = false;
+
+    // Scroll only when needed so the highlighted row is actually on screen
+    // after load and after page-driven selection changes.
+    TreeView_EnsureVisible(m_tree, it.value());
 }
 
 LRESULT CALLBACK SidebarWin32::wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -204,6 +245,12 @@ LRESULT CALLBACK SidebarWin32::wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp
 
 LRESULT SidebarWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+    case WM_KEYDOWN:
+        if (wp == VK_ESCAPE) {
+            forwardEscape();
+            return 0;
+        }
+        break;
     case WM_SIZE: {
         RECT rc;
         GetClientRect(m_hwnd, &rc);

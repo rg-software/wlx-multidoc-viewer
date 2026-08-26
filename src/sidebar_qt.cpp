@@ -1,6 +1,8 @@
 #include "sidebar_qt.h"
 
 #include <QHBoxLayout>
+#include <QKeyEvent>
+#include <QApplication>
 #include <QSet>
 
 SidebarQt::SidebarQt(QWidget* parent)
@@ -12,6 +14,7 @@ SidebarQt::SidebarQt(QWidget* parent)
     m_tree = new QTreeWidget(this);
     m_tree->setHeaderHidden(true);
     m_tree->setExpandsOnDoubleClick(true);
+    m_tree->installEventFilter(this);
     layout->addWidget(m_tree);
 
     setFixedWidth(viewer_settings::kSidebarBaseWidth);
@@ -137,4 +140,20 @@ void SidebarQt::selectEntry(int id) {
 
 void SidebarQt::setVisible(bool on) {
     QWidget::setVisible(on);
+}
+
+// Forward Escape from the tree to the viewer so it behaves exactly as when
+// the reading area holds keyboard focus.
+bool SidebarQt::eventFilter(QObject* watched, QEvent* ev) {
+    if (watched == m_tree && ev->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(ev);
+        if (ke->key() == Qt::Key_Escape) {
+            QWidget* viewer = parentWidget() ? parentWidget() : window();
+            QKeyEvent fwd(QEvent::KeyPress, ke->key(), ke->modifiers(), ke->text(),
+                          ke->isAutoRepeat(), ke->count());
+            QApplication::sendEvent(viewer, &fwd);
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, ev);
 }

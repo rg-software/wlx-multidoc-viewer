@@ -30,6 +30,7 @@ private:
     void ensurePath(int id);
     QTreeWidgetItem* insertItem(QTreeWidgetItem* parent, int id, const QString& title);
     int idOf(QTreeWidgetItem* item) const;
+    bool eventFilter(QObject* watched, QEvent* ev) override;
 
     QTreeWidget* m_tree = nullptr;
     QHash<int, QTreeWidgetItem*> m_items;

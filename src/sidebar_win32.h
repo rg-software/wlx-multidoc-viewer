@@ -38,7 +38,9 @@ public:
 
 private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+    static LRESULT CALLBACK treeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     LRESULT handleMsg(UINT msg, WPARAM wp, LPARAM lp);
+    void forwardEscape();
 
     HTREEITEM insertItem(HTREEITEM parent, int id, const QString& title, bool placeholder);
     void ensureMaterialized(int id);                 // inserts + expands the path to id

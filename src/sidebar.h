@@ -20,6 +20,7 @@ struct SidebarEntry {
     int parentId = -1;  // -1 for top-level
     int level = 0;
     int pageNo = 1;
+    bool resolved = true;  // false: container/dangling link, activation falls back to page 1
     QString title;
 };
 
@@ -74,12 +75,15 @@ public:
     }
 
     void onPageChanged(int page) {
-        // Deepest entry whose page is at or before the reading position.
+        // Deepest resolved entry whose page is at or before the reading
+        // position. Destination-less entries (pure TOC containers, dangling
+        // links) are excluded: they would otherwise masquerade as page-1
+        // candidates and steal the highlight from the actual section.
         int best = -1;
         int bestLevel = -1;
         for (int i = 0; i < m_entries.size(); ++i) {
             const SidebarEntry& e = m_entries[i];
-            if (e.pageNo <= page && e.level >= bestLevel) {
+            if (e.resolved && e.pageNo <= page && e.level >= bestLevel) {
                 bestLevel = e.level;
                 best = i;
             }
@@ -120,7 +124,8 @@ private:
     void flatten(const QVector<OutlineItem>& items, int parentId, int level) {
         for (const OutlineItem& it : items) {
             const int id = m_entries.size();
-            m_entries.append(SidebarEntry{id, parentId, level, it.pageNo, it.title});
+            m_entries.append(SidebarEntry{id, parentId, level, it.pageNo,
+                                          it.resolved, it.title});
             flatten(it.children, id, level + 1);
         }
     }
