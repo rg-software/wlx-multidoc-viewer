@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-WLX multi-document viewer plugin for Total Commander and Double Commander. Displays PDF, DjVu, EPUB, XPS, comic archives, images, and more inside the lister panel.
+WLX multi-document viewer plugin for Total Commander and Double Commander. Displays PDF, DjVu, EPUB, XPS, comic archives, images, and CHM inside the lister panel.
 
 ## Build
 
@@ -28,6 +28,7 @@ src/
   formatdispatcher.cpp  Routes file extensions to the right engine
   mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML); pageText from fz_stext; searchText from fz_search_page_cb
   djvuengine.*          DjVuLibre backend (DJVU, DJV); pageText/search unavailable (see AGENTS gaps)
+  chmengine.*           CHM backend via libchm (archive access) + MuPDF HTML pipeline (render/text/search); reading order + nested .hhc outline
   viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache + selection + text search state
   textselection.*       Platform-agnostic text-selection model (anchor/focus, ranges)
   searchcontroller.*    Whole-document search worker thread (progressive per-page results, atomic cancel)
@@ -69,7 +70,7 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 - WLX API uses `DCPCALL` for exports, `HANDLE` for opaque window pointers
 - Detect string must fit in 260 chars (WLX buffer limit)
 - The viewer hosts its own toolbar: one shared `ToolbarPresenter`/`SidebarPresenter` pair drives thin per-platform backends (`toolbar_win32.*`/`toolbar_qt.*`, `sidebar_win32.*`/`sidebar_qt.*`). State flows controller -> presenter -> backend and backend events -> presenter -> controller, so keyboard and toolbar never diverge.
-- The toolbar copy button is a permanently-disabled placeholder: text selection is owned by a separate future change, so no fallback copy action is wired (toolbar_* backends + ToolbarPresenter::onCopy).
+- The toolbar copy button copies the current selection (`ToolbarPresenter::onCopy`); it is enabled only while a selection exists.
 - `ListLoad` returns an HWND (Windows) or widget pointer (Linux)
 
 ## Known Issues
@@ -91,3 +92,4 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 | **DjVu text-layer selection & search** | Low | The vcpkg djvulibre static build does not export the core miniexp accessors (`miniexp_car/cdr/consp/symbolp/to_int`), so `ddjvu_document_get_pagetext` trees cannot be walked. DjVu pages report no text layer and `supportsSearch() == false` (selection and find work only for MuPDF-backed formats). Revisit if a djvulibre build with the miniexp public API is available, or add a local miniexp.h overlay. |
 | **Qt in-host verification** | Medium | The toolbar/sidebar/print rework changed `viewer.*`, `toolbar_qt.*`, `sidebar_qt.*`, `print_qt.cpp`; Linux must re-verify `cmake --preset linux-release` (new `Qt6::PrintSupport` dependency) and scroll + selection + toolbar behavior in Total/Double Commander. Windows interactive smoke tests (task 4.4) are likewise pending. |
 | **Print worker on Qt** | Low | QPrinter must be used on the main thread, so the Qt print path renders synchronously instead of on a `PrintCoordinator` worker; the Win32 path uses the worker. Page/copy resolution and fit math are still shared. |
+| **CHM engine Linux build** | Low | `chmengine.*` compiles against system libchm via `find_library`, but `cmake --preset linux-release` has not been re-run since the CHM engine landed (Windows-only verification so far). Also pending: Qt sidebar ESC-forwarding parity check on Linux. |
