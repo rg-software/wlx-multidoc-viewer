@@ -1,126 +1,123 @@
 # wlx-multidoc-viewer
 
-A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and [Double Commander](https://doublecmd.sourceforge.io/) that displays PDF, DjVu, EPUB, XPS, comic archives, images, and text inside the lister panel.
+A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
+[Double Commander](https://doublecmd.sourceforge.io/) that displays documents
+inside the lister panel: PDF, DjVu, EPUB, FB2, MOBI, XPS, comic archives,
+images, and CHM.
 
 ## Features
 
-- **Formats** (via MuPDF and DjVuLibre): PDF, XPS, OXPS, EPUB, MOBI, FB2, CBZ, CBR, CB7, HTML/HTM, Markdown, TXT, JPEG, PNG, TIFF, GIF, BMP, WEBP, DJVU, DJV.
-- **Paged & continuous display modes** — `V` toggles between single-page and continuous scrolling.
-- **Smooth scrolling** in continuous mode (mouse wheel, scrollbar, arrow keys, mouse-drag panning) over a virtual canvas whose scrollbar covers the full document — accurate even on very long or high-zoom files. In paged mode, an overflowing page (wider/taller than the window) gains a scrollbar and drag-panning to move the visible part.
-- **Fit modes** — `Shift+V` cycles fit-to-page → fit-to-width → 100%. `+`/`-`/`0` adjust zoom.
-- **Rotation** — `R` rotates 90° clockwise, `Shift+R` counter-clockwise; persisted per document.
-- **Navigation** — `Right`/`PageDown` next, `Left`/`PageUp` prev, `Home` first, `End` last; `G` go-to-page (Qt viewer).
-- **Info panel** at the top showing `current / total`, continuous status, and fit/zoom state.
-- **DPI aware** — rendered at the host's effective display scale; no Qt DLLs needed at runtime on Windows.
-- **Per-page render cache** — continuous mode paints only visible pages from a bounded LRU cache, keeping memory flat and scroll cost proportional to the viewport.
-- **Text selection** — select text with the mouse in documents that carry a text layer (PDF/EPUB/XPS/HTML via MuPDF) and copy it with `Ctrl+C`; I-beam cursor over text, highlight overlay, `Esc` clears. Image-only scans and comics stay pan-only. (DjVu text-layer selection is pending a djvulibre build that exports the miniexp API.)
+- **Document formats** — PDF, XPS/OXPS, EPUB, FB2, MOBI, CBZ, DJVU/DJV,
+  JPEG, PNG, TIFF, GIF, BMP, WEBP, and CHM (Compiled HTML Help).
+  Verified over generated samples ([`examples/`](examples/)) plus
+  real-world files.
+- **Paged & continuous modes** — single-page view or continuous scrolling with a
+  scrollbar that covers the whole document, accurate even for very long or
+  high-zoom files. Paged mode pans overflowing pages.
+- **Fit & zoom** — fit-to-page / fit-to-width / 100%, zoom in/out, rotation.
+- **Toolbar** — navigation, mode and fit toggles, page box, find box, print.
+- **Outline sidebar** — table of contents for PDF/EPUB/CHM; the current section
+  follows the reading position, click to jump.
+- **Text selection & find** — select text with the mouse and copy it, search
+  across pages with per-match highlights in documents with a text layer
+  (PDF, EPUB, XPS, CHM). Image-only scans and comics stay pan-only; DjVu text
+  support is pending a djvulibre build that exports the miniexp API.
+- **Printing** — page range and copies through the host print dialog.
+- **DPI aware** — renders at the host's effective display scale. No Qt DLLs are
+  needed at runtime on Windows.
 
 ## Requirements
 
-### Windows
+- **Windows**: Visual Studio 2022 with the C++ workload (or Build Tools),
+  CMake 3.20+, and a [vcpkg](https://vcpkg.io/) checkout exposed via the
+  `VCPKG_ROOT` environment variable (any location).
+- **Linux**: CMake 3.20+, Ninja, Qt 6 (Widgets), and the system development
+  packages listed below.
 
-- [Visual Studio 2022](https://visualstudio.microsoft.com/) (C++ workload)
-- [vcpkg](https://vcpkg.io/) at `C:\vcpkg` (uses the `x64-windows-static-md` triplet)
-- CMake 3.20+
+## Dependencies
 
-### Linux
+Everything for Windows comes from the vcpkg manifest (`vcpkg.json`) — no manual
+installs. On Linux, install the system packages for your flavor:
 
-- CMake 3.20+ and Ninja
-- Qt 6 (Widgets)
-- System `libmupdf` and `libdjvulibre` development packages
-- A C++17 compiler (GCC or Clang)
+```bash
+# Debian / Ubuntu
+sudo apt install build-essential cmake ninja-build \
+    qt6-base-dev libmupdf-dev libdjvulibre-dev libchm-dev
+
+# Fedora
+sudo dnf install gcc-c++ cmake ninja-build \
+    qt6-qtbase-devel mupdf-devel djvulibre-devel chmlib-devel
+
+# Arch
+sudo pacman -S --needed base-devel cmake ninja qt6-base mupdf djvulibre chmlib
+```
+
+(Package names can drift between releases; the CMake script looks for
+`Qt6`, `mupdf`, `djvulibre`, and `chm_lib.h`.)
 
 ## Building
 
-### Windows
-
-Run from a VS 2022 developer shell (vcvarsall):
-
-```bash
-cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 && cmake --preset windows-x64-release && cmake --build --preset windows-release'
-```
-
-Output: `build/release/Release/wlx-multidoc-viewer.wlx64`
-
-### Linux
-
-Install system dependencies first. On Debian/Ubuntu:
+From a developer shell (on Windows: "Developer PowerShell / Command Prompt for
+VS 2022", which provides `cmake` and the MSVC environment):
 
 ```bash
-sudo apt install cmake ninja-build qt6-base-dev libmupdf-dev libdjvulibre-dev
-```
+# Windows
+cmake --preset windows-x64-release
+cmake --build --preset windows-release
 
-On Arch/CachyOS:
-
-```bash
-sudo pacman -S --needed cmake ninja qt6-base mupdf djvulibre
-```
-
-Build:
-
-```bash
+# Linux
 cmake --preset linux-release
 cmake --build --preset linux-release
 ```
 
-Output: `build/linux-release/wlx-multidoc-viewer.wlx64`
+The plugin binary (`wlx-multidoc-viewer.wlx64`) is written under `build/`
+(exact subfolder depends on the preset).
 
-Install (user-local, no root):
+## Installation
+
+Copy `wlx-multidoc-viewer.wlx64` somewhere permanent, then register it as a
+lister plugin in your file manager (*Configuration → Options → Plugins → Lister
+plugins* in Total Commander; Double Commander has an equivalent lister plugin
+page).
+
+On Linux you can instead install directly:
 
 ```bash
 cmake --install build/linux-release --prefix ~/.local
 ```
 
-This places the plugin at `~/.local/share/doublecmd/plugins/multidoc/wlx-multidoc-viewer.wlx64`. For a system-wide install, use `--prefix /usr` instead (lands in `/usr/share/doublecmd/plugins/multidoc/`).
-
-### Test harnesses (optional, Windows)
-
-The project builds two real-input harnesses with `-DWLX_BUILD_HARNESS=ON`:
-
-- `harness-scroll` — validates the continuous-mode virtual canvas (scroll range, mid-document reach, mixed page sizes, viewport anchoring).
-- `harness-win` — drives real mouse/keyboard input to test drag scrolling, cursor state, and scroll clamping.
-
-## Installation
-
-On Linux, prefer `cmake --install build/linux-release --prefix ~/.local` (see [Building](#building)); it installs to `<prefix>/share/doublecmd/plugins/multidoc/`. Otherwise copy `wlx-multidoc-viewer.wlx64` manually. Then register the plugin in the file manager: add it as a lister plugin via *Configuration → Options → Plugins → Lister plugins* (Total Commander); Double Commander similarly registers `.wlx64` plugins in its plugin settings.
+which places the plugin in `~/.local/share/doublecmd/plugins/multidoc/`.
 
 ## Usage
 
-Open any supported file in the lister (e.g. press `F3` in Total Commander). Use the info panel at the top and the keys below:
+Open any supported file in the lister (e.g. `F3` in Total Commander). The
+toolbar gives you navigation, display modes, find, and print; the outline
+sidebar (toolbar toggle) shows the document's table of contents when one
+exists.
+
+### Keys
 
 | Key | Action |
 |-----|--------|
-| `Right` / `PageDown` | Next page |
-| `Left` / `PageUp` | Previous page |
+| `Right` / `PageDown`, `Left` / `PageUp` | Next / previous page |
+| `Up` / `Down` | Scroll line-wise (continuous) |
 | `Home` / `End` | First / last page |
-| `V` | Toggle paged / continuous |
-| `Shift+V` | Cycle fit mode |
-| `+` / `-` / `0` | Zoom in / out / 100% |
-| `R` / `Shift+R` | Rotate CW / CCW |
-| `G` | Go to page (Qt viewer) |
-| `Esc` | Exit the viewer (Qt forwards a `Q` keypress to the host); clears a text selection first |
-| `Ctrl+C` | Copy selected text to the clipboard |
+| `V` | Toggle paged / continuous mode |
+| `Shift+V` | Cycle fit mode (page / width / 100%) |
+| `+` / `-` / `0` | Zoom in / out / reset |
+| `R` / `Shift+R` | Rotate clockwise / counter-clockwise |
+| `G` | Go to page *(Linux viewer)* |
+| `Esc` | Clear the text selection; otherwise the host exits the viewer |
+| `Ctrl+C` | Copy selected text |
 | Mouse wheel | Smooth scroll (continuous) / page turn (paged) |
-| Left-drag | Pan (continuous; paged when page overflows); select text when dragging over selectable text |
+| Left-drag | Pan, or select text when starting on selectable text |
 
-## Keyboard shortcuts map
+## Examples
 
-Single source in `ViewerController`; identical across platforms.
-
-## Architecture
-
-```
-src/
-  plugin.cpp            WLX entry points (ListLoad, ListCloseWindow, etc.)
-  wlxplugin.h           WLX API types and DCPCALL macro
-  document.h            DocumentEngine interface (open/render/text/outline)
-  formatdispatcher.cpp  Routes file extensions to the right engine
-  mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML)
-  djvuengine.*          DjVuLibre backend (DJVU, DJV)
-  viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache
-  viewer_win32.*        Win32 viewer (Windows) — pure HWND, per-page BitBlt paint
-  viewer.*              Qt viewer (Linux) — QFrame, QScrollArea, ViewerCanvas widget
-```
+The [`examples/`](examples/) directory contains small generated sample files
+(PDF, EPUB, CBZ, images, Markdown) plus a script that regenerates them — handy
+for smoke-testing the plugin without hunting for documents. DjVu, XPS, and CHM
+samples are best taken from your own files.
 
 ## License
 

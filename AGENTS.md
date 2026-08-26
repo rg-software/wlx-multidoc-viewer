@@ -6,11 +6,11 @@ WLX multi-document viewer plugin for Total Commander and Double Commander. Displ
 
 ## Build
 
-Windows (VS 2022) uses a standalone vcpkg at `C:\vcpkg`. Linux uses system packages via `find_library` (see CMakeLists.txt) — no vcpkg needed.
+Windows uses vcpkg (any checkout location exposed as the `VCPKG_ROOT` environment variable; manifest mode, `x64-windows-static-md` triplet). Linux uses system packages via `find_library` (see CMakeLists.txt) — no vcpkg needed.
 
 ```bash
-# Windows: configure + build (must run from vcvarsall shell)
-cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 && cmake --preset windows-x64-release && cmake --build --preset windows-release'
+# Windows: configure + build from a VS 2022 developer shell
+cmake --preset windows-x64-release && cmake --build --preset windows-release
 
 # Linux: configure + build
 cmake --preset linux-release && cmake --build --preset linux-release

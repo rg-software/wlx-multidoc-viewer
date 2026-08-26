@@ -8,10 +8,9 @@
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": {
           "type": "FILEPATH",
-          "value": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
         },
-        "VCPKG_OVERLAY_PORTS": "${sourceDir}/overlay-ports",
-        "VCPKG_VISUAL_STUDIO_PATH": "C:/Program Files/Microsoft Visual Studio/2022/Community"
+        "VCPKG_OVERLAY_PORTS": "${sourceDir}/overlay-ports"
       }
     },
     {
