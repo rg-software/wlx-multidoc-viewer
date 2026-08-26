@@ -41,6 +41,7 @@ ChmEngine holds a separate `MuPdfEngine` instance internally. For a CHM page, it
 
 - *Alternatives considered:* writing our own CHM parser by hand from the binary spec (SumatraPDF owns one internally). Rejected: libchm exists, is mature, and has a maintained vcpkg port.
 - *Effect:* New vcpkg dependency; new link target `chmlib::chmlib`. The download URL is `http://www.jedrea.com/chmlib/chmlib-0.40.zip` — owned by one maintainer; the vcpkg portfile pins a SHA512, so the build is reproducible.
+- *Amendment (apply-time):* the jedrea.com URL now returns 404, so `overlay-ports/chmlib/` pins the author-maintained GitHub mirror (`jedwing/CHMLib` @ 2bef8d0, upstream 0.40a) with its own SHA512. The port ships no CMake package config, so `CMakeLists.txt` locates it via `find_path`/`find_library` into an imported `chmlib::chmlib` target on both platforms.
 
 ### Decision 3: Page-order = archive enumeration order
 
