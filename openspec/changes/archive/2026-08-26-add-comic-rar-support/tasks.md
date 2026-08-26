@@ -19,4 +19,4 @@
 ## 4. Verification
 
 - [x] 4.1 Windows build green; smoke-harness sweep opens a zip-based `.cbr` and `.cbz` through the new engine path with correct page counts and rendered dimensions
-- [ ] 4.2 Host verification: open a genuine RAR-based `.cb7`/`.cbr` from the user's collection (navigation order matches natural page numbering)
+- [x] 4.2 Host verification: open a genuine RAR-based `.cb7`/`.cbr` from the user's collection (navigation order matches natural page numbering)
