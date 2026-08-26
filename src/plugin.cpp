@@ -24,7 +24,6 @@ static bool ensureQApplication() {
     "EXT=\"PDF\"|EXT=\"XPS\"|EXT=\"OXPS\"|" \
     "EXT=\"EPUB\"|EXT=\"MOBI\"|EXT=\"FB2\"|" \
     "EXT=\"CBZ\"|EXT=\"CBR\"|EXT=\"CB7\"|" \
-    "EXT=\"HTML\"|EXT=\"HTM\"|EXT=\"MD\"|EXT=\"TXT\"|" \
     "EXT=\"JPEG\"|EXT=\"JPG\"|EXT=\"PNG\"|EXT=\"TIFF\"|" \
     "EXT=\"GIF\"|EXT=\"BMP\"|EXT=\"WEBP\"|" \
     "EXT=\"DJVU\"|EXT=\"DJV\"|EXT=\"CHM\""
