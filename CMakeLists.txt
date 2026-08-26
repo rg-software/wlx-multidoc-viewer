@@ -35,6 +35,18 @@ else()
     set(DJVU_TARGET djvulibre::djvulibre)
 endif()
 
+# --- CHMLib ---------------------------------------------------------
+# The upstream vcpkg port and system libchm packages ship only the header
+# plus the static library (no CMake package config), so locate it manually
+# and wrap it in an imported target like the fallbacks above.
+find_path(CHMLIB_INCLUDE_DIR NAMES chm_lib.h REQUIRED)
+find_library(CHMLIB_LIBRARY NAMES chm REQUIRED)
+add_library(chmlib::chmlib UNKNOWN IMPORTED)
+set_target_properties(chmlib::chmlib PROPERTIES
+    IMPORTED_LOCATION "${CHMLIB_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${CHMLIB_INCLUDE_DIR}"
+)
+
 # --- Platform-specific Qt -------------------------------------------
 if(WIN32)
     find_package(Qt6 REQUIRED COMPONENTS Core Gui)
@@ -63,6 +75,7 @@ add_library(wlx-multidoc-viewer SHARED
     src/formatdispatcher.cpp
     src/mupdfengine.cpp
     src/djvuengine.cpp
+    src/chmengine.cpp
     src/viewercontroller.cpp
     src/textselection.cpp
     src/searchcontroller.cpp
@@ -99,6 +112,7 @@ if(WIN32)
         Qt6::Gui
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
+        chmlib::chmlib
     )
 else()
     target_link_libraries(wlx-multidoc-viewer
@@ -106,6 +120,7 @@ else()
         Qt6::PrintSupport
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
+        chmlib::chmlib
     )
 endif()
 
@@ -140,6 +155,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/formatdispatcher.cpp
         src/mupdfengine.cpp
         src/djvuengine.cpp
+        src/chmengine.cpp
         src/searchcontroller.cpp
         src/toolbar.cpp
         src/toolbar_icons.cpp
@@ -153,6 +169,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         Qt6::Gui
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
+        chmlib::chmlib
     )
 
     add_executable(harness-scroll
@@ -165,6 +182,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/formatdispatcher.cpp
         src/mupdfengine.cpp
         src/djvuengine.cpp
+        src/chmengine.cpp
         src/searchcontroller.cpp
         src/toolbar.cpp
         src/toolbar_icons.cpp
@@ -178,5 +196,6 @@ if(WLX_BUILD_HARNESS AND WIN32)
         Qt6::Gui
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
+        chmlib::chmlib
     )
 endif()

@@ -1,0 +1,14 @@
+{
+  "name": "chmlib",
+  "version": "0.40",
+  "port-version": 1,
+  "description": "CHMLIB is a library for dealing with Microsoft ITSS/CHM format files. Overlay port: the upstream jedrea.com download in the builtin port returns 404, so this pins the author-maintained GitHub mirror (jedwing/CHMLib) at a fixed commit.",
+  "homepage": "https://github.com/jedwing/CHMLib",
+  "license": "LGPL-2.1-or-later",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    }
+  ]
+}

@@ -10,6 +10,10 @@
 struct OutlineItem {
     QString title;
     int pageNo = 0;
+    // False when the item carries no resolvable destination (pure container
+    // or dangling link); engines fall back to page 1 on activation, while
+    // reading-position sync must skip these entries.
+    bool resolved = true;
     QVector<OutlineItem> children;
 };
 

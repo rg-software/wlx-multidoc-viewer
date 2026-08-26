@@ -6,6 +6,7 @@
   "dependencies": [
     "qtbase",
     "libmupdf",
-    "djvulibre"
+    "djvulibre",
+    "chmlib"
   ]
 }

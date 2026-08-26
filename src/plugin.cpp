@@ -27,7 +27,7 @@ static bool ensureQApplication() {
     "EXT=\"HTML\"|EXT=\"HTM\"|EXT=\"MD\"|EXT=\"TXT\"|" \
     "EXT=\"JPEG\"|EXT=\"JPG\"|EXT=\"PNG\"|EXT=\"TIFF\"|" \
     "EXT=\"GIF\"|EXT=\"BMP\"|EXT=\"WEBP\"|" \
-    "EXT=\"DJVU\"|EXT=\"DJV\""
+    "EXT=\"DJVU\"|EXT=\"DJV\"|EXT=\"CHM\""
 
 static_assert(sizeof(SUPPORTED_EXTENSIONS) <= 260,
     "Detect string exceeds WLX buffer limit of 260 chars");
