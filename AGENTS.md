@@ -29,6 +29,7 @@ src/
   mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML); pageText from fz_stext; searchText from fz_search_page_cb
   djvuengine.*          DjVuLibre backend (DJVU, DJV); pageText/search unavailable (see AGENTS gaps)
   chmengine.*           CHM backend via libchm (archive access) + MuPDF HTML pipeline (render/text/search); reading order + nested .hhc outline
+  comicengine.*         Comic archive backend via libarchive (CBR/CB7); Qt image decode, natural page order
   viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache + selection + text search state
   textselection.*       Platform-agnostic text-selection model (anchor/focus, ranges)
   searchcontroller.*    Whole-document search worker thread (progressive per-page results, atomic cancel)
@@ -62,7 +63,7 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 - `CMakePresets.json`: VS 2022 generator + `x64-windows-static-md` triplet (Windows); Ninja (Linux)
 - `vcpkg.json`: manifest mode with builtin-baseline (Windows only)
 - `overlay-ports/djvulibre/`: custom port with manual config.cmake (debug+release imported locations, empty API macros for static linking)
-- `CMakeLists.txt`: platform-conditional — `Qt6::Core`+`Qt6::Gui` on Windows, `Qt6::Widgets`+`Qt6::PrintSupport` on Linux; `find_package` on Windows vs `find_library` on Linux
+- `CMakeLists.txt`: platform-conditional — `Qt6::Core`+`Qt6::Gui` on Windows, `Qt6::Widgets`+`Qt6::PrintSupport` on Linux; `find_package` on Windows vs `find_library` on Linux. CHMLib and LibArchive ship no clean imported-target configs, so both are located via `find_path`/`find_library` into hand-rolled imported targets (LibArchive also carries its codec backends lz4/lzma/zstd/bz2/openssl + Windows system libs as per-config INTERFACE deps).
 
 ## Conventions
 
@@ -93,3 +94,4 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 | **Qt in-host verification** | Medium | The toolbar/sidebar/print rework changed `viewer.*`, `toolbar_qt.*`, `sidebar_qt.*`, `print_qt.cpp`; Linux must re-verify `cmake --preset linux-release` (new `Qt6::PrintSupport` dependency) and scroll + selection + toolbar behavior in Total/Double Commander. Windows interactive smoke tests (task 4.4) are likewise pending. |
 | **Print worker on Qt** | Low | QPrinter must be used on the main thread, so the Qt print path renders synchronously instead of on a `PrintCoordinator` worker; the Win32 path uses the worker. Page/copy resolution and fit math are still shared. |
 | **CHM engine Linux build** | Low | `chmengine.*` compiles against system libchm via `find_library`, but `cmake --preset linux-release` has not been re-run since the CHM engine landed (Windows-only verification so far). Also pending: Qt sidebar ESC-forwarding parity check on Linux. |
+| **Comic engine real-RAR verification** | Low | `ComicEngine` is verified against zip-based CBRs through the smoke harness; a genuine RAR4/RAR5 sample still needs a host test (libarchive handles the format). |

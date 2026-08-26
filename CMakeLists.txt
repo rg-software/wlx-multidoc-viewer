@@ -47,6 +47,71 @@ set_target_properties(chmlib::chmlib PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${CHMLIB_INCLUDE_DIR}"
 )
 
+# --- LibArchive -----------------------------------------------------
+# Reads RAR4/RAR5/7z/ZIP/TAR comic containers. Like CHMLib, neither the
+# vcpkg port nor system packages ship a clean imported-target config, so
+# locate the pair manually on every platform. The static archive drags its
+# codec backends (lz4/xz/zstd/bzip2/openssl) plus Windows system libs along
+# at link time; resolve per-config variants (vcpkg suffixes some debug libs
+# with a 'd') and attach them as transitive dependencies.
+find_path(LIBARCHIVE_INCLUDE_DIR NAMES archive.h REQUIRED)
+
+if(WIN32 AND VCPKG_TOOLCHAIN)
+    # Manifest mode installs per-config trees under ${VCPKG_INSTALLED_DIR}.
+    set(_LA_TRIPLET_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
+    find_library(LIBARCHIVE_LIBRARY_RELEASE NAMES archive
+        HINTS "${_LA_TRIPLET_DIR}/lib" NO_DEFAULT_PATH)
+    find_library(LIBARCHIVE_LIBRARY_DEBUG NAMES archived archive
+        HINTS "${_LA_TRIPLET_DIR}/debug/lib" NO_DEFAULT_PATH)
+    unset(_LA_TRIPLET_DIR)
+    if(NOT LIBARCHIVE_LIBRARY_RELEASE)
+        message(FATAL_ERROR "LibArchive static library not found in vcpkg tree")
+    endif()
+else()
+    find_library(LIBARCHIVE_LIBRARY_RELEASE NAMES archive REQUIRED)
+    set(LIBARCHIVE_LIBRARY_DEBUG "")
+endif()
+
+add_library(LibArchive::LibArchive UNKNOWN IMPORTED)
+if(LIBARCHIVE_LIBRARY_RELEASE)
+    set_target_properties(LibArchive::LibArchive PROPERTIES
+        IMPORTED_LOCATION_RELEASE "${LIBARCHIVE_LIBRARY_RELEASE}"
+        MAP_IMPORTED_CONFIG_MINSIZE "Release"
+        MAP_IMPORTED_CONFIG_RELWITHDEBINFO "Release")
+endif()
+if(LIBARCHIVE_LIBRARY_DEBUG)
+    set_target_properties(LibArchive::LibArchive PROPERTIES
+        IMPORTED_LOCATION_DEBUG "${LIBARCHIVE_LIBRARY_DEBUG}")
+endif()
+
+get_filename_component(_LA_REL_DIR "${LIBARCHIVE_LIBRARY_RELEASE}" DIRECTORY)
+set(_LA_DBG_DIR "${_LA_REL_DIR}/debug")
+function(la_link_codec _dep)
+    find_library(${_dep}_REL NAMES ${_dep}   HINTS "${_LA_REL_DIR}" NO_DEFAULT_PATH)
+    find_library(${_dep}_DBG NAMES ${_dep}d ${_dep} HINTS "${_LA_DBG_DIR}" NO_DEFAULT_PATH)
+    if(${_dep}_REL AND ${_dep}_DBG)
+        set_property(TARGET LibArchive::LibArchive APPEND PROPERTY
+            INTERFACE_LINK_LIBRARIES
+            "$<IF:$<CONFIG:Debug>,${${_dep}_DBG},${${_dep}_REL}>")
+    elseif(${_dep}_REL)
+        set_property(TARGET LibArchive::LibArchive APPEND PROPERTY
+            INTERFACE_LINK_LIBRARIES "${${_dep}_REL}")
+    endif()
+    unset(${_dep}_REL CACHE)
+    unset(${_dep}_DBG CACHE)
+endfunction()
+
+foreach(_dep lz4 lzma zstd bz2 libssl libcrypto)
+    la_link_codec(${_dep})
+endforeach()
+unset(_LA_REL_DIR CACHE)
+unset(_LA_DBG_DIR CACHE)
+if(WIN32)
+    # xmllite: XAR TOC reader; crypt32/ws2_32/bcrypt: static OpenSSL backends.
+    target_link_libraries(LibArchive::LibArchive INTERFACE
+        xmllite crypt32 ws2_32 bcrypt)
+endif()
+
 # --- Platform-specific Qt -------------------------------------------
 if(WIN32)
     find_package(Qt6 REQUIRED COMPONENTS Core Gui)
@@ -76,6 +141,7 @@ add_library(wlx-multidoc-viewer SHARED
     src/mupdfengine.cpp
     src/djvuengine.cpp
     src/chmengine.cpp
+        src/comicengine.cpp
     src/viewercontroller.cpp
     src/textselection.cpp
     src/searchcontroller.cpp
@@ -112,6 +178,7 @@ if(WIN32)
         Qt6::Gui
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
+        LibArchive::LibArchive
         chmlib::chmlib
     )
 else()
@@ -120,6 +187,7 @@ else()
         Qt6::PrintSupport
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
+        LibArchive::LibArchive
         chmlib::chmlib
     )
 endif()
@@ -156,6 +224,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/mupdfengine.cpp
         src/djvuengine.cpp
         src/chmengine.cpp
+        src/comicengine.cpp
         src/searchcontroller.cpp
         src/toolbar.cpp
         src/toolbar_icons.cpp
@@ -169,6 +238,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         Qt6::Gui
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
+        LibArchive::LibArchive
         chmlib::chmlib
     )
 
@@ -183,6 +253,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/mupdfengine.cpp
         src/djvuengine.cpp
         src/chmengine.cpp
+        src/comicengine.cpp
         src/searchcontroller.cpp
         src/toolbar.cpp
         src/toolbar_icons.cpp
@@ -196,6 +267,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         Qt6::Gui
         ${MUPDF_TARGET}
         ${DJVU_TARGET}
+        LibArchive::LibArchive
         chmlib::chmlib
     )
 endif()
