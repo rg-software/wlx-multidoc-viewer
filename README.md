@@ -74,16 +74,16 @@ cmake --build --preset linux-release
 
 Run `BuildMakeSetup.bat` from a plain console (no developer prompt needed). It
 locates MSVC automatically, builds the x64 static release, and packs the plugin
-(`wlx-multidoc-viewer.wlx64`) plus `pluginst.inf` into `dist/` with a dated zip
+(`MultidocViewer.wlx64`) plus `pluginst.inf` into `dist/` with a dated zip
 (`dist/wlx-multidoc-viewer-Win-<YYYYMMDD>.zip`).
 
 
-The plugin binary (`wlx-multidoc-viewer.wlx64`) is written under `build/`
+The plugin binary (`MultidocViewer.wlx64`) is written under `build/`
 (exact subfolder depends on the preset).
 
 ## Installation
 
-Copy `wlx-multidoc-viewer.wlx64` somewhere permanent, then register it as a
+Copy `MultidocViewer.wlx64` somewhere permanent, then register it as a
 lister plugin in your file manager (*Configuration → Options → Plugins → Lister
 plugins* in Total Commander; Double Commander has an equivalent lister plugin
 page).

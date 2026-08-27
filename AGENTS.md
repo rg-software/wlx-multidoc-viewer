@@ -16,7 +16,7 @@ cmake --preset windows-x64-release && cmake --build --preset windows-release
 cmake --preset linux-release && cmake --build --preset linux-release
 ```
 
-Output: `build/release/Release/wlx-multidoc-viewer.wlx64` (Windows), `build/linux-release/wlx-multidoc-viewer.wlx64` (Linux).
+Output: `build/release/Release/MultidocViewer.wlx64` (Windows), `build/linux-release/MultidocViewer.wlx64` (Linux).
 
 ## Architecture
 

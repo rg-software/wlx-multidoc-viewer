@@ -5,8 +5,8 @@ REM ======================================================================
 REM  BuildMakeSetup.bat - Windows x64 static release build + package
 REM
 REM  Produces:
-REM    build\release\Release\wlx-multidoc-viewer.wlx64   (built plugin)
-REM    dist\release\wlx-multidoc-viewer.wlx64             (packaged)
+REM    build\release\Release\MultidocViewer.wlx64   (built plugin)
+REM    dist\release\MultidocViewer.wlx64             (packaged)
 REM    dist\wlx-multidoc-viewer-Win-YYYYMMDD.zip          (bundle)
 REM
 REM  Can be run from a plain cmd console (no Developer prompt needed):
@@ -44,7 +44,7 @@ set "OUT=%ROOT%dist\release"
 if exist "%OUT%" rmdir /S /Q "%OUT%"
 mkdir "%OUT%"
 
-copy /Y "build\release\Release\wlx-multidoc-viewer.wlx64" "%OUT%\" >nul || (
+copy /Y "build\release\Release\MultidocViewer.wlx64" "%OUT%\" >nul || (
     echo [ERROR] plugin .wlx64 not found.& exit /b 1 )
 
 copy /Y "pluginst.inf" "%OUT%\" >nul
@@ -60,7 +60,7 @@ if errorlevel 1 ( echo [ERROR] zip failed& exit /b 1 )
 
 echo.
 echo SUCCESS
-echo   plugin: %OUT%\wlx-multidoc-viewer.wlx64
+echo   plugin: %OUT%\MultidocViewer.wlx64
 echo   bundle: %ZIP%
 endlocal
 exit /b 0

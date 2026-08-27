@@ -3,8 +3,8 @@
 #  BuildMakeSetup.sh - Linux x64 release build + package
 #
 #  Produces:
-#    build/linux-release/wlx-multidoc-viewer.wlx64   (built plugin)
-#    dist/linux-release/wlx-multidoc-viewer.wlx64    (packaged)
+#    build/linux-release/MultidocViewer.wlx64   (built plugin)
+#    dist/linux-release/MultidocViewer.wlx64    (packaged)
 #    dist/wlx-multidoc-viewer-Linux-YYYYMMDD.zip     (bundle)
 #
 #  Run from a plain shell at the project root. Uses the system Qt6 /
@@ -24,7 +24,7 @@ OUT="dist/linux-release"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-cp "build/linux-release/wlx-multidoc-viewer.wlx64" "$OUT/" || {
+cp "build/linux-release/MultidocViewer.wlx64" "$OUT/" || {
     echo "[ERROR] plugin .wlx64 not found" >&2
     exit 1
 }
@@ -40,5 +40,5 @@ rm -f "$ZIP"
 
 echo
 echo "SUCCESS"
-echo "  plugin: $OUT/wlx-multidoc-viewer.wlx64"
+echo "  plugin: $OUT/MultidocViewer.wlx64"
 echo "  bundle: $ZIP"

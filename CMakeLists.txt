@@ -194,7 +194,7 @@ endif()
 
 set_target_properties(wlx-multidoc-viewer PROPERTIES
     PREFIX ""
-    OUTPUT_NAME "wlx-multidoc-viewer"
+    OUTPUT_NAME "MultidocViewer"
 )
 
 # Lister plugin destination for Double Commander: <prefix>/share/doublecmd/plugins/multidoc
