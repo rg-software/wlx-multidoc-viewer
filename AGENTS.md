@@ -18,6 +18,8 @@ cmake --preset linux-release && cmake --build --preset linux-release
 
 Output: `build/release/Release/MultidocViewer.wlx64` (Windows), `build/linux-release/MultidocViewer.wlx64` (Linux).
 
+Release sizes (after the `trim-binary-size` change that drops MuPDF's embedded CJK/Noto fonts and trims Qt features): Windows x64 `MultidocViewer.wlx64` ~22 MB, Windows x86 `MultidocViewer.wlx` ~19 MB. Fonts embedded in the trimmed `overlay-ports/libmupdf` are limited to Base-14 (`urw`) + SIL (`sil`); CJK/emoji fall back to system fonts (DirectWrite on Windows, fontconfig on Linux). Rebuild the `libmupdf` vcpkg port (which requires the VS developer env + `VCPKG_ROOT`) after touching the overlay.
+
 ## Architecture
 
 ```

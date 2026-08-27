@@ -8,11 +8,9 @@
       "name": "qtbase",
       "default-features": false,
       "features": [
-        "async-io", "brotli", "concurrent", "dbus", "dnslookup",
-        "doubleconversion", "freetype", "future", "gui", "harfbuzz",
-        "jpeg", "network", "opengl", "openssl", "pcre2", "png",
-        "sessionmanager", "sql", "sql-psql", "sql-sqlite", "testlib",
-        "thread", "widgets", "zstd"
+        "brotli", "concurrent", "doubleconversion", "freetype",
+        "gui", "harfbuzz", "jpeg", "opengl", "pcre2", "png",
+        "thread", "zstd"
       ]
     },
     "libmupdf",
