@@ -50,9 +50,11 @@ copy /Y "build\release\Release\wlx-multidoc-viewer.wlx64" "%OUT%\" >nul || (
 copy /Y "pluginst.inf" "%OUT%\" >nul
 
 REM --- compress the package (zip goes OUTSIDE the packaged dir so it
-REM        doesn't try to archive itself / self-lock) ------------------
+REM        doesn't try to archive itself / self-lock; remove any previous
+REM        build's archive first so repeated runs don't collide) --------
 for /f %%d in ('powershell.exe -nologo -noprofile -command "(Get-Date).ToString('yyyyMMdd')"') do set "STAMP=%%d"
 set "ZIP=%ROOT%dist\wlx-multidoc-viewer-Win-%STAMP%.zip"
+if exist "%ZIP%" del /F /Q "%ZIP%"
 powershell.exe -nologo -noprofile -command "& { Add-Type -A 'System.IO.Compression.FileSystem'; [IO.Compression.ZipFile]::CreateFromDirectory('%OUT%', '%ZIP%'); }"
 if errorlevel 1 ( echo [ERROR] zip failed& exit /b 1 )
 
