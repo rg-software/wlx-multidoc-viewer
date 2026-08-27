@@ -4,6 +4,12 @@ cmake-build-*/
 out/
 vcpkg_installed/
 
+# Packaged release output
+dist/
+
+# Build script console capture
+BuildMakeSetup.out
+
 # IDE files
 .vscode/
 .idea/

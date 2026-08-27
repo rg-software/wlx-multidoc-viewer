@@ -1,0 +1,5 @@
+[plugininstall]
+description=A viewer for a variety of ebook formats.
+type=wlx
+file=MultidocViewer.wlx
+defaultdir=plugins\wlx\MultidocViewer
