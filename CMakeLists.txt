@@ -40,12 +40,39 @@ endif()
 # plus the static library (no CMake package config), so locate it manually
 # and wrap it in an imported target like the fallbacks above.
 find_path(CHMLIB_INCLUDE_DIR NAMES chm_lib.h REQUIRED)
-find_library(CHMLIB_LIBRARY NAMES chm REQUIRED)
+
+# vcpkg manifests install per-config trees (${triplet}/lib and
+# ${triplet}/debug/lib); plain find_library on Windows resolves to the debug
+# tree, so split release/debug like LibArchive above. Linux system packages
+# ship a single release libchm and no debug variant.
+if(WIN32 AND VCPKG_TOOLCHAIN)
+    set(_CHM_TRIPLET_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
+    find_library(CHMLIB_LIBRARY_RELEASE NAMES chm
+        HINTS "${_CHM_TRIPLET_DIR}/lib" NO_DEFAULT_PATH)
+    find_library(CHMLIB_LIBRARY_DEBUG NAMES chmd chm
+        HINTS "${_CHM_TRIPLET_DIR}/debug/lib" NO_DEFAULT_PATH)
+    unset(_CHM_TRIPLET_DIR)
+    if(NOT CHMLIB_LIBRARY_RELEASE)
+        message(FATAL_ERROR "CHMLib static library not found in vcpkg tree")
+    endif()
+else()
+    find_library(CHMLIB_LIBRARY_RELEASE NAMES chm REQUIRED)
+    set(CHMLIB_LIBRARY_DEBUG "")
+endif()
+
 add_library(chmlib::chmlib UNKNOWN IMPORTED)
 set_target_properties(chmlib::chmlib PROPERTIES
-    IMPORTED_LOCATION "${CHMLIB_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${CHMLIB_INCLUDE_DIR}"
-)
+    INTERFACE_INCLUDE_DIRECTORIES "${CHMLIB_INCLUDE_DIR}")
+if(CHMLIB_LIBRARY_RELEASE)
+    set_target_properties(chmlib::chmlib PROPERTIES
+        IMPORTED_LOCATION_RELEASE "${CHMLIB_LIBRARY_RELEASE}"
+        MAP_IMPORTED_CONFIG_MINSIZE "Release"
+        MAP_IMPORTED_CONFIG_RELWITHDEBINFO "Release")
+endif()
+if(CHMLIB_LIBRARY_DEBUG)
+    set_target_properties(chmlib::chmlib PROPERTIES
+        IMPORTED_LOCATION_DEBUG "${CHMLIB_LIBRARY_DEBUG}")
+endif()
 
 # --- LibArchive -----------------------------------------------------
 # Reads RAR4/RAR5/7z/ZIP/TAR comic containers. Like CHMLib, neither the
