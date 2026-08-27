@@ -4,7 +4,17 @@
   "description": "WLX plugin for Total/Double Commander supporting PDF, DjVu, and other formats",
   "builtin-baseline": "94a541197763a4f449a1b91478df48c0584a6256",
   "dependencies": [
-    "qtbase",
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "async-io", "brotli", "concurrent", "dbus", "dnslookup",
+        "doubleconversion", "freetype", "future", "gui", "harfbuzz",
+        "jpeg", "network", "opengl", "openssl", "pcre2", "png",
+        "sessionmanager", "sql", "sql-psql", "sql-sqlite", "testlib",
+        "thread", "widgets", "zstd"
+      ]
+    },
     "libmupdf",
     "djvulibre",
     "chmlib",
