@@ -176,7 +176,7 @@ QByteArray ComicEngine::extractEntry(const QString& name) const {
         if (pn && name == QString::fromUtf8(pn)) {
             const void* block = nullptr;
             size_t size = 0;
-            qint64 offset = 0;
+            la_int64_t offset = 0;
             while (true) {
                 r = ::archive_read_data_block(ar, &block, &size, &offset);
                 if (r == ARCHIVE_EOF)
