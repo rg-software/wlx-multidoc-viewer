@@ -1,9 +1,9 @@
-# wlx-multidoc-viewer
+# WLX Multidoc Viewer
 
 A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
 [Double Commander](https://doublecmd.sourceforge.io/) that displays documents
 inside the lister panel: PDF, DjVu, EPUB, FB2, MOBI, XPS, comic archives,
-images, and CHM.
+images, and CHM. Heavily inspired by [SumatraPDF reader](https://github.com/sumatrapdfreader/sumatrapdf).
 
 ## Features
 
@@ -69,6 +69,14 @@ cmake --build --preset windows-release
 cmake --preset linux-release
 cmake --build --preset linux-release
 ```
+
+### Windows release package
+
+Run `BuildMakeSetup.bat` from a plain console (no developer prompt needed). It
+locates MSVC automatically, builds the x64 static release, and packs the plugin
+(`wlx-multidoc-viewer.wlx64`) plus `pluginst.inf` into `dist/` with a dated zip
+(`dist/wlx-multidoc-viewer-Win-<YYYYMMDD>.zip`).
+
 
 The plugin binary (`wlx-multidoc-viewer.wlx64`) is written under `build/`
 (exact subfolder depends on the preset).

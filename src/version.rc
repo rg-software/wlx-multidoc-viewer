@@ -18,10 +18,11 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName", "RG Software"
-            VALUE "FileDescription", "WLX multi-document viewer plugin"
+            VALUE "FileDescription", "WLX multi-document viewer plugin for Total Commander"
             VALUE "FileVersion", "0.1.0.0"
             VALUE "InternalName", "wlx-multidoc-viewer"
-            VALUE "OriginalFilename", "wlx-multidoc-viewer.wlx64"
+            VALUE "LegalCopyright", "(c) 2026"
+            VALUE "OriginalFilename", "wlx-multidoc-viewer.dll"
             VALUE "ProductName", "WLX multi-document viewer"
             VALUE "ProductVersion", "0.1.0.0"
         END
