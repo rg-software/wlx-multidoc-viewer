@@ -163,6 +163,12 @@ list(APPEND FEATURE_CORE_OPTIONS -DCMAKE_DISABLE_FIND_PACKAGE_Slog2:BOOL=ON)
 list(APPEND FEATURE_CORE_OPTIONS -DCMAKE_DISABLE_FIND_PACKAGE_Libsystemd:BOOL=ON)
 list(APPEND FEATURE_CORE_OPTIONS -DCMAKE_DISABLE_FIND_PACKAGE_WrapBacktrace:BOOL=ON)
 list(APPEND FEATURE_CORE_OPTIONS -DFEATURE_pkg_config:BOOL=ON)
+# Overlay fix: Qt auto-enables the winsdkicu feature on Windows, linking
+# icuuc.lib/icuin.lib from the Windows SDK and making the final plugin import
+# icuuc.dll/icuin.dll. Build without it so the plugin has no ICU DLL dependency.
+if(VCPKG_TARGET_IS_WINDOWS)
+    list(APPEND FEATURE_CORE_OPTIONS -DFEATURE_winsdkicu:BOOL=OFF)
+endif()
 #list(APPEND FEATURE_CORE_OPTIONS -DCMAKE_DISABLE_FIND_PACKAGE_WrapAtomic:BOOL=ON) # Cannot be disabled on x64 platforms
 #list(APPEND FEATURE_CORE_OPTIONS -DCMAKE_DISABLE_FIND_PACKAGE_WrapRt:BOOL=ON) # Cannot be disabled on osx
 
