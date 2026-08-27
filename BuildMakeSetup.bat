@@ -2,12 +2,14 @@
 setlocal
 
 REM ======================================================================
-REM  BuildMakeSetup.bat - Windows x64 static release build + package
+REM  BuildMakeSetup.bat - Windows x64 + x86 static release build + package
 REM
 REM  Produces:
-REM    build\release\Release\MultidocViewer.wlx64   (built plugin)
-REM    dist\release\MultidocViewer.wlx64             (packaged)
-REM    dist\wlx-multidoc-viewer-Win-YYYYMMDD.zip          (bundle)
+REM    build\release\Release\MultidocViewer.wlx64     (x64 built plugin)
+REM    build\release-x86\Release\MultidocViewer.wlx   (x86 built plugin)
+REM    dist\release\MultidocViewer.wlx64               (packaged x64)
+REM    dist\release\MultidocViewer.wlx                 (packaged x86)
+REM    dist\wlx-multidoc-viewer-Win-YYYYMMDD.zip       (bundle)
 REM
 REM  Can be run from a plain cmd console (no Developer prompt needed):
 REM  Visual Studio is located automatically via vswhere.
@@ -35,17 +37,23 @@ tasklist /FI "IMAGENAME eq vcpkg.exe" 2>nul | find /i "vcpkg.exe" >nul && (
     exit /b 1
 )
 
-REM --- 4. Configure + build the x64 static release -------------------
-cmake --preset windows-x64-release || ( echo [ERROR] configure failed& exit /b 1 )
-cmake --build --preset windows-release  || ( echo [ERROR] build failed& exit /b 1 )
+REM --- 4. Configure + build the x64 and x86 static releases ----------
+cmake --preset windows-x64-release || ( echo [ERROR] configure x64 failed& exit /b 1 )
+cmake --build --preset windows-release  || ( echo [ERROR] build x64 failed& exit /b 1 )
 
-REM --- 5. Package into dist\release (separate from the build tree) ----
+cmake --preset windows-x86-release || ( echo [ERROR] configure x86 failed& exit /b 1 )
+cmake --build --preset windows-x86-release || ( echo [ERROR] build x86 failed& exit /b 1 )
+
+REM --- Package both into dist\release (outside the build tree); the wlx
+REM        and wlx64 plugins sit at the archive root, next to pluginst.inf
 set "OUT=%ROOT%dist\release"
 if exist "%OUT%" rmdir /S /Q "%OUT%"
 mkdir "%OUT%"
 
 copy /Y "build\release\Release\MultidocViewer.wlx64" "%OUT%\" >nul || (
-    echo [ERROR] plugin .wlx64 not found.& exit /b 1 )
+    echo [ERROR] x64 plugin .wlx64 not found.& exit /b 1 )
+copy /Y "build\release-x86\Release\MultidocViewer.wlx"  "%OUT%\" >nul || (
+    echo [ERROR] x86 plugin .wlx not found.& exit /b 1 )
 
 copy /Y "pluginst.inf" "%OUT%\" >nul
 
@@ -60,7 +68,8 @@ if errorlevel 1 ( echo [ERROR] zip failed& exit /b 1 )
 
 echo.
 echo SUCCESS
-echo   plugin: %OUT%\MultidocViewer.wlx64
-echo   bundle: %ZIP%
+echo   plugin x64: %OUT%\MultidocViewer.wlx64
+echo   plugin x86: %OUT%\MultidocViewer.wlx
+echo   bundle:     %ZIP%
 endlocal
 exit /b 0

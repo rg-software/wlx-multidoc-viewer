@@ -203,7 +203,13 @@ install(TARGETS wlx-multidoc-viewer
         LIBRARY DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
 
 if(WIN32)
-    set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".wlx64")
+    # Total Commander loads the 64-bit build as .wlx64 and the 32-bit build as
+    # .wlx, so pick the suffix from pointer size, not just the platform.
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".wlx64")
+    else()
+        set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".wlx")
+    endif()
     target_compile_definitions(wlx-multidoc-viewer PRIVATE WLX_MULTIDOC_VIEWER_EXPORTS)
 elseif(APPLE)
     set_target_properties(wlx-multidoc-viewer PROPERTIES SUFFIX ".wlx")

@@ -1,16 +1,16 @@
 # WLX Multidoc Viewer
 
 A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
-[Double Commander](https://doublecmd.sourceforge.io/) that displays documents
-inside the lister panel: PDF, DjVu, EPUB, FB2, MOBI, XPS, comic archives,
-images, and CHM. Heavily inspired by [SumatraPDF reader](https://github.com/sumatrapdfreader/sumatrapdf).
+[Double Commander](https://doublecmd.sourceforge.io/) that displays images and numerous electronic document formats. Heavily inspired by [SumatraPDF reader](https://github.com/sumatrapdfreader/sumatrapdf).
 
 ## Features
+
+- **Cross-platform**: available on Windows and Linux.
 
 - **Document formats**:
 
   - fixed-layout (PDF, XPS/OXPS, DJVU/DJV);
-  - ebooks (EPUB, FB2, MOBI, CHM);
+  - eBooks (EPUB, FB2, MOBI, CHM);
   - comic books (CBR, CBZ);
   - images (JPEG, PNG, TIFF, GIF, BMP, WEBP).
 
