@@ -49,8 +49,8 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
 
 ## Requirements
 
-- **Windows**: Visual Studio 2022 with Build Tools,
-  CMake 3.20+, and [vcpkg](https://vcpkg.io/).
+- **Windows**: Visual Studio 2026 with Build Tools,
+  CMake 4.2+, and [vcpkg](https://vcpkg.io/).
 - **Linux**: CMake 3.20+, Ninja, Qt 6, and the system packages listed below.
 
 ## Dependencies

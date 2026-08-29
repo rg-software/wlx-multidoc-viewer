@@ -9,7 +9,7 @@ WLX multi-document viewer plugin for Total Commander and Double Commander. Displ
 Windows uses vcpkg (any checkout location exposed as the `VCPKG_ROOT` environment variable; manifest mode, `x64-windows-static-md` triplet). Linux uses system packages via `find_library` (see CMakeLists.txt) — no vcpkg needed.
 
 ```bash
-# Windows: configure + build from a VS 2022 developer shell
+# Windows: configure + build from a VS 2026 developer shell
 cmake --preset windows-x64-release && cmake --build --preset windows-release
 
 # Linux: configure + build
@@ -62,7 +62,7 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 
 ### Build system
 
-- `CMakePresets.json`: VS 2022 generator + `x64-windows-static-md` triplet (Windows); Ninja (Linux)
+- `CMakePresets.json`: VS 2026 generator + `x64-windows-static-md` triplet (Windows); Ninja (Linux)
 - `vcpkg.json`: manifest mode with builtin-baseline (Windows only)
 - `overlay-ports/djvulibre/`: custom port with manual config.cmake (debug+release imported locations, empty API macros for static linking)
 - `CMakeLists.txt`: platform-conditional — `Qt6::Core`+`Qt6::Gui` on Windows, `Qt6::Widgets`+`Qt6::PrintSupport` on Linux; `find_package` on Windows vs `find_library` on Linux. CHMLib and LibArchive ship no clean imported-target configs, so both are located via `find_path`/`find_library` into hand-rolled imported targets (LibArchive also carries its codec backends lz4/lzma/zstd/bz2/openssl + Windows system libs as per-config INTERFACE deps).

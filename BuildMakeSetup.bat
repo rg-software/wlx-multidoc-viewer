@@ -22,7 +22,7 @@ REM --- 1. Locate MSVC and initialize the x64 host environment --------
 set "vsWhere=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 for /f "usebackq delims=" %%p in (`"%vsWhere%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSSetup=%%p"
 if not defined VSSetup (
-    echo [ERROR] Visual Studio 2022 with C++ tools not found.
+    echo [ERROR] Visual Studio 2026 with C++ tools not found.
     exit /b 1
 )
 call "%VSSetup%\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul

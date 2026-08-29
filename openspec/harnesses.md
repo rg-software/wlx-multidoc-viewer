@@ -1,7 +1,7 @@
 # Test harnesses (developer-facing)
 
 The project optionally builds two Windows-only harness executables with
-`-DWLX_BUILD_HARNESS=ON` (Developer PowerShell / command prompt for VS 2022):
+`-DWLX_BUILD_HARNESS=ON` (Developer PowerShell / command prompt for VS 2026):
 
 ```powershell
 cmake --preset windows-x64-release -DWLX_BUILD_HARNESS=ON

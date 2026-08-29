@@ -2,7 +2,7 @@ schema: spec-driven
 
 context: |
   Tech stack: C++17, CMake 3.20+, vcpkg (standalone at C:\vcpkg)
-  Platforms: Windows (Win32 API, VS 2022) and Linux (Qt6 Widgets, GCC/Ninja)
+  Platforms: Windows (Win32 API, VS 2026) and Linux (Qt6 Widgets, GCC/Ninja)
   Dependencies: Qt6 (Core+Gui on Windows, Widgets on Linux), MuPDF (unofficial-libmupdf), DjVuLibre 3.5.28 (custom overlay port)
   All libraries statically linked on Windows (x64-windows-static-md triplet)
   Domain: WLX lister plugin for Total Commander / Double Commander
