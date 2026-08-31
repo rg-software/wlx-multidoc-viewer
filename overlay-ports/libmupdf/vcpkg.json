@@ -1,6 +1,6 @@
 {
   "name": "libmupdf",
-  "version": "1.26.10",
+  "version": "1.28.3",
   "description": "A lightweight PDF, XPS, and E-book library",
   "homepage": "https://mupdf.com/core",
   "documentation": "https://mupdf.readthedocs.io/",

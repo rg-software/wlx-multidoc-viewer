@@ -120,11 +120,23 @@ target_compile_definitions(libmupdf
     $<$<NOT:$<BOOL:${ENABLE_OCR}>>:OCR_DISABLED>
     $<$<BOOL:${ENABLE_OCR}>:HAVE_TESSERACT>
     $<$<BOOL:${ENABLE_OCR}>:HAVE_LEPTONICA>
+    # Markdown (cmark-gfm) is not supported by this viewer; disable so the
+    # GitHub tag tarball's empty thirdparty/cmark-gfm submodule is not needed.
+    FZ_ENABLE_MD=0
+    # Hyphenation dictionaries are not needed by this viewer; defaulting them
+    # on would force embedding the ~800KB hyph-std/hyph-all zips.
+    FZ_ENABLE_HYPHEN=0
     # Trimmed font set: drop the Noto script/emoji/symbol fonts and the CJK
     # (Source Han Serif + DroidSansFallback). Must mirror the font glob above:
     # these make noto.c / font-table.h skip the corresponding _binary_* refs.
+    # Do NOT define NO_CJK here: that macro also strips the builtin CJK cmap
+    # tables (pdf-cmap-load.c #ifdef NO_CJK), which embedded-CJK documents
+    # (e.g. Adobe-Japan1-UCS2) still need to map glyphs -> Unicode. Use the
+    # font-only TOFU_CJK* set instead.
     TOFU_NOTO
-    NO_CJK
+    TOFU_CJK
+    TOFU_CJK_EXT
+    TOFU_CJK_LANG
 )
 target_link_libraries(libmupdf
   PRIVATE

@@ -6,19 +6,47 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ArtifexSoftware/mupdf
     REF "${VERSION}"
-    SHA512 c0f802fd2b181587df1748a8db7163bbcd3951b943d1321afcff56fccb515dfe99061288bc691323d0854305a1d4205c99457954b10439adb122975429cbce72
+    SHA512 1a05fe0bb4ab7b6841abb4f67890fd14620fe25f0c5a291d9e3514289ef2f9f29ec06e55a35c9a1d4aac8f45a715130df2beedfd06101b535d37f2b2ffa518b2
     HEAD_REF master
 )
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/unofficial-libmupdf-config.cmake.in" DESTINATION "${SOURCE_PATH}")
 
-# 1.26.10 lacks bin2coff arm64 changes in host tool.
-vcpkg_download_distfile(BIN2COFF_C
-    URLS "https://github.com/ArtifexSoftware/mupdf/raw/9c1af80cea03987b147b0dffd944075f3b3cf4cb/scripts/bin2coff.c"
-    FILENAME "ArtifexSoftware-mupdf-bin2coff-9c1af80.c"
-    SHA512 9f0e70cc0ade3a39c46425d968ff6493d47f36b9bfef2efbb0ae62aef29f71952690ab9716084c0161c7184cd654abc57c2b2f6a4cc3f9e184863e7bb7b64f52
+# MuPDF >= 1.28 vendors the mujs regexp/utf C files into libmupdf
+# (source/fitz/regexp.c and stext-search.c include them directly), but the
+# GitHub tag tarballs ship the thirdparty/mujs submodule empty. Vendor the
+# revision MuPDF 1.28.3 pins (ArtifexSoftware/mujs e892c9fd) here.
+set(MUJS_REV e892c9fdbbddba94e52f656ccb378ed4885e30cc)
+vcpkg_download_distfile(MUJS_REGEXP_C
+    URLS "https://raw.githubusercontent.com/ArtifexSoftware/mujs/${MUJS_REV}/regexp.c"
+    FILENAME "mujs-${MUJS_REV}-regexp.c"
+    SHA512 04d78ceb17258a1c3f4cca3022f5c12934cfd9e43bc6862de690538ab2c6053db5b372a921dbfa44005f39bc60708e16edaa4980aa9ac9650971541988b1a5c6
 )
-file(COPY_FILE "${BIN2COFF_C}" "${SOURCE_PATH}/scripts/bin2coff.c")
+vcpkg_download_distfile(MUJS_REGEXP_H
+    URLS "https://raw.githubusercontent.com/ArtifexSoftware/mujs/${MUJS_REV}/regexp.h"
+    FILENAME "mujs-${MUJS_REV}-regexp.h"
+    SHA512 bda7f31bc3f3a887bd43f6bdb231b30ce187e6fc3c9a25f0904a76b9727d64595371248d703442d1b088c73f99559e31e13947a9f112efc4b3801e9b7178c0b2
+)
+vcpkg_download_distfile(MUJS_UTF_C
+    URLS "https://raw.githubusercontent.com/ArtifexSoftware/mujs/${MUJS_REV}/utf.c"
+    FILENAME "mujs-${MUJS_REV}-utf.c"
+    SHA512 f0ed4d21857d605208029a28ee4f15a3133c990695d889f63849bc665d5b010f96249fb588a931608ec22ceb48ba3bbfd9d7c068a808c2d8162b2cf412428e64
+)
+vcpkg_download_distfile(MUJS_UTF_H
+    URLS "https://raw.githubusercontent.com/ArtifexSoftware/mujs/${MUJS_REV}/utf.h"
+    FILENAME "mujs-${MUJS_REV}-utf.h"
+    SHA512 a0ff33407095f3b3729edc731c4ee6c57ec7dc176cf5dde4bd05e73f21aaa98be80637438f4b902abd5ba016a9b7a7239193bdfc83e5d66fd4b5992d68b01526
+)
+vcpkg_download_distfile(MUJS_UTFDATA_H
+    URLS "https://raw.githubusercontent.com/ArtifexSoftware/mujs/${MUJS_REV}/utfdata.h"
+    FILENAME "mujs-${MUJS_REV}-utfdata.h"
+    SHA512 8e8a30e97e0ddc9110f563dd1c3ab13ce1af429f1aa3b55cacf22f884bf807582cea19ae8d52d901d8d1cac3ee2903dfd8dd89d633a0e2ed7a4092826e0e6f3f
+)
+file(COPY_FILE "${MUJS_REGEXP_C}" "${SOURCE_PATH}/thirdparty/mujs/regexp.c")
+file(COPY_FILE "${MUJS_REGEXP_H}" "${SOURCE_PATH}/thirdparty/mujs/regexp.h")
+file(COPY_FILE "${MUJS_UTF_C}" "${SOURCE_PATH}/thirdparty/mujs/utf.c")
+file(COPY_FILE "${MUJS_UTF_H}" "${SOURCE_PATH}/thirdparty/mujs/utf.h")
+file(COPY_FILE "${MUJS_UTFDATA_H}" "${SOURCE_PATH}/thirdparty/mujs/utfdata.h")
 
 vcpkg_check_features(
     OUT_FEATURE_OPTIONS OPTIONS

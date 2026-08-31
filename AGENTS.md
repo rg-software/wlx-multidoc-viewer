@@ -86,6 +86,8 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 - ~~Strip height cap (1.5M px) truncates scroll range~~ — fixed: continuous mode uses a per-page virtual canvas (`m_pageRects`/`m_contentSize`); the scrollbar covers the full document and memory is bounded by the per-page render cache (`kCacheWindowPages` instead of a single tall bitmap)
 - ~~Mixed page sizes misalign in continuous strip~~ — fixed: each page is laid out with its own scaled dimensions and centered; uniform stride removed
 - ~~Fit-to-page overflow (~16px clip)~~ — fixed: fit zoom and continuous paint now use the same page-area size (no margin inset)
+- ~~Garbled text in embedded-CJK PDFs after the font trim~~ — fixed: the `trim-binary-size` change defined `NO_CJK` in the overlay port, but that macro also strips the builtin CJK **cmap tables** (`pdf-cmap-load.c` `#ifdef NO_CJK` → only Identity/TrueType cmaps), so documents whose glyph mapping needs e.g. `Adobe-Japan1-UCS2` rendered $\ne$ copy/search text correctly (verified byte-identical text extraction vs PyMuPDF 1.28.2 after the fix). Fix: use the font-only `TOFU_CJK`/`TOFU_CJK_EXT`/`TOFU_CJK_LANG` defines instead of `NO_CJK` — fonts stay trimmed, cmaps stay available.
+- ~~MuPDF pinned at 1.26.10~~ — upgraded the overlay port to **1.28.3**, which required: vendoring the `thirdparty/mujs` files (`regexp.h`, `regexp.c`, `utf.h`, `utf.c`, `utfdata.h`) because 1.28.x tag tarballs ship that submodule empty yet `source/fitz/regexp.c`/`stext-search.c` include it; adding `FZ_ENABLE_MD=0` (Markdown/cmark-gfm dropped) and `FZ_ENABLE_HYPHEN=0` (avoids embedding the ~800KB hyph zips); dropping the now-shipped-in-tree `scripts/bin2coff.c` download.
 
 ### Open gaps
 
