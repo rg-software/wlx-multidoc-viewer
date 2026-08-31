@@ -14,6 +14,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Capture the system's VCPKG_ROOT up front, before the MSVC dev
+      # environment is set up (vcvars / msvc-dev-cmd can point VCPKG_ROOT at
+      # the VS-bundled vcpkg). We keep the original value and re-apply it to
+      # every cmake invocation below so the preset's $env{VCPKG_ROOT} resolves
+      # to the intended vcpkg instead of the VS-bundled fallback.
+      - name: Save original VCPKG_ROOT
+        shell: cmd
+        run: |
+          echo "SAVED_VCPKG_ROOT=%VCPKG_ROOT%" >> %GITHUB_ENV%
+          echo captured VCPKG_ROOT=%VCPKG_ROOT%
+
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
@@ -21,7 +32,7 @@ jobs:
       - name: Build x64 release
         shell: cmd
         run: |
-          set "VCPKG_ROOT=C:\Utils\vcpkg"
+          set "VCPKG_ROOT=%SAVED_VCPKG_ROOT%"
           echo VCPKG_ROOT=%VCPKG_ROOT%
           cmake --preset windows-x64-release
           cmake --build --preset windows-release
@@ -33,7 +44,7 @@ jobs:
       - name: Build x86 release
         shell: cmd
         run: |
-          set "VCPKG_ROOT=C:\Utils\vcpkg"
+          set "VCPKG_ROOT=%SAVED_VCPKG_ROOT%"
           echo VCPKG_ROOT=%VCPKG_ROOT%
           cmake --preset windows-x86-release
           cmake --build --preset windows-x86-release
