@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Windows (self-hosted, requires VS 2026 + vcpkg) ──────────────
+  build-windows:
+    runs-on: [self-hosted, Windows, runs-vs2026]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build x64 release
+        shell: cmd
+        run: |
+          call "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath > vs_path.txt
+          set /p VS_PATH=<vs_path.txt
+          call "!VS_PATH!\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake --preset windows-x64-release
+          cmake --build --preset windows-release
+
+      - name: Build x86 release
+        shell: cmd
+        run: |
+          call "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath > vs_path.txt
+          set /p VS_PATH=<vs_path.txt
+          call "!VS_PATH!\VC\Auxiliary\Build\vcvarsall.bat" x86
+          cmake --preset windows-x86-release
+          cmake --build --preset windows-x86-release
+
+      - name: Package
+        shell: cmd
+        run: |
+          mkdir dist\release
+          copy build\release\Release\MultidocViewer.wlx64 dist\release\
+          copy build\release-x86\Release\MultidocViewer.wlx dist\release\
+          copy pluginst.inf dist\release\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: dist/release/
+
+  # ── Linux (GitHub-hosted ubuntu) ─────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build \
+            qt6-base-dev libgl1-mesa-dev \
+            libmupdf-dev \
+            libdjvulibre-dev \
+            libchm-dev \
+            libarchive-dev
+
+      - name: Build release
+        run: |
+          cmake --preset linux-release
+          cmake --build --preset linux-release
+
+      - name: Package
+        run: |
+          mkdir -p dist/linux-release
+          cp build/linux-release/MultidocViewer.wlx64 dist/linux-release/
+          cp pluginst.inf dist/linux-release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: dist/linux-release/
+
+  # ── Create GitHub Release ────────────────────────────────────────
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Package release zips
+        run: |
+          cd artifacts
+          # Windows: both .wlx64 + .wlx + pluginst.inf in one zip
+          cd windows-binaries
+          zip -r ../../wlx-multidoc-viewer-Windows.zip .
+          cd ../linux-binaries
+          zip -r ../../wlx-multidoc-viewer-Linux.zip .
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/wlx-multidoc-viewer-Windows.zip
+            artifacts/wlx-multidoc-viewer-Linux.zip
