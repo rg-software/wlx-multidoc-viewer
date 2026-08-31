@@ -10,7 +10,7 @@ permissions:
 jobs:
   # ── Windows (self-hosted, requires VS 2026 + vcpkg) ──────────────
   build-windows:
-    runs-on: [self-hosted, Windows, runs-vs2026]
+    runs-on: [self-hosted, Windows]
     steps:
       - uses: actions/checkout@v4
 
@@ -51,11 +51,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install CMake 4.x (Kitware APT repo)
         run: |
           sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ca-certificates gpg wget
+          wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc | sudo gpg --dearmor -o /usr/share/keyrings/kitware-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ noble main" | sudo tee /etc/apt/sources.list.d/kitware.list
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Install dependencies
+        run: |
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build \
+            build-essential ninja-build \
             qt6-base-dev libgl1-mesa-dev \
             libmupdf-dev \
             libdjvulibre-dev \
