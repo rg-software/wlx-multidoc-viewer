@@ -9,6 +9,7 @@ context: |
   WLX API: DCPCALL exports, HANDLE for opaque windows, detect string max 260 chars
   Engine interface: DocumentEngine with open/renderPage(QImage)/close — platform-agnostic
   Conventions: fz_try/fz_catch for MuPDF errors, no exceptions in engine code, no toolbar (TC provides navigation)
+  Commit messages: Conventional Commits (feat:/fix:/docs:/refactor:/chore:, optional scope e.g. fix(comics):), imperative mood, first line under 72 chars, "Fixes #id" for fixes / "Refs #id" otherwise (skip if branch is not issue-based)
 
 rules:
   proposal:
@@ -24,3 +25,7 @@ rules:
   tasks:
     - Group shared work first, platform-specific work in separate groups
     - Each task must be verifiable in one build cycle
+  commits:
+    - Use Conventional Commits (feat:/fix:/docs:/refactor:/chore:, optional scope like fix(comics):)
+    - Imperative mood in the subject, keep the first line under 72 characters
+    - Append "Fixes #id" for bug fixes, "Refs #id" otherwise; skip if the branch is not issue-based

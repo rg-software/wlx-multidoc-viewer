@@ -76,6 +76,15 @@ MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as s
 - The toolbar copy button copies the current selection (`ToolbarPresenter::onCopy`); it is enabled only while a selection exists.
 - `ListLoad` returns an HWND (Windows) or widget pointer (Linux)
 
+### Git / Commit conventions
+
+Write conventional, structured commit messages so the release pipeline can group them into categories (it parses `feat:`/`fix:` prefixes):
+
+- **Format**: Conventional Commits — use a type prefix such as `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`. Use a scoped prefix (e.g. `feat(comics):`, `fix(sidebar):`) when a subsystem is affected.
+- **Mood**: imperative mood in the subject line (e.g. prefer "Add feature" over "Added feature" / "Adding feature").
+- **Length**: keep the first line under 72 characters.
+- **Issue Link**: use `Fixes #<id>` for bug fixes, `Refs #<id>` otherwise. Skip the reference if the branch is not issue-based.
+
 ## Known Issues
 
 ### Fixed (in viewer-baseline)
