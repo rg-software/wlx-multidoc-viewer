@@ -14,21 +14,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Build x64 release
         shell: cmd
         run: |
-          call "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath > vs_path.txt
-          set /p VS_PATH=<vs_path.txt
-          call "!VS_PATH!\VC\Auxiliary\Build\vcvarsall.bat" x64
           cmake --preset windows-x64-release
           cmake --build --preset windows-release
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
 
       - name: Build x86 release
         shell: cmd
         run: |
-          call "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath > vs_path.txt
-          set /p VS_PATH=<vs_path.txt
-          call "!VS_PATH!\VC\Auxiliary\Build\vcvarsall.bat" x86
           cmake --preset windows-x86-release
           cmake --build --preset windows-x86-release
 
@@ -51,17 +53,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install CMake 4.x (Kitware APT repo)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ca-certificates gpg wget
-          wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc | sudo gpg --dearmor -o /usr/share/keyrings/kitware-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ noble main" | sudo tee /etc/apt/sources.list.d/kitware.list
-          sudo apt-get update
-          sudo apt-get install -y cmake
+      - name: Install CMake 4.x
+        uses: janlukasschroeder/cmake@v1
+        with:
+          cmake-version: 4.4.3
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential ninja-build \
             qt6-base-dev libgl1-mesa-dev \
