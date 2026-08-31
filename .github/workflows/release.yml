@@ -204,9 +204,9 @@ jobs:
           cd artifacts
           # Windows: both .wlx64 + .wlx + pluginst.inf in one zip
           cd windows-binaries
-          zip -r ../../wlx-multidoc-viewer-Windows.zip .
+          zip -r ../wlx-multidoc-viewer-Windows.zip .
           cd ../linux-binaries
-          zip -r ../../wlx-multidoc-viewer-Linux.zip .
+          zip -r ../wlx-multidoc-viewer-Linux.zip .
 
       - name: Create release
         uses: softprops/action-gh-release@v2
