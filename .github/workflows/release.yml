@@ -50,6 +50,9 @@ jobs:
   # ── Linux (GitHub-hosted ubuntu) ─────────────────────────────────
   build-linux:
     runs-on: ubuntu-24.04
+    env:
+      VCPKG_ROOT: /opt/vcpkg
+      VCPKG_INSTALLED: ${{ github.workspace }}/build/vcpkg_installed
     steps:
       - uses: actions/checkout@v4
 
@@ -60,20 +63,49 @@ jobs:
           echo "/opt/cmake-4.4.3-linux-x86_64/bin" >> "$GITHUB_PATH"
           cmake --version
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential ninja-build \
             qt6-base-dev libgl1-mesa-dev \
-            libmupdf-dev \
             libdjvulibre-dev \
             libchm-dev \
             libarchive-dev
 
+      # The distro libmupdf-dev (1.23.10 on ubuntu-24.04) predates the
+      # FZ_STEXT_ACCURATE_BBOXES flag (MuPDF 1.25+) the viewer uses for precise
+      # text selection, and the viewer pins MuPDF 1.28.3 elsewhere. Use vcpkg
+      # (the same pipeline the Windows build uses) to build the overlay
+      # libmupdf 1.28.3 and its deps, giving byte-identical MuPDF on Linux.
+      - name: Install vcpkg
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Build MuPDF 1.28.3 (vcpkg, shared)
+        run: |
+          # Build libmupdf as a shared library so the project's Linux
+          # find_library path links a self-contained .so (no need to also
+          # carry libmupdf's static transitive deps, mirroring the old
+          # system-shared-lib model).
+          "$VCPKG_ROOT/vcpkg" install \
+            --x-install-root="$VCPKG_INSTALLED" \
+            --overlay-ports=overlay-ports \
+            --triplet=x64-linux \
+            -DVCPKG_LIBRARY_LINKAGE=dynamic \
+            libmupdf
+
+      - name: Configure project (links built MuPDF)
+        run: |
+          cmake --preset linux-release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DVCPKG_OVERLAY_PORTS="$PWD/overlay-ports" \
+            -DVCPKG_LIBRARY_LINKAGE=dynamic
+
       - name: Build release
         run: |
-          cmake --preset linux-release
           cmake --build --preset linux-release
 
       - name: Package
