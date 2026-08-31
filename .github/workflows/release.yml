@@ -89,21 +89,26 @@ jobs:
           # find_library path links a self-contained .so (no need to also
           # carry libmupdf's static transitive deps, mirroring the old
           # system-shared-lib model). --classic bypasses the repo's manifest
-          # mode so we can install just this one port (and its overlay deps).
+          # mode so we can install just this one port. The -dynamic triplet
+          # suffix selects shared linking.
           "$VCPKG_ROOT/vcpkg" install --classic \
             --x-install-root="$VCPKG_INSTALLED" \
             --overlay-ports=overlay-ports \
-            --triplet=x64-linux \
-            -DVCPKG_LIBRARY_LINKAGE=dynamic \
+            --triplet=x64-linux-dynamic \
             libmupdf
 
       - name: Configure project (links built MuPDF)
         run: |
+          # VCPKG_MANIFEST_MODE=OFF: the vcpkg.json manifest lists all libs
+          # (incl. Qt6), but on Linux we only want the pre-built MuPDF from
+          # vcpkg; the rest come from system packages. Disabling manifest mode
+          # stops the toolchain from auto-installing the whole manifest.
           cmake --preset linux-release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DVCPKG_TARGET_TRIPLET=x64-linux-dynamic \
             -DVCPKG_OVERLAY_PORTS="$PWD/overlay-ports" \
-            -DVCPKG_LIBRARY_LINKAGE=dynamic
+            -DVCPKG_MANIFEST_MODE=OFF \
+            -DVCPKG_INSTALLED_DIR="$VCPKG_INSTALLED"
 
       - name: Build release
         run: |
