@@ -200,18 +200,20 @@ jobs:
           wc -l notes.md
 
       - name: Package release zips
+        shell: bash
         run: |
+          TAG="${{ github.ref_name }}"
           cd artifacts
           # Windows: both .wlx64 + .wlx + pluginst.inf in one zip
           cd windows-binaries
-          zip -r ../wlx-multidoc-viewer-Windows.zip .
+          zip -r "../wlx-multidoc-viewer-$TAG-Windows.zip" .
           cd ../linux-binaries
-          zip -r ../wlx-multidoc-viewer-Linux.zip .
+          zip -r "../wlx-multidoc-viewer-$TAG-Linux.zip" .
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           body_path: notes.md
           files: |
-            artifacts/wlx-multidoc-viewer-Windows.zip
-            artifacts/wlx-multidoc-viewer-Linux.zip
+            artifacts/wlx-multidoc-viewer-${{ github.ref_name }}-Windows.zip
+            artifacts/wlx-multidoc-viewer-${{ github.ref_name }}-Linux.zip
