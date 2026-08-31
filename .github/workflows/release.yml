@@ -88,8 +88,9 @@ jobs:
           # Build libmupdf as a shared library so the project's Linux
           # find_library path links a self-contained .so (no need to also
           # carry libmupdf's static transitive deps, mirroring the old
-          # system-shared-lib model).
-          "$VCPKG_ROOT/vcpkg" install \
+          # system-shared-lib model). --classic bypasses the repo's manifest
+          # mode so we can install just this one port (and its overlay deps).
+          "$VCPKG_ROOT/vcpkg" install --classic \
             --x-install-root="$VCPKG_INSTALLED" \
             --overlay-ports=overlay-ports \
             --triplet=x64-linux \
