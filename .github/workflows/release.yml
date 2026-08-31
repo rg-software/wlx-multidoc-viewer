@@ -21,6 +21,8 @@ jobs:
       - name: Build x64 release
         shell: cmd
         run: |
+          set "VCPKG_ROOT=C:\Utils\vcpkg"
+          echo VCPKG_ROOT=%VCPKG_ROOT%
           cmake --preset windows-x64-release
           cmake --build --preset windows-release
 
@@ -31,6 +33,8 @@ jobs:
       - name: Build x86 release
         shell: cmd
         run: |
+          set "VCPKG_ROOT=C:\Utils\vcpkg"
+          echo VCPKG_ROOT=%VCPKG_ROOT%
           cmake --preset windows-x86-release
           cmake --build --preset windows-x86-release
 
