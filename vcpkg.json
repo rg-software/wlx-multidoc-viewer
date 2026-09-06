@@ -16,6 +16,13 @@
     "libmupdf",
     "djvulibre",
     "chmlib",
-    "libarchive"
+    "libarchive",
+    "pulzed-mini"
+  ],
+  "overrides": [
+    {
+      "name": "pulzed-mini",
+      "version": "0.9.14"
+    }
   ]
 }

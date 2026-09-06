@@ -60,7 +60,6 @@ void marshalToWnd(HWND hwnd, std::function<void()> task) {
     PostMessageW(hwnd, WM_PLUGIN_MARSHAL, 0, 0);
 }
 
-constexpr COLORREF kBgColor = 0xE8E8E8; // light page background (toolbar-ish)
 constexpr UINT kDefaultDpi = 96;
 
 using viewer_settings::kKeyboardStepPx;
@@ -470,7 +469,10 @@ void ViewerWin32::onPaint() {
     HBITMAP hbmMem = CreateCompatibleBitmap(hdc, w, h);
     HGDIOBJ hOldBmp = SelectObject(hdcMem, hbmMem);
 
-    HBRUSH bgBrush = CreateSolidBrush(kBgColor);
+    const uint32_t bg = viewer_settings::kBackgroundColor;
+    HBRUSH bgBrush = CreateSolidBrush(RGB((bg >> 16) & 0xFF,
+                                          (bg >> 8) & 0xFF,
+                                          bg & 0xFF));
     FillRect(hdcMem, &rc, bgBrush);
     DeleteObject(bgBrush);
 

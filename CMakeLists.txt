@@ -5,6 +5,28 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# --- mINI (INI config) ------------------------------------------------
+# Header-only library (https://github.com/metayeti/mINI). On Windows it comes
+# from vcpkg's pulzed-mini port (pinned to 0.9.14 in vcpkg.json); on Linux the
+# 0.9.14 header is fetched at configure time into the build dir. A future bump
+# MUST move both pin sites in lockstep: the vcpkg.json override (Windows) and
+# MINI_COMMIT here (Linux).
+if(NOT WIN32)
+    set(MINI_COMMIT a1ff72e8898db8b53282e9eb7c7ec5973519787e)
+    set(MINI_HEADER "${CMAKE_CURRENT_BINARY_DIR}/mini/mini/ini.h")
+    file(DOWNLOAD
+        "https://raw.githubusercontent.com/metayeti/mINI/${MINI_COMMIT}/src/mini/ini.h"
+        "${MINI_HEADER}"
+        EXPECTED_HASH SHA256=1396DB49DD4EEC37E5556341989AAEB6256FC44349D7BCB8F3E1581F277C44A3
+        TLS_VERIFY ON
+        STATUS MINI_DOWNLOAD_STATUS)
+    list(GET MINI_DOWNLOAD_STATUS 0 MINI_DOWNLOAD_OK)
+    if(NOT MINI_DOWNLOAD_OK EQUAL 0)
+        list(GET MINI_DOWNLOAD_STATUS 1 MINI_DOWNLOAD_ERR)
+        message(FATAL_ERROR "Failed to download mINI ${MINI_COMMIT}: ${MINI_DOWNLOAD_ERR}")
+    endif()
+endif()
+
 # --- MuPDF -----------------------------------------------------------
 if(WIN32)
     find_package(unofficial-libmupdf CONFIG REQUIRED)
@@ -164,6 +186,7 @@ add_custom_command(
 # --- Library ---------------------------------------------------------
 add_library(wlx-multidoc-viewer SHARED
     src/plugin.cpp
+    src/pluginconfig.cpp
     src/formatdispatcher.cpp
     src/mupdfengine.cpp
     src/djvuengine.cpp
@@ -197,6 +220,9 @@ endif()
 add_custom_target(material_symbols_font_header DEPENDS "${MS_FONT_HEADER}")
 
 target_include_directories(wlx-multidoc-viewer PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
+if(NOT WIN32)
+    target_include_directories(wlx-multidoc-viewer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/mini")
+endif()
 add_dependencies(wlx-multidoc-viewer material_symbols_font_header)
 
 if(WIN32)
@@ -229,6 +255,17 @@ include(GNUInstallDirs)
 install(TARGETS wlx-multidoc-viewer
         LIBRARY DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
 
+# Shipped INI template: the plugin reads multidocviewer.ini from its own
+# directory, so the template rides along next to the built binary and is
+# installed alongside the plugin on Linux.
+install(FILES "${CMAKE_SOURCE_DIR}/Resources/multidocviewer.ini"
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
+add_custom_command(TARGET wlx-multidoc-viewer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/Resources/multidocviewer.ini"
+        "$<TARGET_FILE_DIR:wlx-multidoc-viewer>/multidocviewer.ini"
+    VERBATIM)
+
 if(WIN32)
     # Total Commander loads the 64-bit build as .wlx64 and the 32-bit build as
     # .wlx, so pick the suffix from pointer size, not just the platform.
@@ -249,6 +286,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
     add_executable(harness-win
         tests/harness_win.cpp
         src/viewer_win32.cpp
+        src/pluginconfig.cpp
         src/toolbar_win32.cpp
         src/sidebar_win32.cpp
         src/viewercontroller.cpp
@@ -278,6 +316,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
     add_executable(harness-scroll
         tests/harness_scroll.cpp
         src/viewer_win32.cpp
+        src/pluginconfig.cpp
         src/toolbar_win32.cpp
         src/sidebar_win32.cpp
         src/viewercontroller.cpp

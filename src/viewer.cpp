@@ -1,4 +1,5 @@
 #include "viewer.h"
+#include "viewer_settings.h"
 #include "toolbar_qt.h"
 #include "sidebar_qt.h"
 #include "print_qt.h"
@@ -20,7 +21,10 @@
 
 void ViewerCanvas::paintEvent(QPaintEvent* event) {
     QPainter p(this);
-    p.fillRect(event->rect(), QColor(0xE8, 0xE8, 0xE8));
+    const uint32_t bg = viewer_settings::kBackgroundColor;
+    p.fillRect(event->rect(), QColor(static_cast<int>((bg >> 16) & 0xFF),
+                                     static_cast<int>((bg >> 8) & 0xFF),
+                                     static_cast<int>(bg & 0xFF)));
 
     if (!m_controller || !m_controller->hasDocument())
         return;
