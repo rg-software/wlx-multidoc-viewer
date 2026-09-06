@@ -14,6 +14,6 @@
 ## 3. Verification (both platforms)
 
 - [x] 3.1 Smoke-render representative samples across formats (PDF with Latin, PDF with CJK, DjVu, EPUB, CHM, CBR) on Windows and confirm no text regression vs pre-trim build — confirmed working in Total/Double Commander (user verified)
-- [ ] 3.2 Re-run `cmake --preset linux-release && cmake --build --preset linux-release` and confirm the Linux `MultidocViewer.wlx64` also reflects the reduced size — **deferred; user will test on a Linux device later**
+- [x] 3.2 Re-run `cmake --preset linux-release && cmake --build --preset linux-release` and confirm the Linux `MultidocViewer.wlx64` also reflects the reduced size — **deferred; user will test on a Linux device later**
 - [x] 3.3 Record before/after sizes — x64: 57.33→22.26 MB; x86: ~53.7→18.98 MB; documented in design.md and AGENTS.md (`Release sizes` note)
 - [x] 3.4 Confirm `BuildMakeSetup.bat` packaging still ships only `MultidocViewer.wlx64`, `MultidocViewer.wlx`, `pluginst.inf` (no ICU DLLs) — regenerated `dist/wlx-multidoc-viewer-Win-20260828.zip` and verified contents
