@@ -1,0 +1,3 @@
+# route-tiff-as-document-drop-webp
+
+Treat TIFF as a document (opened via MuPDF, like CBR/CB7) instead of an image, and drop WEBP (no decoder exists in the trimmed build). The image folder then contains only formats the Qt image engine decodes natively (jpg/jpeg/png/gif/bmp/ico), so every listed image truly renders. Multi-page TIFF is a real paged document (one page per IFD). WEBP support is tracked as a follow-up (needs the Qt webp plugin + libwebp in the overlay port).

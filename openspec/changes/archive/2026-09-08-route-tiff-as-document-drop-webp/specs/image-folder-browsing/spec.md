@@ -1,10 +1,4 @@
-# Image Folder Browsing Specification
-
-## Purpose
-
-Lets the user flip through all raster images in a folder from within the lister — next/prev at a standalone image document's boundary opens the adjacent sibling image in natural order instead of clamping.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Detect sibling images at load
 
@@ -21,22 +15,6 @@ When the viewer opens a standalone raster image, it SHALL find the other nativel
 #### Scenario: TIFF and WEBP are not counted as siblings
 - **WHEN** a directory mixes natively-decodable images (`.jpg`/`.png`/`.gif`/`.bmp`/`.ico`) with TIFF or WEBP files
 - **THEN** only the natively-decodable images are recorded; the TIFF/WEBP files are excluded from the sibling set and the image count
-
-### Requirement: Boundary-spanning next/prev
-
-For a standalone image document, issuing next at the final page or prev at the first page SHALL open the adjacent sibling image when one exists, instead of staying put.
-
-#### Scenario: Next at last page opens next sibling
-- **WHEN** the user is on the sole page of an image document and a sibling exists after it in natural order, and a "next" command is issued
-- **THEN** the viewer opens that sibling image in place
-
-#### Scenario: Prev at first page opens previous sibling
-- **WHEN** the user is on the sole page of an image document and a sibling exists before it in natural order, and a "previous" command is issued
-- **THEN** the viewer opens that sibling image in place
-
-#### Scenario: Boundary without sibling clamps
-- **WHEN** the user is at a document boundary and no sibling exists on that side in natural order
-- **THEN** the viewer remains on the current page (existing clamp behavior applies)
 
 ### Requirement: Deterministic natural ordering
 
