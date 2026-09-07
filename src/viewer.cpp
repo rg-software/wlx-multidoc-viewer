@@ -11,6 +11,7 @@
 #include <QMetaObject>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPalette>
 #include <QScrollBar>
 #include <QShortcut>
 #include <QTimer>
@@ -257,6 +258,23 @@ ViewerWidget::ViewerWidget(QWidget* parent)
 
     m_canvas = new ViewerCanvas(m_scrollArea);
     m_scrollArea->setWidget(m_canvas);
+
+    // The scroll-area viewport paints the page-area background around the
+    // canvas whenever the canvas does not cover it (e.g. before the first
+    // layout sizes the canvas, or in continuous mode when content is narrower
+    // than the viewport). Give it the INI-fed BackgroundColor so the configured
+    // color is visible from the very first paint instead of the default palette.
+    {
+        const uint32_t vbg = viewer_settings::kBackgroundColor;
+        const QColor vbgColor(static_cast<int>((vbg >> 16) & 0xFF),
+                              static_cast<int>((vbg >> 8) & 0xFF),
+                              static_cast<int>(vbg & 0xFF));
+        QPalette viewportPal = m_scrollArea->viewport()->palette();
+        viewportPal.setColor(QPalette::Window, vbgColor);
+        viewportPal.setColor(QPalette::Base, vbgColor);
+        m_scrollArea->viewport()->setPalette(viewportPal);
+        m_scrollArea->viewport()->setAutoFillBackground(true);
+    }
 
     m_canvas->installEventFilter(this);
     m_scrollArea->viewport()->installEventFilter(this);
