@@ -130,7 +130,7 @@ ViewerWin32::ViewerWin32(HWND hParent) {
     }
 
     m_hwnd = CreateWindowExW(
-        0, WLX_VIEWER_CLASS, L"",
+        WS_EX_COMPOSITED, WLX_VIEWER_CLASS, L"",
         WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_VSCROLL | WS_HSCROLL,
         0, 0, 0, 0,
         hParent, nullptr, hInst, this);
@@ -291,8 +291,20 @@ void ViewerWin32::layoutChrome() {
     const int w = static_cast<int>(rc.right);
     const int h = static_cast<int>(rc.bottom);
 
-    if (m_toolbar && m_toolbar->hwnd())
-        MoveWindow(m_toolbar->hwnd(), 0, 0, w, toolbarHeight(), TRUE);
+    if (m_toolbar && m_toolbar->hwnd()) {
+        // Skip the forced repaint when the toolbar's geometry is unchanged
+        // (during a sidebar drag the strip never moves, so MoveWindow(..., TRUE)
+        // redraws it on every mouse move for nothing). A real size change is
+        // still fully covered by the CS_HREDRAW|CS_VREDRAW class style, which
+        // invalidates the whole client on its own. The toolbar spans the full
+        // client width above the sidebar, so resizing the panel can never
+        // expose or dirty a region under it.
+        RECT cur = {};
+        const bool sizeChanged =
+            GetClientRect(m_toolbar->hwnd(), &cur) &&
+            (cur.right - cur.left != w || cur.bottom - cur.top != toolbarHeight());
+        MoveWindow(m_toolbar->hwnd(), 0, 0, w, toolbarHeight(), sizeChanged);
+    }
     if (m_sidebar && m_sidebar->hwnd()) {
         const int sw = m_sidebar->widthPx();
         MoveWindow(m_sidebar->hwnd(), 0, toolbarHeight(), sw,
