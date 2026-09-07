@@ -35,7 +35,7 @@
 ## 6. Verification
 
 - [x] 6.1 Configure + build Windows: `cmake --preset windows-x64-release && cmake --build --preset windows-release`
-- [ ] 6.2 Configure + build Linux: `cmake --preset linux-release && cmake --build --preset linux-release`
+- [x] 6.2 Configure + build Linux: `cmake --preset linux-release && cmake --build --preset linux-release`
 - [ ] 6.3 Smoke test single-page behavior is unchanged (paged, continuous, all three fit modes, wheel/keyboard navigation, selection/search overlays)
 - [ ] 6.4 Smoke test `Double`: pairs (1,2),(3,4)… display side by side, wheel/jog jumps unit-to-unit, odd last page shows alone
 - [ ] 6.5 Smoke test `DoubleWithCover`: page 1 shows alone as its own unit, then (2,3),(4,5)… pair; next/prev and go-to honor the cover-aware boundaries; odd last page shows alone
