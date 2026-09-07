@@ -12,8 +12,7 @@ bool isRasterName(const QString& name) {
     const QString suffix = QFileInfo(name).suffix().toLower();
     return suffix == QLatin1String("jpg") || suffix == QLatin1String("jpeg") ||
            suffix == QLatin1String("png") || suffix == QLatin1String("gif") ||
-           suffix == QLatin1String("tif") || suffix == QLatin1String("tiff") ||
-           suffix == QLatin1String("bmp") || suffix == QLatin1String("webp");
+           suffix == QLatin1String("bmp") || suffix == QLatin1String("ico");
 }
 
 bool samePath(const QString& a, const QString& b) {

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Generate original synthetic sample images for wlx-multidoc-viewer examples/.
 
-Produces: sample1.jpg, sample2.png, sample3.bmp, sample4.webp, sample5.tiff,
-sample-animated.gif. All content is generated programmatically (gradients,
-shapes, frame sequences) so no third-party copyrights apply.
+Produces: sample1.jpg, sample2.png, sample3.bmp, sample5.tiff,
+sample-multipage.tiff, sample-animated.gif. All content is generated
+programmatically (gradients, shapes, frame sequences) so no third-party
+copyrights apply.
 """
 from PIL import Image, ImageDraw, ImageFont
 import math
@@ -78,22 +79,34 @@ label(d, "Sample BMP", "wxm sample, vertical gradient")
 img.save(os.path.join(OUT, "sample3.bmp"))
 print("wrote sample3.bmp")
 
-# --- WEBP: diagonal stripe ---
-img = Image.new("RGB", (512, 320), (245, 245, 235))
+# --- TIFF: multi-page (3 frames, one per IFD) ---
+tiff_frames = []
+TW, TH = 420, 300
+for i, (tl, tr_, bl, br_) in enumerate([
+    ((20, 120, 20), (100, 190, 90), (160, 220, 60), (220, 220, 60)),
+    ((40, 60, 160), (120, 110, 210), (180, 150, 240), (240, 190, 250)),
+    ((120, 30, 40), (200, 90, 80), (220, 160, 120), (250, 220, 180)),
+]):
+    f = gradient(TW, TH, (tl, tr_, bl, br_))
+    d = ImageDraw.Draw(f)
+    d.polygon([(210, 40), (120, 260), (300, 260)], fill=(30, 60, 120), outline=(255, 255, 255))
+    d.text((16, 14), "Sample TIFF page %d/3" % (i + 1), fill=(255, 255, 255), font=_font(26))
+    tiff_frames.append(f.convert("RGB"))
+tiff_frames[0].save(
+    os.path.join(OUT, "sample-multipage.tiff"),
+    save_all=True, append_images=tiff_frames[1:],
+)
+print("wrote sample-multipage.tiff (3 pages)")
+# Keep the original single-page tiff for the simple case.
+img = tiff_frames[0]
 d = ImageDraw.Draw(img)
-for i in range(-320, 512, 48):
-    d.line([i, 0, i + 320, 320], fill=(120, 40, 160), width=16)
-label(d, "Sample WEBP", "wxm sample, diagonal stripes")
-img.save(os.path.join(OUT, "sample4.webp"), "WEBP", quality=88)
-print("wrote sample4.webp")
-
-# --- TIFF (single-frame) ---
-img = gradient(420, 300, ((20, 120, 20), (100, 190, 90), (160, 220, 60), (220, 220, 60)))
-d = ImageDraw.Draw(img)
-d.polygon([(210, 40), (120, 260), (300, 260)], fill=(30, 60, 120), outline=(255, 255, 255))
-label(d, "Sample TIFF", "wxm sample, triangle")
+d.text((16, 52), "wxm sample, triangle", fill=(225, 225, 225), font=_font(16))
 img.save(os.path.join(OUT, "sample5.tiff"), "TIFF")
 print("wrote sample5.tiff")
+
+# --- WEBP: drop this sample (no webp decoder in this build; see change notes) ---
+# sample4.webp is intentionally no longer generated: neither Qt's QImageReader nor
+# MuPDF decodes WEBP in the trimmed build, so it would be an undecodable orphan.
 
 # --- Animated GIF: 12 frames, moving dot + counter ---
 W, H = 320, 240

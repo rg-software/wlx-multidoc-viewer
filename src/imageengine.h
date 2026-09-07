@@ -7,7 +7,8 @@
 #include <QString>
 #include <mutex>
 
-// Standalone raster image engine for JPEG/PNG/GIF/TIFF/BMP/WEBP files,
+// Standalone raster image engine for natively-decodable image files
+// (jpg/jpeg/png/gif/bmp/ico),
 // decoded through Qt's QImageReader so multi-frame animation metadata (per-
 // frame delays, loop count) is available. Every file is a single document
 // page; multi-frame GIFs animate in place via the DocumentEngine animation

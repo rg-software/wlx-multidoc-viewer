@@ -32,7 +32,7 @@ src/
   djvuengine.*          DjVuLibre backend (DJVU, DJV); pageText/search unavailable (see AGENTS gaps)
   chmengine.*           CHM backend via libchm (archive access) + MuPDF HTML pipeline (render/text/search); reading order + nested .hhc outline
   comicengine.*         Comic archive backend via libarchive (CBR/CB7); Qt image decode, natural page order
-  imageengine.*         Standalone raster engine (jpg/png/gif/tif/bmp/webp) via QImageReader; one page per file, in-place GIF animation
+  imageengine.*         Standalone raster engine (jpg/png/gif/bmp/ico) via QImageReader; one page per file, in-place GIF animation
   imagefolder.*         Sibling raster discovery/ordering in a directory (natural order, shared with comics)
   naturalsort.h/cpp     Shared natural (numeric-aware) filename comparator used by comic + image engines
   viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache + selection + text search state
@@ -63,7 +63,7 @@ src/
 
 MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as system libraries on Linux. Both return `QImage` from `renderPage(page, zoom)`. The engine interface (`DocumentEngine`) is platform-agnostic.
 
-Standalone raster images (`.jpg/.jpeg/.png/.gif/.tif/.tiff/.bmp/.webp`) route to `ImageEngine` (Qt `QImageReader`), with MuPDF as the fallback when `QImageReader` cannot decode. Every raster is a single page; multi-frame GIFs animate in place and are **not** step-through pages. GIF decoding has a Qt gotcha: `QGifHandler` does **not** implement `jumpToImage`/`jumpToNextImage`, so `ImageEngine` decodes frames 0..N sequentially via `read()` from a fresh reader (`readFrameImage`). Sibling images in the same directory (natural order via `naturalsort.h`) are opened at next/prev document bounds.
+Standalone raster images (`.jpg/.jpeg/.png/.gif/.bmp/.ico`) route to `ImageEngine` (Qt `QImageReader`). Every listed raster is a single page; multi-frame GIFs animate in place and are **not** step-through pages. GIF decoding has a Qt gotcha: `QGifHandler` does **not** implement `jumpToImage`/`jumpToNextImage`, so `ImageEngine` decodes frames 0..N sequentially via `read()` from a fresh reader (`readFrameImage`). Sibling images in the same directory (natural order via `naturalsort.h`) are opened at next/prev document bounds. TIFF (`.tif/.tiff`) is a **document**, not an image: it routes to the default MuPDF engine, where each TIFF IFD becomes a page (real multi-page TIFF support), and it is excluded from the image-folder sibling set — matching how PDF/CBR/CB7 are handled. WEBP (`.webp`) currently has **no decoder** (neither Qt `QImageReader` nor MuPDF ships one in this trimmed build) and is not routed; see the AGENTS gaps table.
 
 ### Build system
 
@@ -117,3 +117,4 @@ Write conventional, structured commit messages so the release pipeline can group
 | **Print worker on Qt** | Low | QPrinter must be used on the main thread, so the Qt print path renders synchronously instead of on a `PrintCoordinator` worker; the Win32 path uses the worker. Page/copy resolution and fit math are still shared. |
 | **CHM engine Linux build** | Low | `chmengine.*` compiles against system libchm via `find_library`, but `cmake --preset linux-release` has not been re-run since the CHM engine landed (Windows-only verification so far). Also pending: Qt sidebar ESC-forwarding parity check on Linux. |
 | **Comic engine real-RAR verification** | Low | `ComicEngine` is verified against a genuine RAR5 CBR (`examples/sample.cbr`) in the host; 7-Zip-based CB7 still awaits a real sample (libarchive handles the format). |
+| **WEBP decode support** | Medium | WEBP has no decoder in the trimmed build: Qt's `QImageReader` (no webp image-format plugin vendored in `qtbase`) and MuPDF (no `load-webp`) both fail on `.webp`, so it is not routed anywhere. Treating webp as an image (like GIF, incl. animated webp) means adding the Qt webp plugin + `libwebp` to the `qtbase` overlay port and rebuilding it — a build-system change, not a flag flip. |

@@ -27,7 +27,6 @@
 
 #include "viewercontroller.h"
 #include "viewer_settings.h"
-#include "mupdfengine.h"
 
 #include <algorithm>
 #include <limits>
@@ -72,19 +71,8 @@ bool ViewerController::openDocument(const QString& path) {
         return false;
     }
     if (!m_engine->open(path)) {
-        // Raster fallback: when the image engine cannot decode a raster file we
-        // retry with the MuPDF engine so no currently-openable file regresses.
-        if (isRasterPath(path)) {
-            qWarning() << "ViewerController: image engine failed, retrying MuPDF for" << path;
-            m_engine = std::make_unique<MuPdfEngine>();
-            if (!m_engine->open(path)) {
-                qWarning() << "ViewerController: engine failed to open" << path;
-                return false;
-            }
-        } else {
-            qWarning() << "ViewerController: engine failed to open" << path;
-            return false;
-        }
+        qWarning() << "ViewerController: engine failed to open" << path;
+        return false;
     }
     m_openPath = path;
     m_state.setPageCount(m_engine->pageCount());
@@ -1246,8 +1234,7 @@ bool ViewerController::isRasterPath(const QString& path) {
     const QString suffix = QFileInfo(path).suffix().toLower();
     return suffix == QLatin1String("jpg") || suffix == QLatin1String("jpeg") ||
            suffix == QLatin1String("png") || suffix == QLatin1String("gif") ||
-           suffix == QLatin1String("tif") || suffix == QLatin1String("tiff") ||
-           suffix == QLatin1String("bmp") || suffix == QLatin1String("webp");
+           suffix == QLatin1String("bmp") || suffix == QLatin1String("ico");
 }
 
 void ViewerController::scanSiblings(const QString& path) {
@@ -1279,28 +1266,12 @@ bool ViewerController::openSibling(int delta) {
     if (sibling.isEmpty())
         return false;
 
-    std::unique_ptr<DocumentEngine> next = createEngine(sibling);
-    if (!next || !next->open(sibling)) {
-        qWarning() << "ViewerController: cannot open sibling image" << sibling;
-        return false;
-    }
-
-    stopAnimation();
-    m_engine = std::move(next);
-    m_openPath = sibling;
-    m_folderIndex = target;
-    m_state.setPageCount(m_engine->pageCount());
-    m_state.resetPage();
-    m_fitMode = FitMode::FitToPage;
-    m_rotation = 0;
-    m_pageCache.clear();
-    m_cacheRecency.clear();
-    m_pageRects.clear();
-    m_contentSize = QSize();
-    computeFitZoom();
-    computeLayout();
-    notifyChanged();
-    return true;
+    // Reuse the authoritative document-open path: it installs the engine,
+    // resets state, and (via scanSiblings) resolves m_folderIndex to the
+    // sibling's natural-order position. A sibling is always a natively-decodable
+    // raster of the same ImageEngine type (ImageFolder only lists those), so the
+    // current engine re-opens with the sibling path and no MuPDF fallback applies.
+    return openDocument(sibling);
 }
 
 bool ViewerController::isAnimating() const {

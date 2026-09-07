@@ -8,13 +8,14 @@
 #include <QFileInfo>
 #include <QDebug>
 
-// Raster image suffixes handled by ImageEngine (the proposal's list). When
-// ImageEngine cannot decode a file, createEngine returns a MuPDF engine so no
-// currently-openable raster regresses.
+// Raster image suffixes handled by ImageEngine. Only formats this Qt build
+// decodes natively via QImageReader are listed (png/bmp built-in; jpg/gif/ico
+// via installed image plugins); TIFF is a document handled by the default MuPDF
+// engine, so it intentionally falls through below. WEBP currently has no decoder
+// (neither Qt nor MuPDF) and is not routed anywhere.
 bool isRasterSuffix(const QString& suffix) {
     return suffix == "jpg" || suffix == "jpeg" || suffix == "png" ||
-           suffix == "gif" || suffix == "tif" || suffix == "tiff" ||
-           suffix == "bmp" || suffix == "webp";
+           suffix == "gif" || suffix == "bmp" || suffix == "ico";
 }
 
 std::unique_ptr<DocumentEngine> createEngine(const QString& path) {

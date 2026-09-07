@@ -64,8 +64,9 @@ bool ImageEngine::open(const QString& path) {
     m_dimWidth = first.width();
     m_dimHeight = first.height();
 
-    // Animation metadata. Only GIFs animate in place: a multi-frame TIFF stays
-    // a single composite of its first frame (see design.md - Goals). Qt's GIF
+    // Animation metadata. Only GIFs animate in place; the image engine handles
+    // only natively-decodable rasters (jpg/jpeg/png/gif/bmp/ico), so this gif
+    // branch is the only animation-capable one. Qt's GIF
     // handler reports per-frame delays via nextImageDelay() and a loop count
     // where 0 / -1 mean "loop forever"; a finite positive count is honored.
     const QString format = QFileInfo(path).suffix().toLower();
