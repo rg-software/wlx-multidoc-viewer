@@ -2,11 +2,11 @@
 
 ### Requirement: Paged display mode
 
-The viewer SHALL support a paged display mode in which a single view unit is visible at a time, scaled to fit the viewport. A view unit is one page in one-page presentation and two adjacent pages in two-page presentation (see `viewer-display-modes/two-page-view`). Mouse-wheel input in paged mode SHALL navigate strictly from one view unit to the next or previous view unit.
+The viewer SHALL support a paged display mode in which a single view unit is visible at a time, scaled to fit the viewport. A view unit is one page in single-page presentation, two adjacent pages in double page presentation, or a cover page alone followed by two-page pairs in double page with cover presentation (see `viewer-display-modes/two-page-view`). Mouse-wheel input in paged mode SHALL navigate strictly from one view unit to the next or previous view unit.
 
 #### Scenario: Paged mode shows one page
 - **WHEN** the viewer is in paged mode
-- **THEN** the current view unit (one page or a two-page pair) is visible inside the viewport, scaled to fit
+- **THEN** the current view unit is visible inside the viewport, scaled to fit
 
 #### Scenario: Paged mode wheel jumps strictly page-to-page
 - **WHEN** the viewer is in paged mode and the user scrolls the mouse wheel
@@ -18,7 +18,7 @@ The viewer SHALL support a paged display mode in which a single view unit is vis
 
 ### Requirement: Continuous display mode
 
-The viewer SHALL support a continuous display mode in which view units are rendered sequentially and the user scrolls vertically through them. A view unit is one page in one-page presentation and two adjacent pages in two-page presentation (see `viewer-display-modes/two-page-view`). Mouse-wheel input in continuous mode SHALL scroll smoothly so the user can see the border between adjacent view units during navigation.
+The viewer SHALL support a continuous display mode in which view units are rendered sequentially and the user scrolls vertically through them. A view unit is one page in single-page presentation, two adjacent pages in double page presentation, or a cover page alone followed by two-page pairs in double page with cover presentation (see `viewer-display-modes/two-page-view`). Mouse-wheel input in continuous mode SHALL scroll smoothly so the user can see the border between adjacent view units during navigation.
 
 #### Scenario: Continuous mode lays pages vertically
 - **WHEN** the viewer is in continuous mode
@@ -34,7 +34,7 @@ The viewer SHALL support a continuous display mode in which view units are rende
 
 ### Requirement: Toggle display mode via keyboard
 
-The viewer SHALL provide a keyboard command that toggles between paged and continuous mode without losing the current page index. The presentation setting (one-page or two-page) is preserved across this toggle.
+The viewer SHALL provide a keyboard command that toggles between paged and continuous mode without losing the current page index. The page-presentation setting is preserved across this toggle.
 
 #### Scenario: Switch from paged to continuous
 - **WHEN** the viewer is in paged mode and the toggle command is issued
@@ -46,8 +46,8 @@ The viewer SHALL provide a keyboard command that toggles between paged and conti
 
 ### Requirement: Default mode is paged
 
-The viewer SHALL start in paged mode with one-page presentation when a document is opened.
+The viewer SHALL start in paged mode with single-page presentation when a document is opened.
 
 #### Scenario: Fresh load
 - **WHEN** a document is opened
-- **THEN** the viewer is in paged mode on page 1 with one-page presentation
+- **THEN** the viewer is in paged mode on page 1 with single-page presentation
