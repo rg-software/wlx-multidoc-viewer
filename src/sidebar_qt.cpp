@@ -7,43 +7,6 @@
 #include <QScrollBar>
 #include <QSet>
 
-SidebarQt::SidebarQt(QWidget* parent)
-    : QWidget(parent)
-{
-    auto* layout = new QHBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-
-    m_tree = new QTreeWidget(this);
-    m_tree->setHeaderHidden(true);
-    m_tree->setExpandsOnDoubleClick(true);
-    m_tree->installEventFilter(this);
-    layout->addWidget(m_tree, 1);
-
-    m_grip = new ResizeGrip(this);
-    layout->addWidget(m_grip, 0);
-
-    setFixedWidth(viewer_settings::kSidebarInitialWidth);
-
-    connect(m_tree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
-        const int id = idOf(item);
-        if (id >= 0 && presenter() && !m_materialized.contains(id))
-            materialize(item, id);
-    });
-    connect(m_tree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int) {
-        const int id = idOf(item);
-        if (id >= 0 && presenter())
-            presenter()->onEntryActivated(id);
-    });
-}
-
-SidebarQt::~SidebarQt() = default;
-
-// Candidate sidebar width in logical px from the pointer's global position,
-// measured from the panel's left edge (Qt coordinates are already DPI-independent).
-int SidebarQt::dragCandidateLogical(const QPoint& globalPos) const {
-    return (std::max)(0, globalPos.x() - mapToGlobal(QPoint(0, 0)).x());
-}
-
 // Right-edge drag handle. Mouse drags mirror the Win32 grip: candidate widths are
 // pushed through the shared notifyWidthChanged path so the viewer clamps and
 // re-runs its chrome chain, keeping keyboard and mouse state in lockstep.
@@ -91,6 +54,43 @@ protected:
 private:
     SidebarQt* m_owner = nullptr;
 };
+
+SidebarQt::SidebarQt(QWidget* parent)
+    : QWidget(parent)
+{
+    auto* layout = new QHBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+
+    m_tree = new QTreeWidget(this);
+    m_tree->setHeaderHidden(true);
+    m_tree->setExpandsOnDoubleClick(true);
+    m_tree->installEventFilter(this);
+    layout->addWidget(m_tree, 1);
+
+    m_grip = new ResizeGrip(this);
+    layout->addWidget(m_grip, 0);
+
+    setFixedWidth(viewer_settings::kSidebarInitialWidth);
+
+    connect(m_tree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
+        const int id = idOf(item);
+        if (id >= 0 && presenter() && !m_materialized.contains(id))
+            materialize(item, id);
+    });
+    connect(m_tree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int) {
+        const int id = idOf(item);
+        if (id >= 0 && presenter())
+            presenter()->onEntryActivated(id);
+    });
+}
+
+SidebarQt::~SidebarQt() = default;
+
+// Candidate sidebar width in logical px from the pointer's global position,
+// measured from the panel's left edge (Qt coordinates are already DPI-independent).
+int SidebarQt::dragCandidateLogical(const QPoint& globalPos) const {
+    return (std::max)(0, globalPos.x() - mapToGlobal(QPoint(0, 0)).x());
+}
 
 void SidebarQt::setWidth(int widthPx) {
     setFixedWidth(widthPx);
