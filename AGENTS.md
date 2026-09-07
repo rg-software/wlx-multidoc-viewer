@@ -26,12 +26,15 @@ Release sizes (after the `trim-binary-size` change that drops MuPDF's embedded C
 src/
   plugin.cpp            WLX entry points (ListLoad, ListCloseWindow, etc.)
   wlxplugin.h           WLX API types and DCPCALL macro
-  document.h            DocumentEngine interface (open/render/text/outline + pageText/PageText)
+  document.h            DocumentEngine interface (open/render/text/outline + pageText/PageText + animation virtuals)
   formatdispatcher.cpp  Routes file extensions to the right engine
   mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML); pageText from fz_stext; searchText from fz_search_page_cb
   djvuengine.*          DjVuLibre backend (DJVU, DJV); pageText/search unavailable (see AGENTS gaps)
   chmengine.*           CHM backend via libchm (archive access) + MuPDF HTML pipeline (render/text/search); reading order + nested .hhc outline
   comicengine.*         Comic archive backend via libarchive (CBR/CB7); Qt image decode, natural page order
+  imageengine.*         Standalone raster engine (jpg/png/gif/tif/bmp/webp) via QImageReader; one page per file, in-place GIF animation
+  imagefolder.*         Sibling raster discovery/ordering in a directory (natural order, shared with comics)
+  naturalsort.h/cpp     Shared natural (numeric-aware) filename comparator used by comic + image engines
   viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache + selection + text search state
   textselection.*       Platform-agnostic text-selection model (anchor/focus, ranges)
   searchcontroller.*    Whole-document search worker thread (progressive per-page results, atomic cancel)
@@ -59,6 +62,8 @@ src/
 ### Engines
 
 MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as system libraries on Linux. Both return `QImage` from `renderPage(page, zoom)`. The engine interface (`DocumentEngine`) is platform-agnostic.
+
+Standalone raster images (`.jpg/.jpeg/.png/.gif/.tif/.tiff/.bmp/.webp`) route to `ImageEngine` (Qt `QImageReader`), with MuPDF as the fallback when `QImageReader` cannot decode. Every raster is a single page; multi-frame GIFs animate in place and are **not** step-through pages. GIF decoding has a Qt gotcha: `QGifHandler` does **not** implement `jumpToImage`/`jumpToNextImage`, so `ImageEngine` decodes frames 0..N sequentially via `read()` from a fresh reader (`readFrameImage`). Sibling images in the same directory (natural order via `naturalsort.h`) are opened at next/prev document bounds.
 
 ### Build system
 
@@ -98,6 +103,9 @@ Write conventional, structured commit messages so the release pipeline can group
 - ~~Garbled text in embedded-CJK PDFs after the font trim~~ — fixed: the `trim-binary-size` change defined `NO_CJK` in the overlay port, but that macro also strips the builtin CJK **cmap tables** (`pdf-cmap-load.c` `#ifdef NO_CJK` → only Identity/TrueType cmaps), so documents whose glyph mapping needs e.g. `Adobe-Japan1-UCS2` rendered $\ne$ copy/search text correctly (verified byte-identical text extraction vs PyMuPDF 1.28.2 after the fix). Fix: use the font-only `TOFU_CJK`/`TOFU_CJK_EXT`/`TOFU_CJK_LANG` defines instead of `NO_CJK` — fonts stay trimmed, cmaps stay available.
 - ~~MuPDF pinned at 1.26.10~~ — upgraded the overlay port to **1.28.3**, which required: vendoring the `thirdparty/mujs` files (`regexp.h`, `regexp.c`, `utf.h`, `utf.c`, `utfdata.h`) because 1.28.x tag tarballs ship that submodule empty yet `source/fitz/regexp.c`/`stext-search.c` include it; adding `FZ_ENABLE_MD=0` (Markdown/cmark-gfm dropped) and `FZ_ENABLE_HYPHEN=0` (avoids embedding the ~800KB hyph zips); dropping the now-shipped-in-tree `scripts/bin2coff.c` download.
 - **MOBI cover page is a synthetic engine-side page, not an HTML injection** — `MuPdfEngine::tryOpenMobi` reads the EXTH cover record (type 201) and stores the decoded `QImage`; `renderPage(1)` draws it scaled to the body text area (page minus `@page{margin:3em 2em}`), and all body pages shift +1 in the public API. The cover is **deliberately NOT injected into `index.html`**: adding any cover element to a reflowable htdoc makes MuPDF's restartable layout drop the following `mbp:pagebreak` `page-break-before` elements, collapsing section breaks (Contents/for-Sharon/Chapter boundaries). Keep the body byte-identical and never reintroduce HTML injection (see change `add-mobi-cover-page`). This also removes the `fz_extract_html_from_mobi` internal-symbol dependency from the engine (risk R3 for a hidden Linux symbol is gone).
+
+### Fixed (in add-image-browsing-and-animation)
+- ~~Standalone raster images have no animation and no folder navigation~~ — a new `ImageEngine` (`QImageReader`) now handles `.jpg/.jpeg/.png/.gif/.tif/.tiff/.bmp/.webp` as single-page documents, plays multi-frame GIFs in place (per-frame delay + loop count via the `DocumentEngine` animation virtuals `isAnimated`/`frameDelayMs`/`advanceFrame`), and the `ViewerController` opens sibling images at next/prev document bounds (`ImageFolder` + shared `naturalsort`). The `QGifHandler` jumpToImage gotcha and the Win32 playback timer (delivered as `WM_TIMER`, not a custom message) are both accounted for; sample generators live in `tools/generate_sample_images.py` and `examples/` ships generated `sample1.jpg`…`sample5.tiff` + `sample-animated.gif`.
 
 ### Open gaps
 
