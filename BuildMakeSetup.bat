@@ -9,6 +9,7 @@ REM    build\release\Release\MultidocViewer.wlx64     (x64 built plugin)
 REM    build\release-x86\Release\MultidocViewer.wlx   (x86 built plugin)
 REM    dist\release\MultidocViewer.wlx64               (packaged x64)
 REM    dist\release\MultidocViewer.wlx                 (packaged x86)
+REM    dist\release\multidocviewer.ini                  (packaged INI template)
 REM    dist\wlx-multidoc-viewer-Win-YYYYMMDD.zip       (bundle)
 REM
 REM  Can be run from a plain cmd console (no Developer prompt needed):
@@ -56,6 +57,7 @@ copy /Y "build\release-x86\Release\MultidocViewer.wlx"  "%OUT%\" >nul || (
     echo [ERROR] x86 plugin .wlx not found.& exit /b 1 )
 
 copy /Y "pluginst.inf" "%OUT%\" >nul
+copy /Y "assets\multidocviewer.ini" "%OUT%\" >nul
 
 REM --- compress the package (zip goes OUTSIDE the packaged dir so it
 REM        doesn't try to archive itself / self-lock; remove any previous

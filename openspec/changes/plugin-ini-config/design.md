@@ -34,7 +34,7 @@ The `mINI::INIStructure` is returned by reference from `PluginConfig::get()`. Fi
 `viewer_settings.h` exposes `inline QRgb kBackgroundColor` initialized from the config singleton. On Win32 the viewer converts `QRgb` → `COLORREF`; on Qt it wraps as `QColor`. The hex parser strips an optional `#` prefix, validates 6 hex digits, and falls back to `0xE8E8E8` on any parse failure. The three existing fill sites (`viewer_win32.cpp:473`, `viewer.cpp:23`, `viewercontroller.cpp:452`) all read `viewer_settings::kBackgroundColor` instead of hardcoding.
 *Alternatives rejected:* per-platform color constants (drift); passing color through the viewer constructor (would require plumbing changes).
 
-**D5 — Ship a template `multidocviewer.ini` in `Resources/` installed alongside the plugin.**
+**D5 — Ship a template `multidocviewer.ini` in `assets/` installed alongside the plugin.**
 The template documents `[Viewer] BackgroundColor` with a commented example. On Windows it sits next to the `.wlx64`; on Linux it is installed to the same `share/doublecmd/plugins/multidoc/` directory. If the user deletes the template, defaults apply.
 
 **D6 — INI section naming: `[Viewer]` for page-area settings.**

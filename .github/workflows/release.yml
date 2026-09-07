@@ -57,6 +57,7 @@ jobs:
           copy build\release\Release\MultidocViewer.wlx64 dist\release\
           copy build\release-x86\Release\MultidocViewer.wlx dist\release\
           copy pluginst.inf dist\release\
+          copy assets\multidocviewer.ini dist\release\
 
       - uses: actions/upload-artifact@v4
         with:
@@ -135,6 +136,7 @@ jobs:
           mkdir -p dist/linux-release
           cp build/linux-release/MultidocViewer.wlx64 dist/linux-release/
           cp pluginst.inf dist/linux-release/
+          cp assets/multidocviewer.ini dist/linux-release/
 
       - uses: actions/upload-artifact@v4
         with:

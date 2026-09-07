@@ -258,11 +258,11 @@ install(TARGETS wlx-multidoc-viewer
 # Shipped INI template: the plugin reads multidocviewer.ini from its own
 # directory, so the template rides along next to the built binary and is
 # installed alongside the plugin on Linux.
-install(FILES "${CMAKE_SOURCE_DIR}/Resources/multidocviewer.ini"
+install(FILES "${CMAKE_SOURCE_DIR}/assets/multidocviewer.ini"
         DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
 add_custom_command(TARGET wlx-multidoc-viewer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/Resources/multidocviewer.ini"
+        "${CMAKE_SOURCE_DIR}/assets/multidocviewer.ini"
         "$<TARGET_FILE_DIR:wlx-multidoc-viewer>/multidocviewer.ini"
     VERBATIM)
 

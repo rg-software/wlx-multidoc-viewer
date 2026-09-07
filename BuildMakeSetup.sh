@@ -5,6 +5,7 @@
 #  Produces:
 #    build/linux-release/MultidocViewer.wlx64   (built plugin)
 #    dist/linux-release/MultidocViewer.wlx64    (packaged)
+#    dist/linux-release/multidocviewer.ini      (packaged INI template)
 #    dist/wlx-multidoc-viewer-Linux-YYYYMMDD.zip     (bundle)
 #
 #  Run from a plain shell at the project root. Uses the system Qt6 /
@@ -30,6 +31,7 @@ cp "build/linux-release/MultidocViewer.wlx64" "$OUT/" || {
 }
 
 cp pluginst.inf "$OUT/"
+cp assets/multidocviewer.ini "$OUT/"
 
 # --- 3. Compress the package (zip goes outside the packaged dir; remove
 #        any previous archive of this date stamp first) ----------------

@@ -21,5 +21,5 @@ All UI tuning lives in compile-time constants (`viewer_settings.h` says "no runt
 ## Impact
 
 - New dependency: `pulzed-mini` (mINI) via `vcpkg.json` on Windows; fetched by `CMakeLists.txt` on Linux.
-- New files: `src/pluginconfig.h` (singleton + path), `Resources/multidocviewer.ini` (shipped template).
+- New files: `src/pluginconfig.h` (singleton + path), `assets/multidocviewer.ini` (shipped template).
 - Modified files: `vcpkg.json` (+`pulzed-mini`), `CMakeLists.txt` (Linux fetch), `src/plugin.cpp` (`ListSetDefaultParams` stub stays but `pluginconfig.h` is included), `src/viewer_settings.h` (runtime background color), `src/viewer_win32.cpp`, `src/viewer.cpp`, `src/viewercontroller.cpp` (background color read from config instead of hardcoded).

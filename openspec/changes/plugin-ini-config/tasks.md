@@ -1,13 +1,13 @@
 ## 1. mINI dependency and build wiring
 
 - [x] 1.1 Add `"pulzed-mini"` to `vcpkg.json` dependencies (Windows: header-only via vcpkg manifest), pinned to `0.9.14` via `overrides` so Windows matches the Linux `0.9.14` commit.
-- [x] 1.2 In `CMakeLists.txt`, add the Linux-only `file(DOWNLOAD ...)` block for mINI v0.9.14 (commit `a1ff72e8898db8b53282e9eb7c7ec5973519787e`, SHA256 `1396DB49DD4EEC37E5556341989AAEB6256FC44349D7BCB8F3E1581F277C44A3`) into the build directory, add `${CMAKE_CURRENT_BINARY_DIR}/mini` to the target include path (mirroring `wlx-edge-viewer/CMakeLists.txt` lines 16–32), add `src/pluginconfig.cpp` to the library and harness sources, and stage `Resources/multidocviewer.ini` next to the build output / install tree.
+- [x] 1.2 In `CMakeLists.txt`, add the Linux-only `file(DOWNLOAD ...)` block for mINI v0.9.14 (commit `a1ff72e8898db8b53282e9eb7c7ec5973519787e`, SHA256 `1396DB49DD4EEC37E5556341989AAEB6256FC44349D7BCB8F3E1581F277C44A3`) into the build directory, add `${CMAKE_CURRENT_BINARY_DIR}/mini` to the target include path (mirroring `wlx-edge-viewer/CMakeLists.txt` lines 16–32), add `src/pluginconfig.cpp` to the library and harness sources, and stage `assets/multidocviewer.ini` next to the build output / install tree.
 
 ## 2. Config singleton and module path
 
 - [x] 2.1 Create `src/pluginconfig.h`: declare `namespace PluginConfig { const mINI::INIStructure& get(); std::string modulePath(); }`. Include `<mini/ini.h>` and `<string>`.
 - [x] 2.2 Create `src/pluginconfig.cpp` (platform-split with `#ifdef _WIN32`): implement `get()` as a static-local `mINI::INIStructure` lazily read from `modulePath() + "/multidocviewer.ini"` (empty structure when the file is absent). `modulePath()` resolves the **plugin DLL itself** via `GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT)` + `GetModuleFileNameW` on Windows (not the host EXE; `GetModuleHandleW(nullptr)` would return Total Commander's directory) and `dladdr` on Linux.
-- [x] 2.3 Create `Resources/multidocviewer.ini` template with a commented `[Viewer] BackgroundColor` key and a brief header comment.
+- [x] 2.3 Create `assets/multidocviewer.ini` template with a commented `[Viewer] BackgroundColor` key and a brief header comment.
 
 ## 3. Background color consumer
 
