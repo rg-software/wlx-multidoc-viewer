@@ -10,6 +10,7 @@
 #include <QPoint>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QTimer>
 #include <QWheelEvent>
 #include <QWidget>
 #include <QHBoxLayout>
@@ -60,6 +61,8 @@ private slots:
 
 private:
     void onControllerChanged();
+    void syncAnimationTimer();
+    void onAnimationTick();
     void resizeCanvas();
     void onSidebarToggle();
     void refreshChrome();
@@ -84,6 +87,10 @@ private:
     QHBoxLayout* m_midLayout = nullptr;
     QScrollArea* m_scrollArea = nullptr;
     ViewerCanvas* m_canvas = nullptr;
+
+    // Single-shot timer that drives in-place GIF frame playback (design.md -
+    // D6/D7); re-armed with the current frame's delay on each tick.
+    QTimer* m_animTimer = nullptr;
 
     bool m_dragging = false;
     QPoint m_lastMousePos;

@@ -2,6 +2,7 @@
 #define VIEWERCONTROLLER_H
 
 #include "document.h"
+#include "imagefolder.h"
 #include "searchcontroller.h"
 #include "textselection.h"
 #include "viewer_settings.h"
@@ -46,6 +47,30 @@ public:
     // is not enough to decide if "next" can advance.
     bool hasNextPage() const;
     bool hasPrevPage() const;
+
+    // Standalone-image folder navigation. For a raster image document these
+    // report whether a sibling raster image exists on the given side so next/prev
+    // can cross the single-page document boundary instead of clamping.
+    bool hasNextSibling() const;
+    bool hasPrevSibling() const;
+
+    // Folder position for the page indicator of a standalone image document:
+    // 1-based index within the sibling set (0 when not in a folder context) and
+    // the total sibling count (1 when isolated).
+    int imagePosition() const { return m_folderIndex >= 0 ? m_folderIndex + 1 : 0; }
+    int imageCount() const { return m_folder.count(); }
+
+    // ---- In-place animation (GIF) ----
+    // The platform viewer arms a timer for animationDelayMs() and calls
+    // animationTick() on each tick. animationTick() advances a frame (invalidating
+    // the page cache so repaint re-decodes it) and returns whether playback should
+    // continue; when true the caller re-arms with the new animationDelayMs().
+    // animationEpoch() ticks up on every frame advance so viewers can narrow-repaint
+    // the page region without a full relayout (task 5.2).
+    bool isAnimating() const;
+    int animationDelayMs() const;
+    bool animationTick();
+    int animationEpoch() const { return m_animationEpoch; }
 
     // Zoom / fit. Each layout-affecting command takes the current continuous
     // scroll offset and returns the new offset that keeps the view anchored to
@@ -247,8 +272,16 @@ public:
     // (clamped); paged mode already navigated to the match's page.
     int takeSearchJump();
 
+// Whether next/prev at the document boundary should (and can) open a sibling
+    // image. Only true for a standalone raster document found in a sibling set.
+    bool openSibling(int delta);
+
 private:
     static float clampScale(float s) { return std::max(0.25f, std::min(s, 8.0f)); }
+
+    bool isRasterPath(const QString& path);
+    void scanSiblings(const QString& path);
+    void stopAnimation();
 
     std::unique_ptr<DocumentEngine> m_engine;
     ViewerState m_state;
@@ -262,6 +295,12 @@ private:
     int m_bottomChromePx = 0;
     int m_leftChromePx = 0;
     int m_scrollAnchor = 0;
+
+    // Standalone-image folder context (sibling browsing + in-place animation).
+    QString m_openPath;
+    ImageFolder m_folder;
+    int m_folderIndex = -1;
+    int m_animationEpoch = 0;
 
     // Per-page layout in canvas units (logical px on Qt, device px on Win32).
     // m_pageRects[page-1].top() is the

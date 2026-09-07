@@ -46,6 +46,10 @@ private:
     void updateScrollBars();
     void updateVisiblePage();
     void onControllerChanged();
+    void syncAnimationTimer();
+    void stopAnimationTimer();
+    void onAnimationTick();
+    void invalidatePageArea();
     void pageJumpContinuous(int delta);
     void pageBlockDown();
     void pageBlockUp();
@@ -92,6 +96,9 @@ private:
     // whenever the controller's layout epoch changes.
     QVector<HBITMAP> m_pageBitmaps;
     int m_bitmapEpoch = -1;
+    // Tracks the controller's animation epoch so in-place frame changes refresh
+    // the page bitmap even though the layout (and thus layoutEpoch) is stable.
+    int m_bitmapAnimEpoch = -1;
 
     int m_scrollX = 0;
     int m_scrollY = 0;

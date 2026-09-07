@@ -290,6 +290,12 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     m_canvas->setController(m_controller.get());
     m_controller->setRenderScale(static_cast<float>(devicePixelRatioF()));
 
+    // Single-shot timer driving in-place GIF frame playback (design.md - D6/D7);
+    // parented to this widget so it dies with it.
+    m_animTimer = new QTimer(this);
+    m_animTimer->setSingleShot(true);
+    connect(m_animTimer, &QTimer::timeout, this, &ViewerWidget::onAnimationTick);
+
     m_toolbarPresenter.attach(m_controller.get(), m_toolbar);
     m_toolbarPresenter.setScrollApplier([this](int scrollY) {
         m_controller->setScrollAnchor(scrollY);
@@ -356,6 +362,8 @@ bool ViewerWidget::loadDocument(const QString& path) {
 }
 
 void ViewerWidget::closeDocument() {
+    if (m_animTimer)
+        m_animTimer->stop();
     if (m_controller)
         m_controller->closeDocument();
     m_sidebarPresenter.reload();
@@ -824,6 +832,31 @@ void ViewerWidget::resizeEvent(QResizeEvent* event) {
         m_controller->setViewportSize(QSize(width(), height()));
         refreshChrome();
         m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(scrollYValue()));
-        resizeCanvas();
+resizeCanvas();
+    syncAnimationTimer();
+}
+
+void ViewerWidget::syncAnimationTimer() {
+    if (m_animTimer)
+        m_animTimer->stop();
+    if (!m_controller || !m_controller->isAnimating())
+        return;
+    const int delay = (std::max)(10, m_controller->animationDelayMs());
+    if (delay > 0 && m_animTimer)
+        m_animTimer->start(delay);
+}
+
+void ViewerWidget::onAnimationTick() {
+    if (!m_controller || !m_controller->animationTick()) {
+        if (m_animTimer)
+            m_animTimer->stop();
+        return;
     }
+    // The controller advanced a frame and invalidated its page cache; repaint
+    // the canvas so the new frame decodes (single page -- no relayout needed).
+    if (m_canvas)
+        m_canvas->update();
+    if (m_animTimer)
+        m_animTimer->start((std::max)(10, m_controller->animationDelayMs()));
+}
 }

@@ -27,13 +27,17 @@
 
 #include "viewercontroller.h"
 #include "viewer_settings.h"
+#include "mupdfengine.h"
 
 #include <algorithm>
 #include <limits>
 
 #include <QDebug>
+#include <QDir>
+#include <QFileInfo>
 #include <QPainter>
 #include <QTransform>
+#include <QVector>
 
 namespace {
 using viewer_settings::kPageGap;
@@ -60,14 +64,29 @@ void ViewerController::setEngine(std::unique_ptr<DocumentEngine> engine) {
 }
 
 bool ViewerController::openDocument(const QString& path) {
+    stopAnimation();
+    m_folderIndex = -1;
+
     if (!m_engine) {
         qWarning() << "ViewerController: no engine set, cannot open" << path;
         return false;
     }
     if (!m_engine->open(path)) {
-        qWarning() << "ViewerController: engine failed to open" << path;
-        return false;
+        // Raster fallback: when the image engine cannot decode a raster file we
+        // retry with the MuPDF engine so no currently-openable file regresses.
+        if (isRasterPath(path)) {
+            qWarning() << "ViewerController: image engine failed, retrying MuPDF for" << path;
+            m_engine = std::make_unique<MuPdfEngine>();
+            if (!m_engine->open(path)) {
+                qWarning() << "ViewerController: engine failed to open" << path;
+                return false;
+            }
+        } else {
+            qWarning() << "ViewerController: engine failed to open" << path;
+            return false;
+        }
     }
+    m_openPath = path;
     m_state.setPageCount(m_engine->pageCount());
     m_state.resetPage();
     m_fitMode = FitMode::FitToPage;
@@ -76,6 +95,7 @@ bool ViewerController::openDocument(const QString& path) {
     m_cacheRecency.clear();
     computeFitZoom();
     computeLayout();
+    scanSiblings(path);
     notifyChanged();
     return true;
 }
@@ -102,6 +122,9 @@ void ViewerController::closeDocument() {
     m_contentSize = QSize();
     m_pageCache.clear();
     m_cacheRecency.clear();
+    m_openPath.clear();
+    m_folderIndex = -1;
+    stopAnimation();
     notifyChanged();
 }
 
@@ -112,7 +135,7 @@ bool ViewerController::nextPage() {
         const int current = m_state.currentPage();
         const int next = unitLast(current) + 1;
         if (next <= 1 || next > m_state.pageCount())
-            return false;
+            return openSibling(+1);
         m_state.goToPage(next);
         notifyChanged();
         return true;
@@ -121,7 +144,7 @@ bool ViewerController::nextPage() {
         notifyChanged();
         return true;
     }
-    return false;
+    return openSibling(+1);
 }
 
 bool ViewerController::prevPage() {
@@ -130,10 +153,10 @@ bool ViewerController::prevPage() {
     if (isDoublePagePresentation()) {
         const int current = m_state.currentPage();
         if (current <= 1)
-            return false;
+            return openSibling(-1);
         const int prev = unitFirst(current - 1);
         if (prev >= current)
-            return false;
+            return openSibling(-1);
         m_state.goToPage(prev);
         notifyChanged();
         return true;
@@ -142,7 +165,7 @@ bool ViewerController::prevPage() {
         notifyChanged();
         return true;
     }
-    return false;
+    return openSibling(-1);
 }
 
 bool ViewerController::firstPage() {
@@ -173,7 +196,7 @@ bool ViewerController::nextPageInContinuousMode() {
         const int current = m_state.currentPage();
         const int next = unitLast(current) + 1;
         if (next <= 1 || next > m_state.pageCount())
-            return false;
+            return openSibling(+1);
         m_state.goToPage(next);
         notifyChanged();
         return true;
@@ -182,17 +205,17 @@ bool ViewerController::nextPageInContinuousMode() {
         notifyChanged();
         return true;
     }
-    return false;
+    return openSibling(+1);
 }
 
 bool ViewerController::prevPageInContinuousMode() {
     if (isDoublePagePresentation()) {
         const int current = m_state.currentPage();
         if (current <= 1)
-            return false;
+            return openSibling(-1);
         const int prev = unitFirst(current - 1);
         if (prev >= current)
-            return false;
+            return openSibling(-1);
         m_state.goToPage(prev);
         notifyChanged();
         return true;
@@ -201,16 +224,20 @@ bool ViewerController::prevPageInContinuousMode() {
         notifyChanged();
         return true;
     }
-    return false;
+    return openSibling(-1);
 }
 
 bool ViewerController::hasNextPage() const {
+    if (hasNextSibling())
+        return true;
     if (isDoublePagePresentation())
         return unitLast(m_state.currentPage()) < m_state.pageCount();
     return m_state.currentPage() < m_state.pageCount();
 }
 
 bool ViewerController::hasPrevPage() const {
+    if (hasPrevSibling())
+        return true;
     return m_state.currentPage() > 1;
 }
 
@@ -1209,4 +1236,95 @@ int ViewerController::scrollToActiveMatch(int scrollY) const {
         return (std::clamp)(rel - vh / 3, 0, maxRel);
     }
     return clampScroll(std::max(0, static_cast<int>(canvas.center().y()) - vh / 3));
+}
+
+// ---------------------------------------------------------------------------
+// Standalone-image folder browsing and in-place animation (tasks 4.2-4.4, 5.x)
+// ---------------------------------------------------------------------------
+
+bool ViewerController::isRasterPath(const QString& path) {
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    return suffix == QLatin1String("jpg") || suffix == QLatin1String("jpeg") ||
+           suffix == QLatin1String("png") || suffix == QLatin1String("gif") ||
+           suffix == QLatin1String("tif") || suffix == QLatin1String("tiff") ||
+           suffix == QLatin1String("bmp") || suffix == QLatin1String("webp");
+}
+
+void ViewerController::scanSiblings(const QString& path) {
+    if (!isRasterPath(path)) {
+        m_folderIndex = -1;
+        return;
+    }
+    const QString abs = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    const int slash = abs.lastIndexOf('/');
+    m_folder.scan(slash > 0 ? abs.left(slash) : QString());
+    m_folderIndex = m_folder.indexOf(abs);
+}
+
+bool ViewerController::hasNextSibling() const {
+    return m_folderIndex >= 0 && m_folderIndex + 1 < m_folder.count();
+}
+
+bool ViewerController::hasPrevSibling() const {
+    return m_folderIndex > 0;
+}
+
+bool ViewerController::openSibling(int delta) {
+    if (m_folderIndex < 0)
+        return false;
+    const int target = m_folderIndex + delta;
+    if (target < 0 || target >= m_folder.count())
+        return false;
+    const QString sibling = m_folder.fileAt(target);
+    if (sibling.isEmpty())
+        return false;
+
+    std::unique_ptr<DocumentEngine> next = createEngine(sibling);
+    if (!next || !next->open(sibling)) {
+        qWarning() << "ViewerController: cannot open sibling image" << sibling;
+        return false;
+    }
+
+    stopAnimation();
+    m_engine = std::move(next);
+    m_openPath = sibling;
+    m_folderIndex = target;
+    m_state.setPageCount(m_engine->pageCount());
+    m_state.resetPage();
+    m_fitMode = FitMode::FitToPage;
+    m_rotation = 0;
+    m_pageCache.clear();
+    m_cacheRecency.clear();
+    m_pageRects.clear();
+    m_contentSize = QSize();
+    computeFitZoom();
+    computeLayout();
+    notifyChanged();
+    return true;
+}
+
+bool ViewerController::isAnimating() const {
+    return m_engine && m_engine->isAnimated();
+}
+
+int ViewerController::animationDelayMs() const {
+    return (m_engine && m_engine->isAnimated()) ? m_engine->frameDelayMs() : 0;
+}
+
+bool ViewerController::animationTick() {
+    if (!m_engine || !m_engine->isAnimated())
+        return false;
+    const bool cont = m_engine->advanceFrame();
+    ++m_animationEpoch;
+    // The frame changed: drop the single page's cached render so the next paint
+    // re-decodes the new frame (narrow repaint, no relayout).
+    if (!m_pageCache.isEmpty())
+        m_pageCache[0] = QImage();
+    return cont;
+}
+
+void ViewerController::stopAnimation() {
+    ++m_animationEpoch;
+    if (!m_pageCache.isEmpty())
+        m_pageCache[0] = QImage();
 }

@@ -27,8 +27,8 @@ void ToolbarPresenter::refreshState() {
             const int base = m_controller->pageAtScrollOffset(m_controller->scrollAnchor());
             const int stepPrev = m_controller->scrollStepPage(base, -1);
             const int stepNext = m_controller->scrollStepPage(base, +1);
-            m_backend->setEnabled(Control::PrevPage, stepPrev != base);
-            m_backend->setEnabled(Control::NextPage, stepNext != base);
+            m_backend->setEnabled(Control::PrevPage, stepPrev != base || m_controller->hasPrevSibling());
+            m_backend->setEnabled(Control::NextPage, stepNext != base || m_controller->hasNextSibling());
         }
     } else {
         m_backend->setEnabled(Control::PrevPage, false);
@@ -36,13 +36,29 @@ void ToolbarPresenter::refreshState() {
     }
     m_backend->setEditText(Control::PageBox, hasDoc ? QString::number(page) : QString());
     m_backend->setText(Control::PageCount, hasDoc ? QStringLiteral("/ %1").arg(count) : QString());
-    m_backend->setChecked(Control::ModeToggle, hasDoc && !m_controller->isPagedMode());
+
+    // A standalone image document is a single page whose "pages" are really its
+    // sibling images: show the image position/total instead of a page count.
+    if (hasDoc) {
+        const int imgPos = m_controller->imagePosition();
+        if (imgPos > 0) {
+            m_backend->setEditText(Control::PageBox, QString::number(imgPos));
+            m_backend->setText(Control::PageCount,
+                               QStringLiteral("/ %1").arg(m_controller->imageCount()));
+        }
+    }
+
+    // Paged/continuous and single/double presentation are meaningless for a
+    // single-page document (a standalone image), so disable those toggles.
+    const bool singlePage = hasDoc && count <= 1;
+    m_backend->setChecked(Control::ModeToggle, hasDoc && !singlePage && !m_controller->isPagedMode());
     m_backend->setIcon(Control::ModeToggle,
-                       hasDoc ? (m_controller->isPagedMode() ? Icon::ModePaged : Icon::ModeContinuous)
-                              : Icon::ModePaged);
+                       hasDoc && !singlePage
+                           ? (m_controller->isPagedMode() ? Icon::ModePaged : Icon::ModeContinuous)
+                           : Icon::ModePaged);
 
     // Presentation is a three-state cycle reflected via its current icon.
-    m_backend->setEnabled(Control::PresentationToggle, hasDoc);
+    m_backend->setEnabled(Control::PresentationToggle, hasDoc && !singlePage);
     if (hasDoc) {
         switch (m_controller->pagePresentation()) {
         case ViewerState::PagePresentation::Single:          m_backend->setIcon(Control::PresentationToggle, Icon::PresentationSingle); break;
@@ -104,7 +120,7 @@ void ToolbarPresenter::refreshState() {
     m_backend->setChecked(Control::SidebarToggle, sidebarVisible && sidebarVisible());
     m_backend->setEnabled(Control::RotateLeft, hasDoc);
     m_backend->setEnabled(Control::RotateRight, hasDoc);
-    m_backend->setEnabled(Control::ModeToggle, hasDoc);
+    m_backend->setEnabled(Control::ModeToggle, hasDoc && !singlePage);
     m_backend->setEnabled(Control::FitButton, hasDoc);
 }
 
@@ -128,8 +144,13 @@ void ToolbarPresenter::onPrevPage() {
     // screen (whole unit in a double-page presentation).
     const int base = m_controller->pageAtScrollOffset(m_controller->scrollAnchor());
     const int target = m_controller->scrollStepPage(base, -1);
-    if (target != base && m_applyScroll)
+    if (target != base && m_applyScroll) {
         m_applyScroll(m_controller->scrollOffsetForPage(target));
+        return;
+    }
+    // No whole-view step possible (single-page document at a boundary): fall
+    // back to controller navigation, which opens a sibling image when one exists.
+    m_controller->prevPage();
 }
 
 void ToolbarPresenter::onNextPage() {
@@ -141,8 +162,11 @@ void ToolbarPresenter::onNextPage() {
     }
     const int base = m_controller->pageAtScrollOffset(m_controller->scrollAnchor());
     const int target = m_controller->scrollStepPage(base, +1);
-    if (target != base && m_applyScroll)
+    if (target != base && m_applyScroll) {
         m_applyScroll(m_controller->scrollOffsetForPage(target));
+        return;
+    }
+    m_controller->nextPage();
 }
 
 void ToolbarPresenter::onGoToPageCommitted(const QString& raw) {

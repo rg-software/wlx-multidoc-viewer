@@ -49,6 +49,9 @@ inline void setClipboardText(const QString& text) {
 std::mutex g_marshalMutex;
 std::unordered_map<HWND, std::deque<std::function<void()>>> g_marshalQueues;
 constexpr UINT WM_PLUGIN_MARSHAL = WM_APP + 1;
+// SetTimer id/owner for in-place GIF playback. The message-based timer delivers
+// WM_TIMER (with the id in wParam), so no custom message is needed.
+constexpr UINT kAnimTimerId = 1;
 
 void marshalToWnd(HWND hwnd, std::function<void()> task) {
     if (!hwnd)
@@ -217,6 +220,7 @@ bool ViewerWin32::loadDocument(const QString& path) {
 }
 
 void ViewerWin32::closeDocument() {
+    stopAnimationTimer();
     invalidatePageBitmaps();
     if (m_controller)
         m_controller->closeDocument();
@@ -271,6 +275,52 @@ void ViewerWin32::onControllerChanged() {
         updateScrollBars();
     }
     InvalidateRect(m_hwnd, nullptr, FALSE);
+    syncAnimationTimer();
+}
+
+// ---------------------------------------------------------------------------
+// In-place GIF playback (tasks 6.1-6.2)
+// ---------------------------------------------------------------------------
+
+void ViewerWin32::invalidatePageArea() {
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    RECT pa = {
+        static_cast<LONG>(sidebarLeft()),
+        static_cast<LONG>(pageAreaTop()),
+        rc.right,
+        rc.bottom
+    };
+    InvalidateRect(m_hwnd, &pa, FALSE);
+}
+
+void ViewerWin32::syncAnimationTimer() {
+    stopAnimationTimer();
+    if (!m_controller || !m_controller->isAnimating())
+        return;
+    const int delay = (std::max)(10, m_controller->animationDelayMs());
+    if (delay > 0)
+        SetTimer(m_hwnd, kAnimTimerId, static_cast<UINT>(delay), nullptr);
+}
+
+void ViewerWin32::stopAnimationTimer() {
+    if (m_hwnd)
+        KillTimer(m_hwnd, kAnimTimerId);
+}
+
+void ViewerWin32::onAnimationTick() {
+    if (!m_controller || !m_controller->animationTick()) {
+        stopAnimationTimer();
+        return;
+    }
+    // The controller advanced a frame and invalidated its page cache; repaint
+    // just the page area (bitmapForPage re-renders on the animation-epoch bump).
+    invalidatePageArea();
+    const int delay = (std::max)(10, m_controller->animationDelayMs());
+    if (delay > 0)
+        SetTimer(m_hwnd, kAnimTimerId, static_cast<UINT>(delay), nullptr);
+    else
+        stopAnimationTimer();
 }
 
 // ---------------------------------------------------------------------------
@@ -400,6 +450,12 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
             task();
         return 0;
     }
+    // WM_TIMER carries the timer id in wParam; only the animation timer uses a
+    // message-based (null proc) timer, so any WM_TIMER with our id is a frame tick.
+    case WM_TIMER:
+        if (wp == kAnimTimerId)
+            onAnimationTick();
+        return 0;
     case WM_DPICHANGED: {
         const float dpi = static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi;
         if (m_toolbar) m_toolbar->setDpiScale(dpi);
@@ -593,7 +649,8 @@ void ViewerWin32::drawPageBitmap(HDC hdc, HBITMAP hbm, int dstX, int dstY, int s
 HBITMAP ViewerWin32::bitmapForPage(int page) {
     if (!m_controller || !m_controller->hasDocument() || page < 1 || page > m_controller->pageCount())
         return nullptr;
-    if (m_bitmapEpoch != m_controller->layoutEpoch())
+    if (m_bitmapEpoch != m_controller->layoutEpoch() ||
+        m_bitmapAnimEpoch != m_controller->animationEpoch())
         invalidatePageBitmaps();
     if (m_pageBitmaps.isEmpty())
         m_pageBitmaps.resize(m_controller->pageCount());
@@ -614,6 +671,7 @@ void ViewerWin32::invalidatePageBitmaps() {
     }
     m_pageBitmaps.clear();
     m_bitmapEpoch = m_controller ? m_controller->layoutEpoch() : -1;
+    m_bitmapAnimEpoch = m_controller ? m_controller->animationEpoch() : -1;
 }
 
 int ViewerWin32::maxScrollX() const {

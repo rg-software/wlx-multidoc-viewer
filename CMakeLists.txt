@@ -192,6 +192,9 @@ add_library(wlx-multidoc-viewer SHARED
     src/djvuengine.cpp
     src/chmengine.cpp
         src/comicengine.cpp
+        src/naturalsort.cpp
+        src/imageengine.cpp
+        src/imagefolder.cpp
     src/viewercontroller.cpp
     src/textselection.cpp
     src/searchcontroller.cpp
@@ -296,6 +299,9 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/djvuengine.cpp
         src/chmengine.cpp
         src/comicengine.cpp
+        src/naturalsort.cpp
+        src/imageengine.cpp
+        src/imagefolder.cpp
         src/searchcontroller.cpp
         src/toolbar.cpp
         src/toolbar_icons.cpp
@@ -326,6 +332,9 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/djvuengine.cpp
         src/chmengine.cpp
         src/comicengine.cpp
+        src/naturalsort.cpp
+        src/imageengine.cpp
+        src/imagefolder.cpp
         src/searchcontroller.cpp
         src/toolbar.cpp
         src/toolbar_icons.cpp
@@ -351,6 +360,8 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/djvuengine.cpp
         src/chmengine.cpp
         src/comicengine.cpp
+        src/naturalsort.cpp
+        src/imageengine.cpp
     )
     target_include_directories(harness-mobi PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(harness-mobi

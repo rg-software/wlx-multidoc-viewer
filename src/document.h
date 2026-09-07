@@ -68,6 +68,15 @@ public:
     virtual bool hasSelectableText(int page) { return !pageText(page).words.isEmpty(); }
     virtual PageText pageText(int page) { return {}; }
 
+    // Optional in-place animation (currently GIF). Defaults implement a static
+    // single-frame document so engines that do not animate (PDF, comics, ...)
+    // are correct without override. frameDelayMs returns the delay of the frame
+    // about to show; advanceFrame advances playback and returns whether it
+    // should continue (false when the declared loop count is exhausted).
+    virtual bool isAnimated() const { return false; }
+    virtual int frameDelayMs() const { return 0; }
+    virtual bool advanceFrame() { return false; }
+
     // Positional whole-document text search. Rects in returned TextMatch are
     // normalized page space (see TextMatch). Default implementations report no
     // capability, so engines that cannot expose a positional text layer are
