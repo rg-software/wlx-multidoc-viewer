@@ -342,4 +342,23 @@ if(WLX_BUILD_HARNESS AND WIN32)
         LibArchive::LibArchive
         chmlib::chmlib
     )
+
+    # Headless MOBI cover-page smoke harness (add-mobi-cover-page).
+    add_executable(harness-mobi
+        tests/harness_mobi.cpp
+        src/formatdispatcher.cpp
+        src/mupdfengine.cpp
+        src/djvuengine.cpp
+        src/chmengine.cpp
+        src/comicengine.cpp
+    )
+    target_include_directories(harness-mobi PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(harness-mobi
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
+        ${DJVU_TARGET}
+        LibArchive::LibArchive
+        chmlib::chmlib
+    )
 endif()
