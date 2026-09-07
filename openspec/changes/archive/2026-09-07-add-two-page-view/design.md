@@ -42,6 +42,8 @@ Helpers on `ViewerController`:
 
 Rationale: keeping `m_currentPage` as a unit's first page means every "current page" maps to exactly one unit and all existing anchors (`scrollOffsetForPage`, page tracking, sidebar highlight) keep working without a second index. The single pairing rule is shared by layout, fit, and navigation so they never disagree. Alternative — a separate "unit index" state — was rejected as it would duplicate tracking and complicate every consumer.
 
+The page counter keeps **real page numbers**, not screen indices: the toolbar `PageBox` shows the current unit's first page and `PageCount` the physical page count (e.g. `3 / 6` for unit (3,4) in double page), leaving the go-to dialog, sidebar outline, and search results on real pages. Next/previous controls are enabled via `hasNextPage()`/`hasPrevPage()`, which test for an adjacent *unit* (`unitLast(currentPage) < pageCount`), not a raw page boundary — so on the final unit (whose first page is below the count) Next is disabled instead of silently no-oping. In continuous mode the controls use `scrollStepPage(base, ±1)`: from the page at the scroll anchor it returns the neighbouring unit's first page in a double-page state (whole rows move together, with the cover page as its own singleton unit) or the raw `base ± 1` in single-page — matching the keyboard stepping while keeping toolbar and keyboard aligned. The step reports a no-op (target == base) past the first/last unit, which both gate the button enablement and make the press a no-op in the same situation. Because the toolbar base derives from `scrollAnchor()`, the Win32 viewer re-syncs that anchor (and re-refreshes the toolbar) at the end of `applyScroll` — the notify fired during `goToPage` would otherwise leave the enablement showing the pre-jump position (typically page 1: Prev disabled, Next enabled) until the next scroll event — and the key-down continuous paths (arrows/Home/End/P/V/PgDn/PgUp) call `setScrollAnchor(m_scrollY)` before painting; the Qt scrollbar path already syncs in `onVerticalScrollChanged`.
+
 ### D3: Layout builds units in `computeLayout()`
 When the presentation is a double-page state, `computeLayout()` lays units in horizontal pairs (a singleton unit occupies just its own page). Each page still gets its own entry in `m_pageRects` (so render/cache/text-selection stay per-page and unchanged), but unit members share the same vertical cursor:
 
@@ -59,13 +61,13 @@ The canvas is at least the viewport wide, and each unit is centered horizontally
 `firstPageAtScroll`/`pageAtScrollOffset` continue to work off `m_pageRects`; because unit members share a vertical stride, they enter/leave the viewport together, yielding the required "scroll as one".
 
 ### D4: Fit modes target the whole unit in `computeFitZoom()`
-In a double-page state `computeFitZoom()` measures the current unit, not a single page:
+In a double-page state `computeFitZoom()` measures a unit, not a single page:
 - combined width = `firstW + (last != first ? kPageGap + lastW : 0)`
 - unit height = `max(firstH, last != first ? lastH : 0)`
-- **fit-to-width** zoom = `viewportW / combinedWidth`
-- **fit-to-page** zoom = `min(viewportW / combinedWidth, viewportH / unitHeight)`
+- **fit-to-page** zoom = `min(viewportW / combinedWidth, viewportH / unitHeight)` (targets the current unit)
+- **fit-to-width** zoom = `viewportW / maxRowWidth()`, where `maxRowWidth()` is the widest combined unit across the document (a single page in a single-page state)
 
-This satisfies "fit the unit by width" and "fit the unit to the screen". For a singleton unit the formulas reduce to the existing single-page fit. Manual zoom and the 0.1–5.0 clamp are unchanged.
+This satisfies "fit the unit by width" and "fit the unit to the screen". Fit-to-width deliberately targets the document-wide spread, not the current unit: when the current unit is a singleton (cover page, trailing odd page) zoom still fits a two-page spread, so the next spread fits the viewport width without overflow and does not depend on which page the fit was triggered from. For a singleton unit the fit-to-page formula reduces to the existing single-page fit. Manual zoom and the 0.1–5.0 clamp are unchanged.
 
 ### D5: Viewer paint/scroll branches are presentation-aware
 Both viewers already branch on `isPagedMode()`. Add a second branch on the double-page presentation that composes the unit from the cached page bitmaps:
@@ -80,6 +82,8 @@ Add a `toolbar::Control::PresentationToggle` between `ModeToggle` and `FitButton
 Both backends add the control:
 - **Win32** (`toolbar_win32.*`): a new owner-drawn BUTTON with a new `ID_*`, placed after `ID_MODE`, that cycles through the three states on each click, wired to `onPresentationCycled()` in `onCommand()`.
 - **Qt** (`toolbar_qt.*`): a new `QToolButton` with lambda `onPresentationCycled()`, inserted after the mode toggle, cycling the three states.
+
+The display-mode, fit and presentation glyphs are drawn from re-carved Material Symbols codepoints (`toolbar_icons.cpp`): the embedded `assets/MaterialSymbolsOutlined.ttf` is a ~4.3 KB default-instance carve (24 codepoints) of the Material Symbols Outlined variable font at FILL 0/GRAD 0/opsz 24/wght 400, and the previously-drawn icons now render real glyphs — paged → `check_box_outline_blank` 0xe835, fit manual → `pinch` 0xeb38, fit page → `fit_page` 0xf77a, fit width → `fit_width` 0xf779, presentation single → `article` 0xef42, presentation double → `two_pager` 0xf51f, presentation double-with-cover → `chrome_reader_mode` 0xe86d. The `hasInk()` guard still falls back to the programmatic vector shapes if FreeType ever rasterizes empty. `ModeContinuous` stays the font `view_agenda` glyph.
 
 ### D7: Keyboard shortcut for the presentation control
 Add a viewer keyboard command that cycles the page-presentation state, equivalent to the toolbar control, so keyboard and toolbar cannot diverge (the state-changed callback keeps the control in sync). Concrete key choice is left to the implementer/UI, but it must be a key not already bound (V = mode, Shift+V = fit, R = rotate, +/-/0 = zoom, arrows/PgUp/PgDn/Home/End = navigation, G = go-to, Esc, Ctrl+C).

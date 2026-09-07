@@ -64,6 +64,22 @@ In paged mode with a double-page presentation state, the viewer SHALL display al
 - **WHEN** the viewer is in paged mode with a double-page presentation and the current unit contains one page (cover page 1 or the odd trailing page)
 - **THEN** the single page is displayed alone
 
+### Requirement: Navigation and page counter in double-page presentation
+
+In a double-page presentation state, paged-mode next/previous commands SHALL step whole view units: from a unit they move to the adjacent unit (cover mode stepping unit by unit from page 1) and are clamped at the first and last view unit. The page counter SHALL keep showing real page numbers — the current view unit's first (leftmost) page over the physical page count — so the go-to dialog, sidebar outline, and search results keep their real-page semantics. Previous and next navigation controls SHALL be disabled exactly when no adjacent view unit exists, even though the counter's current page may still be less than the page count on the final unit.
+
+#### Scenario: Next/prev step whole units
+- **WHEN** the viewer is in paged mode with a double-page presentation and a next or previous page command is issued from a unit
+- **THEN** the displayed view unit changes to the adjacent unit and the page counter shows the new unit's first page
+
+#### Scenario: Final unit disables next
+- **WHEN** the viewer is in a double-page presentation on the last view unit (for example unit (5,6) of a six-page document in double page, or the trailing singleton unit 6 in double page with cover) and the current unit's first page is still less than the page count
+- **THEN** the next command is a no-op and the next navigation control is disabled, while previous remains enabled
+
+#### Scenario: First unit disables previous
+- **WHEN** the viewer is in a double-page presentation on the first view unit (page 1 alone in double page with cover)
+- **THEN** the previous command is a no-op and the previous navigation control is disabled, while next remains enabled
+
 ### Requirement: Continuous double-page display
 
 In continuous mode with a double-page presentation state, the viewer SHALL lay out the pages of each unit side by side as a single scrolling unit and scroll all pages of a unit together as if they were one page.
@@ -73,17 +89,25 @@ In continuous mode with a double-page presentation state, the viewer SHALL lay o
 - **THEN** the viewport scrolls vertically through the document and all pages of the current unit scroll together as one
 
 #### Scenario: Continuous next/prev advances one unit
-- **WHEN** the viewer is in continuous mode with a double-page presentation and a keyboard next or previous page command is issued
+- **WHEN** the viewer is in continuous mode with a double-page presentation and a keyboard or toolbar next or previous page command is issued
 - **THEN** the document advances by exactly one unit and the vertical scroll position is preserved
+
+#### Scenario: Continuous next/prev stays unit-scaled
+- **WHEN** the viewer is in continuous mode with a double-page presentation and the previous or next toolbar control is invoked
+- **THEN** the view advances to the neighbouring unit (the cover page is its own unit), a next step past the final unit and a previous step past the first unit are no-ops, and the controls are disabled exactly when their step cannot move
 
 ### Requirement: Fit modes in double-page presentation
 
-In a double-page presentation state, the fit modes SHALL target the whole current unit rather than a single page: fit-to-page SHALL fit the unit inside the viewport, fit-to-width SHALL make the combined width of the unit equal the viewport width, and manual zoom continues to apply to the whole unit.
+In a double-page presentation state, fit-to-page SHALL target the whole current unit rather than a single page: the current unit fits inside the viewport, and manual zoom continues to apply to the whole unit. Fit-to-width SHALL target the two-page spread rather than a single page: the zoom is computed so the width of the widest combined unit in the document equals the viewport width, so a singleton unit (the cover page, or a trailing odd page) does not collapse the fit onto one page and the spread that follows is guaranteed to fit horizontally without overflow.
 
 #### Scenario: Fit unit to viewport
 - **WHEN** the viewer is in a double-page presentation and fit-to-page is active
 - **THEN** the zoom is computed so the current unit fits inside the viewport
 
-#### Scenario: Fit unit width to viewport
+#### Scenario: Fit spread width to viewport
 - **WHEN** the viewer is in a double-page presentation and fit-to-width is active
-- **THEN** the zoom is computed so the combined width of the current unit equals the viewport width
+- **THEN** the zoom is computed so the width of the document's widest two-page unit equals the viewport width
+
+#### Scenario: Fit-to-width away from a spread
+- **WHEN** the viewer is in a double-page presentation, fit-to-width is active, and the current unit is a singleton (the cover page or a trailing odd page)
+- **THEN** the zoom still uses the two-page spread width as the target, so the singleton renders at a fraction of the viewport width and the next spread fits without overflow
