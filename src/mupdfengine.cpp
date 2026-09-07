@@ -261,10 +261,10 @@ QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale, int rotatio
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
-    // Synthetic cover page: render the stored cover image, scaled so it fills
-    // the same pixel area a body page would occupy at this zoom (point 1:
-    // size matches the body text area). Rotation is applied around the center
-    // like the body render path.
+    // Synthetic cover page: render the stored cover image scaled to fill the
+    // ENTIRE page (full-bleed contain, aspect preserved), centered. A book
+    // cover is a full-page graphic — unlike body text it has no text-area
+    // margins. Rotation is applied around the center like the body render.
     if (m_bodyHasCover && page == 1) {
         QImage base = m_coverImage;
         if (base.isNull())
@@ -279,16 +279,11 @@ QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale, int rotatio
         const int tw = qMax(1, qRound(bodyW * zoom * dpiScale));
         const int th = qMax(1, qRound(bodyH * zoom * dpiScale));
 
-        // Fit the cover inside the body content area, not the full page:
-        // MuPDF's html layout applies @page{margin:3em 2em} at the default
-        // em (11pt) -> 33pt top/bottom and 22pt left/right, so body text sits
-        // inside those margins. The cover is drawn to that same content box,
-        // centered, leaving the page margins visible around it (point 1).
-        const double marginH = 3.0 * 11.0; // 3em @ 11pt
-        const double marginW = 2.0 * 11.0; // 2em @ 11pt
-        const double cw = qMax(1.0, bodyW - 2.0 * marginW);
-        const double ch = qMax(1.0, bodyH - 2.0 * marginH);
-        const double scale = qMin(cw / base.width(), ch / base.height());
+        // Fit the cover inside the FULL page box preserving aspect (contain):
+        // the cover spans as much of the page as its aspect allows, centered
+        // horizontally and vertically.
+        const double scale = qMin(static_cast<double>(tw) / base.width(),
+                                  static_cast<double>(th) / base.height());
         const int dw = qMax(1, qRound(base.width() * scale));
         const int dh = qMax(1, qRound(base.height() * scale));
         QImage cover = base.scaled(dw, dh, Qt::KeepAspectRatio, Qt::SmoothTransformation);

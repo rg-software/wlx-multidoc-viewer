@@ -123,10 +123,9 @@ int main() {
             std::printf("  [dbg] cover size %dx%d\n", p1.width(), p1.height());
             CHECK("page 1 has no text layer", !e.pageText(1).hasText);
 
-            // The cover must be drawn inside the page margins (which the body
-            // text area follows): measure the ink bounding box and require an
-            // all-white border on every side (page-level margins ~22pt/33pt at
-            // the @page{margin:3em 2em} default that body text uses).
+            // The cover is a full-page graphic: rendered as full-bleed contain
+            // (aspect preserved), so it should span most of the page — NOT be
+            // shrunk to the body-text margins. Measure the ink bbox.
             int minX = p1.width(), minY = p1.height(), maxX = -1, maxY = -1;
             QImage probe = p1;
             if (probe.format() != QImage::Format_RGB888)
@@ -151,23 +150,45 @@ int main() {
             const bool inkPresent = maxX >= minX && maxY >= minY;
             CHECK("cover ink present", inkPresent);
             if (inkPresent) {
-                const int left = minX, top = minY;
-                const int right = p1.width() - 1 - maxX;
-                const int bottom = p1.height() - 1 - maxY;
-                std::printf("  [dbg] margins left=%d top=%d right=%d bottom=%d\n",
-                            left, top, right, bottom);
-                // @page margins are 2em left/right and 3em top/bottom = 22/33pt
-                // at the default em=11; allow rounding tolerance.
-                CHECK("cover honored left margin", left >= 15);
-                CHECK("cover honored right margin", right >= 15);
-                CHECK("cover honored top margin", top >= 24);
-                CHECK("cover honored bottom margin", bottom >= 24);
+                // Full-bleed contain: the image must span nearly the whole
+                // page height (its limiting axis) with only small centering
+                // margins. 450x680 in 420x595 -> ~394x595, ~13px sides, ~0px
+                // top/bottom; tolerate rounding.
+                const int w = maxX - minX + 1;
+                const int h = maxY - minY + 1;
+                std::printf("  [dbg] cover ink size %dx%d\n", w, h);
+                CHECK("cover spans most of the page (full-bleed)",
+                      w > p1.width() * 4 / 5 && h > p1.height() * 4 / 5);
             }
         }
 
         CHECK("page 2 still has copyright text", e.pageText(2).hasText);
         const QImage p2 = e.renderPage(2, 1.0f, 1.0f, 0);
         CHECK("page 2 body renders", !p2.isNull());
+        {
+            QImage pd = e.renderPage(3, 1.0f, 1.0f, 0);   // Contents page (real body text)
+            if (!pd.isNull()) {
+                int bminX = pd.width(), bminY = pd.height(), bmaxX = -1, bmaxY = -1;
+                QImage bprobe = pd;
+                if (bprobe.format() != QImage::Format_RGB888)
+                    bprobe = bprobe.convertToFormat(QImage::Format_RGB888);
+                for (int y = 0; y < bprobe.height(); ++y) {
+                    const uchar* line = bprobe.constScanLine(y);
+                    for (int x = 0; x < bprobe.width(); ++x) {
+                        const uchar* p = line + x * 3;
+                        if (p[0] < 250 || p[1] < 250 || p[2] < 250) {
+                            bminX = qMin(bminX, x); bminY = qMin(bminY, y);
+                            bmaxX = qMax(bmaxX, x); bmaxY = qMax(bmaxY, y);
+                        }
+                    }
+                }
+                if (bmaxX >= bminX && bmaxY >= bminY)
+                    std::printf("  [dbg] body p3(Contents) ink x=%d..%d y=%d..%d margins L=%d T=%d R=%d B=%d\n",
+                                bminX, bmaxX, bminY, bmaxY,
+                                bminX, bminY,
+                                pd.width() - 1 - bmaxX, pd.height() - 1 - bmaxY);
+            }
+        }
 
         // Whole-document search finds body text, not the cover page.
         const bool supports = e.supportsSearch();
