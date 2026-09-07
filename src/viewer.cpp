@@ -190,6 +190,19 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     m_sidebar = new SidebarQt(mid);
     m_sidebar->setVisible(false);
     m_midLayout->addWidget(m_sidebar);
+    m_sidebar->setWidthChangedHandler([this](int logicalPx) {
+        if (!m_controller)
+            return;
+        // Clamp the drag candidate to the shared bounds: min 80 logical px,
+        // max half the page area (= clientLogicalW / 3 while the sidebar is
+        // visible, never below the min so a tiny lister degrades gracefully).
+        const int maxAllowed = (std::max)(viewer_settings::kSidebarMinWidth, width() / 3);
+        const int clamped = (std::clamp)(logicalPx, viewer_settings::kSidebarMinWidth, maxAllowed);
+        m_sidebar->setWidth(clamped);
+        m_controller->setLeftChrome(clamped);
+        m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(scrollYValue()));
+        onControllerChanged();
+    });
 
     m_scrollArea = new QScrollArea(mid);
     m_scrollArea->setWidgetResizable(false);
@@ -270,8 +283,8 @@ bool ViewerWidget::loadDocument(const QString& path) {
     if (!m_controller->openDocument(path))
         return false;
     m_sidebarPresenter.reload();
-    m_sidebarVisible = false;
-    m_sidebar->setVisible(false);
+    m_sidebarVisible = m_sidebarPresenter.hasOutline() && viewer_settings::kSidebarVisibleByDefault;
+    m_sidebar->setVisible(m_sidebarVisible);
     refreshChrome();
     resizeCanvas();
     // reload() runs after openDocument() (which already fired refreshState),

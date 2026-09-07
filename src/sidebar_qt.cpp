@@ -3,6 +3,8 @@
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QApplication>
+#include <QMouseEvent>
+#include <QScrollBar>
 #include <QSet>
 
 SidebarQt::SidebarQt(QWidget* parent)
@@ -15,9 +17,12 @@ SidebarQt::SidebarQt(QWidget* parent)
     m_tree->setHeaderHidden(true);
     m_tree->setExpandsOnDoubleClick(true);
     m_tree->installEventFilter(this);
-    layout->addWidget(m_tree);
+    layout->addWidget(m_tree, 1);
 
-    setFixedWidth(viewer_settings::kSidebarBaseWidth);
+    m_grip = new ResizeGrip(this);
+    layout->addWidget(m_grip, 0);
+
+    setFixedWidth(viewer_settings::kSidebarInitialWidth);
 
     connect(m_tree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
         const int id = idOf(item);
@@ -32,6 +37,60 @@ SidebarQt::SidebarQt(QWidget* parent)
 }
 
 SidebarQt::~SidebarQt() = default;
+
+// Candidate sidebar width in logical px from the pointer's global position,
+// measured from the panel's left edge (Qt coordinates are already DPI-independent).
+int SidebarQt::dragCandidateLogical(const QPoint& globalPos) const {
+    return (std::max)(0, globalPos.x() - mapToGlobal(QPoint(0, 0)).x());
+}
+
+// Right-edge drag handle. Mouse drags mirror the Win32 grip: candidate widths are
+// pushed through the shared notifyWidthChanged path so the viewer clamps and
+// re-runs its chrome chain, keeping keyboard and mouse state in lockstep.
+class SidebarQt::ResizeGrip : public QWidget {
+public:
+    explicit ResizeGrip(SidebarQt* owner)
+        : QWidget(owner)
+        , m_owner(owner)
+    {
+        setFixedWidth(viewer_settings::kSidebarGripWidthPx);
+        setCursor(Qt::SizeHorCursor);
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent* ev) override {
+        if (ev->button() == Qt::LeftButton) {
+            m_owner->m_resizing = true;
+            m_owner->m_tree->setCursor(Qt::SizeHorCursor);
+            m_owner->notifyWidthChanged(m_owner->dragCandidateLogical(ev->globalPosition().toPoint()));
+            ev->accept();
+            return;
+        }
+        QWidget::mousePressEvent(ev);
+    }
+
+    void mouseMoveEvent(QMouseEvent* ev) override {
+        if (m_owner->m_resizing) {
+            m_owner->notifyWidthChanged(m_owner->dragCandidateLogical(ev->globalPosition().toPoint()));
+            ev->accept();
+            return;
+        }
+        QWidget::mouseMoveEvent(ev);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* ev) override {
+        if (ev->button() == Qt::LeftButton) {
+            m_owner->m_resizing = false;
+            m_owner->m_tree->unsetCursor();
+            ev->accept();
+            return;
+        }
+        QWidget::mouseReleaseEvent(ev);
+    }
+
+private:
+    SidebarQt* m_owner = nullptr;
+};
 
 void SidebarQt::setWidth(int widthPx) {
     setFixedWidth(widthPx);
@@ -53,6 +112,7 @@ void SidebarQt::clearEntries() {
     m_tree->clear();
     m_items.clear();
     m_materialized.clear();
+    m_tree->horizontalScrollBar()->setValue(0);
 }
 
 void SidebarQt::addEntry(int id, int parentId, const QString& title) {
@@ -135,6 +195,7 @@ void SidebarQt::selectEntry(int id) {
     if (QTreeWidgetItem* t = m_items.value(id)) {
         m_tree->setCurrentItem(t);
         m_tree->scrollToItem(t);
+        m_tree->horizontalScrollBar()->setValue(0);
     }
 }
 

@@ -8,6 +8,7 @@
 #include <windowsx.h>
 
 #define WLX_SIDEBAR_CLASS L"WLXDocSidebar"
+#define WLX_SIDEBAR_GRIP_CLASS L"WLXDocSidebarGrip"
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -36,9 +37,24 @@ SidebarWin32::SidebarWin32(HWND hParent)
         registered = true;
     }
 
+    WNDCLASSEXW wcGrip = {};
+    wcGrip.cbSize = sizeof(wcGrip);
+    wcGrip.style = CS_HREDRAW | CS_VREDRAW;
+    wcGrip.lpfnWndProc = gripProc;
+    wcGrip.hInstance = hInst;
+    wcGrip.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcGrip.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
+    wcGrip.lpszClassName = WLX_SIDEBAR_GRIP_CLASS;
+
+    static bool gripRegistered = false;
+    if (!gripRegistered) {
+        RegisterClassExW(&wcGrip);
+        gripRegistered = true;
+    }
+
     m_hwnd = CreateWindowExW(
         0, WLX_SIDEBAR_CLASS, L"",
-        WS_CHILD | WS_CLIPSIBLINGS,
+        WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
         0, 0, widthPx(), 0, hParent, nullptr, hInst, this);
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
@@ -50,6 +66,16 @@ SidebarWin32::SidebarWin32(HWND hParent)
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(1)),
         hInst, nullptr);
 
+    // Right-edge drag handle. Non-focusable so it never participates in tab
+    // order, and WS_EX_NOPARENTNOTIFY so it does not echo mouse-parent events.
+    m_grip = CreateWindowExW(
+        WS_EX_NOACTIVATE | WS_EX_NOPARENTNOTIFY, WLX_SIDEBAR_GRIP_CLASS, L"",
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+        (std::max)(0, widthPx() - viewer_settings::kSidebarGripWidthPx), 0,
+        viewer_settings::kSidebarGripWidthPx, 10,
+        m_hwnd, nullptr, hInst, this);
+    SetWindowLongPtrW(m_grip, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+
     // Subclass the tree so keys typed while it has focus behave like they do
     // when the viewer window has them (Esc in particular).
     if (m_tree) {
@@ -57,6 +83,11 @@ SidebarWin32::SidebarWin32(HWND hParent)
                                             reinterpret_cast<LONG_PTR>(treeProc));
         SetWindowLongPtrW(m_tree, GWLP_USERDATA, orig);
     }
+
+    // Lay out tree + grip now that both children exist.
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    handleMsg(m_hwnd, WM_SIZE, 0, MAKELPARAM(rc.right, rc.bottom));
 }
 
 SidebarWin32::~SidebarWin32() {
@@ -71,7 +102,11 @@ void SidebarWin32::setDpiScale(float scale) {
 }
 
 int SidebarWin32::widthPx() const {
-    return std::max(1, static_cast<int>(viewer_settings::kSidebarBaseWidth * m_dpiScale + 0.5f));
+    return std::max(1, static_cast<int>(m_baseWidthPx * m_dpiScale + 0.5f));
+}
+
+void SidebarWin32::setBaseWidth(int logicalPx) {
+    m_baseWidthPx = std::max(viewer_settings::kSidebarMinWidth, logicalPx);
 }
 
 void SidebarWin32::setVisible(bool on) {
@@ -82,8 +117,15 @@ void SidebarWin32::setVisible(bool on) {
 
 void SidebarWin32::clearEntries() {
     m_lastSelected = -1;
-    if (m_tree)
+    if (m_tree) {
+        // Suppress repaints and reset the horizontal scroll so a reloaded
+        // outline starts at the left edge (single InvalidateRect afterward).
+        SendMessageW(m_tree, WM_SETREDRAW, FALSE, 0);
         TreeView_DeleteAllItems(m_tree);
+        SendMessageW(m_tree, WM_HSCROLL, SB_LEFT, 0);
+        SendMessageW(m_tree, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(m_tree, nullptr, FALSE);
+    }
     m_items.clear();
     m_materialized.clear();
 }
@@ -186,6 +228,40 @@ void SidebarWin32::addEntry(int id, int parentId, const QString& title) {
     Q_UNUSED(parentId)
 }
 
+// Candidate sidebar width in logical px from the current pointer position,
+// measured from the panel's left edge (device px, converted via m_dpiScale).
+int SidebarWin32::dragCandidateLogical() const {
+    POINT pt;
+    GetCursorPos(&pt);
+    RECT rc;
+    GetWindowRect(m_hwnd, &rc);
+    const int devicePx = (std::max)(0, static_cast<int>(pt.x - rc.left));
+    const float scale = m_dpiScale > 0.0f ? m_dpiScale : 1.0f;
+    return static_cast<int>(static_cast<float>(devicePx) / scale);
+}
+
+void SidebarWin32::beginResizeDrag() {
+    if (!m_grip)
+        return;
+    m_resizing = true;
+    SetCapture(m_grip);
+    SetCursor(LoadCursor(nullptr, IDC_SIZEWE));
+    notifyWidthChanged(dragCandidateLogical());
+}
+
+void SidebarWin32::updateResizeDrag() {
+    if (!m_resizing)
+        return;
+    notifyWidthChanged(dragCandidateLogical());
+}
+
+void SidebarWin32::endResizeDrag() {
+    if (!m_resizing)
+        return;
+    m_resizing = false;
+    ReleaseCapture();
+}
+
 void SidebarWin32::forwardEscape() {
     // Hand ESC to the viewer window with focus restored, so it runs the same
     // path (clear selection, host sees the key) as when the reading area has
@@ -211,6 +287,25 @@ LRESULT CALLBACK SidebarWin32::treeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
     return CallWindowProcW(origProc, hwnd, msg, wp, lp);
 }
 
+// The grip forwards its mouse messages to the panel's handleMsg so resize drag
+// logic lives in one place; everything else falls through to the default.
+LRESULT CALLBACK SidebarWin32::gripProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    auto* self = reinterpret_cast<SidebarWin32*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (self) {
+        switch (msg) {
+        case WM_SETCURSOR:
+        case WM_LBUTTONDOWN:
+        case WM_MOUSEMOVE:
+        case WM_LBUTTONUP:
+        case WM_CAPTURECHANGED:
+            return self->handleMsg(hwnd, msg, wp, lp);
+        default:
+            break;
+        }
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
 void SidebarWin32::selectEntry(int id) {
     if (!m_tree || id < 0)
         return;
@@ -227,6 +322,9 @@ void SidebarWin32::selectEntry(int id) {
     // Programmatic sync must not re-enter activation: TVN_SELCHANGED would
     // otherwise jump the reading position to this entry's page start while
     // the user is merely scrolling across sections.
+    // The redraw guard also covers the horizontal scroll reset so the revealed
+    // entry shows its line beginning (single InvalidateRect afterward).
+    SendMessageW(m_tree, WM_SETREDRAW, FALSE, 0);
     m_internalMutation = true;
     SendMessageW(m_tree, TVM_SELECTITEM, TVGN_CARET, (LPARAM)it.value());
     m_internalMutation = false;
@@ -234,16 +332,19 @@ void SidebarWin32::selectEntry(int id) {
     // Scroll only when needed so the highlighted row is actually on screen
     // after load and after page-driven selection changes.
     TreeView_EnsureVisible(m_tree, it.value());
+    SendMessageW(m_tree, WM_HSCROLL, SB_LEFT, 0);
+    SendMessageW(m_tree, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(m_tree, nullptr, FALSE);
 }
 
 LRESULT CALLBACK SidebarWin32::wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     auto* self = reinterpret_cast<SidebarWin32*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (self)
-        return self->handleMsg(msg, wp, lp);
+        return self->handleMsg(hwnd, msg, wp, lp);
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-LRESULT SidebarWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
+LRESULT SidebarWin32::handleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_KEYDOWN:
         if (wp == VK_ESCAPE) {
@@ -254,10 +355,39 @@ LRESULT SidebarWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SIZE: {
         RECT rc;
         GetClientRect(m_hwnd, &rc);
+        const int grip = viewer_settings::kSidebarGripWidthPx;
+        const int treeW = (std::max)(0, static_cast<int>(rc.right) - grip);
+        if (m_grip)
+            MoveWindow(m_grip, treeW, 0, grip, rc.bottom, TRUE);
         if (m_tree)
-            MoveWindow(m_tree, 0, 0, rc.right, rc.bottom, TRUE);
+            MoveWindow(m_tree, 0, 0, treeW, rc.bottom, TRUE);
         return 0;
     }
+    case WM_SETCURSOR:
+        if (hwnd == m_grip && LOWORD(lp) == HTCLIENT) {
+            SetCursor(LoadCursor(nullptr, IDC_SIZEWE));
+            return TRUE;
+        }
+        break;
+    case WM_LBUTTONDOWN:
+        if (hwnd == m_grip) {
+            beginResizeDrag();
+            return 0;
+        }
+        break;
+    case WM_MOUSEMOVE:
+        if (hwnd == m_grip) {
+            updateResizeDrag();
+            return 0;
+        }
+        break;
+    case WM_LBUTTONUP:
+    case WM_CAPTURECHANGED:
+        if (hwnd == m_grip) {
+            endResizeDrag();
+            return 0;
+        }
+        break;
     case WM_NOTIFY: {
         NMHDR* nm = reinterpret_cast<NMHDR*>(lp);
         if (nm->hwndFrom != m_tree)
@@ -292,7 +422,7 @@ LRESULT SidebarWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
     default:
         break;
     }
-    return DefWindowProcW(m_hwnd, msg, wp, lp);
+    return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 #endif // Q_OS_WIN

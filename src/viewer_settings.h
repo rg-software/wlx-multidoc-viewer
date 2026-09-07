@@ -3,6 +3,7 @@
 
 #include "pluginconfig.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 
@@ -36,6 +37,35 @@ uint32_t parseHexColor(const std::string& value, uint32_t fallback) {
     }
     return rgb;
 }
+
+// Parses a non-negative decimal integer; returns fallback when malformed.
+int parseInt(const std::string& value, int fallback) {
+    if (value.empty())
+        return fallback;
+    int out = 0;
+    for (char c : value) {
+        if (c < '0' || c > '9')
+            return fallback;
+        out = out * 10 + (c - '0');
+    }
+    return out;
+}
+
+// Parses a boolean: true when the trimmed string is "1"/"true"/"yes"/"on".
+bool parseBool(const std::string& value, bool fallback) {
+    if (value.empty())
+        return fallback;
+    std::string v = value;
+    for (char& c : v) {
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+    }
+    if (v == "1" || v == "true" || v == "yes" || v == "on")
+        return true;
+    if (v == "0" || v == "false" || v == "no" || v == "off")
+        return false;
+    return fallback;
+}
 } // anonymous namespace
 
 // Page-area background color (0x00RRGGBB), read from the plugin INI's
@@ -55,8 +85,25 @@ inline constexpr double kSelectionHitTolerancePx = 3.0; // px radius for text hi
 // Toolbar chrome: logical (DPI-independent) base sizes, scaled by dpiScale to
 // device pixels by the viewers.
 inline constexpr int kToolbarBaseHeight = 40;   // toolbar strip height (logical px)
-inline constexpr int kSidebarBaseWidth = 180;  // outline sidebar width (logical px)
+inline constexpr int kSidebarBaseWidth = 180;   // outline sidebar fallback default (logical px);
+                                                // user-resizable per session, see SidebarWidth
 inline constexpr int kIconBaseSize = 24;        // toolbar icon size (logical px)
+
+// Sidebar bounds and resize grip.
+inline constexpr int kSidebarMinWidth = 80;     // narrowest the sidebar can be dragged (logical px)
+inline constexpr int kSidebarGripWidthPx = 6;   // right-edge drag handle width (device px)
+
+// INI-fed defaults, read from the plugin's [Viewer] section at startup (never
+// written back). kSidebarInitialWidth feeds a fresh viewer window's starting
+// width; kSidebarVisibleByDefault decides whether an outlined document starts
+// with the sidebar shown. The user-resized width is session-only and never
+// persisted.
+inline int kSidebarInitialWidth = [] {
+    const int parsed = parseInt(PluginConfig::get().get("Viewer").get("SidebarWidth"), kSidebarBaseWidth);
+    return (std::max)(kSidebarMinWidth, parsed);
+}();
+inline bool kSidebarVisibleByDefault = parseBool(
+    PluginConfig::get().get("Viewer").get("SidebarVisible"), false);
 
 } // namespace viewer_settings
 

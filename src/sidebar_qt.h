@@ -5,6 +5,7 @@
 #include "viewer_settings.h"
 
 #include <QHash>
+#include <QPoint>
 #include <QSet>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -31,6 +32,11 @@ private:
     QTreeWidgetItem* insertItem(QTreeWidgetItem* parent, int id, const QString& title);
     int idOf(QTreeWidgetItem* item) const;
     bool eventFilter(QObject* watched, QEvent* ev) override;
+
+    int dragCandidateLogical(const QPoint& globalPos) const;
+    class ResizeGrip;
+    ResizeGrip* m_grip = nullptr;
+    bool m_resizing = false;
 
     QTreeWidget* m_tree = nullptr;
     QHash<int, QTreeWidgetItem*> m_items;

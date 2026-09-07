@@ -37,13 +37,27 @@ public:
     void setPresenter(SidebarPresenter* p) { m_presenter = p; }
     SidebarPresenter* presenter() const { return m_presenter; }
 
+    // Called by the backend with the candidate sidebar width in logical px while
+    // the user drags the resize grip; the viewer clamps and re-runs its chrome
+    // chain (mirrors SidebarPresenter::setScrollApplier).
+    void setWidthChangedHandler(std::function<void(int logicalPx)> fn) {
+        m_widthChanged = std::move(fn);
+    }
+
     virtual void clearEntries() = 0;
     virtual void addEntry(int id, int parentId, const QString& title) = 0;
     virtual void selectEntry(int id) = 0; // highlight + auto-expand the path
     virtual void setVisible(bool on) = 0;
 
+protected:
+    void notifyWidthChanged(int logicalPx) {
+        if (m_widthChanged)
+            m_widthChanged(logicalPx);
+    }
+
 private:
     SidebarPresenter* m_presenter = nullptr;
+    std::function<void(int)> m_widthChanged;
 };
 
 class SidebarPresenter {

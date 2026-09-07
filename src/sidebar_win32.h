@@ -29,6 +29,7 @@ public:
     HWND hwnd() const { return m_hwnd; }
     void setDpiScale(float scale);
     int widthPx() const;
+    void setBaseWidth(int logicalPx);
 
     // --- SidebarBackend ---
     void clearEntries() override;
@@ -39,8 +40,13 @@ public:
 private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     static LRESULT CALLBACK treeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
-    LRESULT handleMsg(UINT msg, WPARAM wp, LPARAM lp);
+    static LRESULT CALLBACK gripProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+    LRESULT handleMsg(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     void forwardEscape();
+    int dragCandidateLogical() const;
+    void beginResizeDrag();
+    void updateResizeDrag();
+    void endResizeDrag();
 
     HTREEITEM insertItem(HTREEITEM parent, int id, const QString& title, bool placeholder);
     void ensureMaterialized(int id);                 // inserts + expands the path to id
@@ -50,8 +56,11 @@ private:
 
     HWND m_hwnd = nullptr;
     HWND m_tree = nullptr;
+    HWND m_grip = nullptr;
     HWND m_parent = nullptr;
     float m_dpiScale = 1.0f;
+    int m_baseWidthPx = viewer_settings::kSidebarInitialWidth;
+    bool m_resizing = false;
 
     QHash<int, HTREEITEM> m_items;      // materialized entry id -> native item
     QSet<int> m_materialized;           // ids whose real children are inserted

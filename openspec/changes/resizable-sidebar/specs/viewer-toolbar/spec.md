@@ -18,7 +18,7 @@ The viewer SHALL align the outline sidebar's tree to the left edge, resetting th
 
 ### Requirement: Resizable sidebar width
 
-The viewer SHALL allow the user to resize the outline sidebar's width by dragging its right edge, within a documented minimum of 80 logical pixels and a maximum of half the lister page-area width. The page area SHALL relayout live during the drag so displayed pages immediately use the new width. The chosen width SHALL persist across document loads into the same viewer window and SHALL reset to the default width (180 logical pixels) when a new viewer window is created; it SHALL NOT be written to any settings file.
+The viewer SHALL allow the user to resize the outline sidebar's width by dragging its right edge, within a documented minimum of 80 logical pixels and a maximum of half the lister page-area width. The page area SHALL relayout live during the drag so displayed pages immediately use the new width. The chosen width SHALL persist across document loads into the same viewer window and SHALL reset to the initial width for a new viewer window: the `[Viewer] SidebarWidth` value from the plugin's `multidocviewer.ini` (default 180 logical pixels when the key is absent). The viewer SHALL NOT write the width to any settings file at any time.
 
 #### Scenario: Drag to widen
 - **WHEN** the user drags the sidebar's right edge to the right
@@ -36,6 +36,22 @@ The viewer SHALL allow the user to resize the outline sidebar's width by draggin
 - **WHEN** the same viewer window loads a new document
 - **THEN** the sidebar, when visible, keeps the resized width
 
-#### Scenario: New window resets width
+#### Scenario: New window uses configured initial width
 - **WHEN** a new viewer window is created
-- **THEN** the sidebar starts at the default 180 logical pixel width
+- **THEN** the sidebar starts at the `[Viewer] SidebarWidth` ini value (180 logical pixels when the key is absent)
+
+### Requirement: Sidebar default visibility from INI
+
+The viewer SHALL show the sidebar by default only when the open document has an outline. The initial visibility SHALL be controlled by the `[Viewer] SidebarVisible` value from the plugin's `multidocviewer.ini`: when it is `true`, the sidebar is visible on load for documents that have an outline; when it is absent or `false`, the sidebar starts hidden and the user shows it with the toggle. The setting SHALL NOT affect documents without an outline (no sidebar appears) and SHALL NOT override the user's manual toggle.
+
+#### Scenario: Visible by default from INI
+- **WHEN** `multidocviewer.ini` sets `[Viewer] SidebarVisible=true` and the viewer opens a document that has an outline
+- **THEN** the sidebar is visible immediately, without the user activating the toggle
+
+#### Scenario: Hidden by default (absent or false)
+- **WHEN** `[Viewer] SidebarVisible` is absent or `false` and the viewer opens a document that has an outline
+- **THEN** the sidebar starts hidden
+
+#### Scenario: No outline ignores the setting
+- **WHEN** `[Viewer] SidebarVisible=true` but the open document exposes no outline
+- **THEN** no sidebar appears

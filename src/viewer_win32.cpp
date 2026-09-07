@@ -154,6 +154,25 @@ ViewerWin32::ViewerWin32(HWND hParent) {
 
     m_sidebar = std::make_unique<SidebarWin32>(m_hwnd);
     m_sidebar->setDpiScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
+    m_sidebar->setWidthChangedHandler([this](int logicalPx) {
+        // Clamp the drag candidate to the shared bounds: min 80 logical px,
+        // max half the page area (= clientLogicalW / 3 while the sidebar is
+        // visible, never below the min so a tiny lister degrades gracefully).
+        if (!m_controller)
+            return;
+        RECT rc;
+        GetClientRect(m_hwnd, &rc);
+        const float dpi = static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi;
+        const int clientLogicalW = static_cast<int>(rc.right / dpi);
+        const int maxAllowed = (std::max)(viewer_settings::kSidebarMinWidth, clientLogicalW / 3);
+        m_sidebar->setBaseWidth((std::clamp)(logicalPx, viewer_settings::kSidebarMinWidth, maxAllowed));
+        layoutChrome();
+        m_controller->setLeftChrome(sidebarLeft());
+        m_scrollY = m_controller->relayout(m_scrollY);
+        m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
+        m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
+        onControllerChanged();
+    });
     m_sidebarPresenter.attach(m_controller.get(), m_sidebar.get());
     m_sidebarPresenter.setScrollApplier([this](int scrollY) { applyScroll(scrollY); });
     m_toolbarPresenter.sidebarAvailable = [this]() { return m_sidebarPresenter.hasOutline(); };
@@ -184,8 +203,12 @@ bool ViewerWin32::loadDocument(const QString& path) {
     m_scrollX = 0;
     m_scrollY = 0;
     m_sidebarPresenter.reload();
-    showHideSidebar(false);
-    m_toolbar->setChecked(toolbar::Control::SidebarToggle, false);
+    // An outlined document starts with the sidebar shown only when the INI
+    // [Viewer] SidebarVisible key is enabled; manual toggling is never overridden.
+    const bool startVisible =
+        m_sidebarPresenter.hasOutline() && viewer_settings::kSidebarVisibleByDefault;
+    showHideSidebar(startVisible);
+    m_toolbar->setChecked(toolbar::Control::SidebarToggle, startVisible);
     onControllerChanged();
     // reload() runs after openDocument() (which already fired refreshState),
     // so re-sync the toolbar now that sidebarAvailable()/hasOutline() are real.
