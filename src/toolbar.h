@@ -23,6 +23,7 @@ enum class Control {
     PageBox,       // editable current page number
     PageCount,     // read-only "/ N" label
     ModeToggle,    // paged / continuous
+    PresentationToggle, // single / double / double-with-cover (three-state cycle)
     FitButton,     // cycles Manual -> FitToPage -> FitToWidth; icon follows
     RotateLeft,
     RotateRight,
@@ -44,6 +45,7 @@ enum class Icon {
     RotateLeft, RotateRight, ZoomIn, ZoomOut,
     Find, FindPrev, FindNext, MatchCase, MatchCaseOff,
     Print, Copy, SidebarToggle,
+    PresentationSingle, PresentationDouble, PresentationDoubleWithCover,
 };
 
 class ToolbarPresenter;
@@ -110,6 +112,7 @@ public:
     void onNextPage();
     void onGoToPageCommitted(const QString& text);
     void onModeToggled();
+    void onPresentationCycled();
     void onFitCycled();
     void onRotateLeft();
     void onRotateRight();

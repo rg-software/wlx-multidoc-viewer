@@ -24,7 +24,7 @@ namespace {
 enum : int {
     ID_PREV = 1, ID_NEXT,
     ID_PAGE_EDIT, ID_PAGE_STATIC,
-    ID_MODE, ID_FIT,
+    ID_MODE, ID_PRESENTATION, ID_FIT,
     ID_ROT_L, ID_ROT_R, ID_ZOOM_IN, ID_ZOOM_OUT,
     ID_FIND_PREV, ID_FIND_EDIT, ID_FIND_NEXT, ID_MATCH_CASE, ID_FIND_STATIC,
     ID_PRINT, ID_COPY, ID_SIDEBAR,
@@ -167,6 +167,7 @@ struct Def { int id; toolbar::Control ctrl; toolbar::Icon icon; bool checkable; 
         {ID_PREV,      toolbar::Control::PrevPage,       toolbar::Icon::Prev,          false, L"Previous page"},
         {ID_NEXT,      toolbar::Control::NextPage,       toolbar::Icon::Next,          false, L"Next page"},
         {ID_MODE,      toolbar::Control::ModeToggle,     toolbar::Icon::ModePaged,     true,  L"Toggle paged / continuous"},
+        {ID_PRESENTATION, toolbar::Control::PresentationToggle, toolbar::Icon::PresentationSingle, false, L"Single / double / double with cover"},
         {ID_FIT,       toolbar::Control::FitButton,      toolbar::Icon::FitPage,       false, L"Fit mode (manual / page / width)"},
         {ID_ROT_L,     toolbar::Control::RotateLeft,     toolbar::Icon::RotateLeft,    false, L"Rotate left"},
         {ID_ROT_R,     toolbar::Control::RotateRight,    toolbar::Icon::RotateRight,   false, L"Rotate right"},
@@ -450,6 +451,7 @@ void ToolbarWin32::layout() {
     x += step();
 
     place(ID_MODE, slotWidth);
+    place(ID_PRESENTATION, slotWidth);
     place(ID_FIT, slotWidth);
     x += step();
 
@@ -488,6 +490,7 @@ void ToolbarWin32::onCommand(int id) {
     case ID_PREV:       p->onPrevPage(); break;
     case ID_NEXT:       p->onNextPage(); break;
     case ID_MODE:       p->onModeToggled(); break;
+    case ID_PRESENTATION: p->onPresentationCycled(); break;
     case ID_FIT:        p->onFitCycled(); break;
     case ID_ROT_L:      p->onRotateLeft(); break;
     case ID_ROT_R:      p->onRotateRight(); break;

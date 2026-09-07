@@ -40,6 +40,8 @@ protected:
 private slots:
     void onNextPage();
     void onPrevPage();
+    void onPageDown();
+    void onPageUp();
     void onFirstPage();
     void onLastPage();
     void onZoomIn();
@@ -47,6 +49,7 @@ private slots:
     void onZoomOriginal();
     void onCycleFit();
     void onToggleMode();
+    void onTogglePresentation();
     void onRotateCw();
     void onRotateCcw();
     void onGoToPage();

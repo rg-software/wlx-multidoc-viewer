@@ -38,6 +38,19 @@
 namespace {
 using viewer_settings::kPageGap;
 using viewer_settings::kCacheWindowPages;
+
+// Combined on-screen size of a double-page unit given the two member pages'
+// sizes (in the caller's units) and whether the unit actually has a partner.
+// Shared by computeLayout and computeFitZoom so they never disagree (D8).
+// A singleton unit collapses to the single page's size with no gap.
+struct UnitSizes {
+    int width = 0;
+    int height = 0;
+};
+UnitSizes unitBounds(int firstW, int firstH, int lastW, int lastH, bool paired) {
+    return {firstW + (paired ? kPageGap + lastW : 0),
+            std::max(firstH, paired ? lastH : 0)};
+}
 }
 
 ViewerController::ViewerController() = default;
@@ -95,6 +108,15 @@ void ViewerController::closeDocument() {
 bool ViewerController::nextPage() {
     if (!isPagedMode())
         return nextPageInContinuousMode();
+    if (isDoublePagePresentation()) {
+        const int current = m_state.currentPage();
+        const int next = unitLast(current) + 1;
+        if (next <= 1 || next > m_state.pageCount())
+            return false;
+        m_state.goToPage(next);
+        notifyChanged();
+        return true;
+    }
     if (m_state.nextPage()) {
         notifyChanged();
         return true;
@@ -105,6 +127,17 @@ bool ViewerController::nextPage() {
 bool ViewerController::prevPage() {
     if (!isPagedMode())
         return prevPageInContinuousMode();
+    if (isDoublePagePresentation()) {
+        const int current = m_state.currentPage();
+        if (current <= 1)
+            return false;
+        const int prev = unitFirst(current - 1);
+        if (prev >= current)
+            return false;
+        m_state.goToPage(prev);
+        notifyChanged();
+        return true;
+    }
     if (m_state.prevPage()) {
         notifyChanged();
         return true;
@@ -127,6 +160,8 @@ bool ViewerController::lastPage() {
 }
 
 bool ViewerController::goToPage(int page) {
+    if (isDoublePagePresentation())
+        page = unitFirst(page);
     if (!m_state.goToPage(page))
         return false;
     notifyChanged();
@@ -134,6 +169,15 @@ bool ViewerController::goToPage(int page) {
 }
 
 bool ViewerController::nextPageInContinuousMode() {
+    if (isDoublePagePresentation()) {
+        const int current = m_state.currentPage();
+        const int next = unitLast(current) + 1;
+        if (next <= 1 || next > m_state.pageCount())
+            return false;
+        m_state.goToPage(next);
+        notifyChanged();
+        return true;
+    }
     if (m_state.nextPage()) {
         notifyChanged();
         return true;
@@ -142,11 +186,32 @@ bool ViewerController::nextPageInContinuousMode() {
 }
 
 bool ViewerController::prevPageInContinuousMode() {
+    if (isDoublePagePresentation()) {
+        const int current = m_state.currentPage();
+        if (current <= 1)
+            return false;
+        const int prev = unitFirst(current - 1);
+        if (prev >= current)
+            return false;
+        m_state.goToPage(prev);
+        notifyChanged();
+        return true;
+    }
     if (m_state.prevPage()) {
         notifyChanged();
         return true;
     }
     return false;
+}
+
+bool ViewerController::hasNextPage() const {
+    if (isDoublePagePresentation())
+        return unitLast(m_state.currentPage()) < m_state.pageCount();
+    return m_state.currentPage() < m_state.pageCount();
+}
+
+bool ViewerController::hasPrevPage() const {
+    return m_state.currentPage() > 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +271,81 @@ void ViewerController::toggleMode() {
     notifyChanged();
 }
 
+void ViewerController::cyclePagePresentation() {
+    switch (m_state.pagePresentation()) {
+    case ViewerState::PagePresentation::Single:
+        m_state.setPagePresentation(ViewerState::PagePresentation::Double);
+        break;
+    case ViewerState::PagePresentation::Double:
+        m_state.setPagePresentation(ViewerState::PagePresentation::DoubleWithCover);
+        break;
+    case ViewerState::PagePresentation::DoubleWithCover:
+        m_state.setPagePresentation(ViewerState::PagePresentation::Single);
+        break;
+    }
+    if (hasDocument()) {
+        // Keep the current page resolved to its unit under the new pairing rule.
+        m_state.goToPage(unitFirst(m_state.currentPage()));
+        computeFitZoom();
+        computeLayout();
+        notifyChanged();
+    }
+}
+
+int ViewerController::unitFirst(int page) const {
+    if (page <= 1)
+        return 1;
+    const int count = m_state.pageCount();
+    if (page > count)
+        page = count;
+    switch (m_state.pagePresentation()) {
+    case ViewerState::PagePresentation::Single:
+        return page;
+    case ViewerState::PagePresentation::Double:
+        return ((page - 1) / 2) * 2 + 1;
+    case ViewerState::PagePresentation::DoubleWithCover:
+        return ((page - 2) / 2) * 2 + 2; // caller guards page == 1 above
+    }
+    return page;
+}
+
+int ViewerController::unitLast(int unitFirstPage) const {
+    if (unitFirstPage < 1)
+        return unitFirstPage;
+    const int count = m_state.pageCount();
+    if (unitFirstPage > count)
+        return unitFirstPage;
+    switch (m_state.pagePresentation()) {
+    case ViewerState::PagePresentation::Single:
+        return unitFirstPage;
+    case ViewerState::PagePresentation::Double:
+        return (unitFirstPage + 1 <= count) ? unitFirstPage + 1 : unitFirstPage;
+    case ViewerState::PagePresentation::DoubleWithCover:
+        // Page 1 is its own singleton cover unit.
+        return (unitFirstPage == 1 || unitFirstPage + 1 > count)
+                   ? unitFirstPage
+                   : unitFirstPage + 1;
+    }
+    return unitFirstPage;
+}
+
+int ViewerController::scrollStepPage(int base, int delta) const {
+    if (!isDoublePagePresentation()) {
+        return delta > 0 ? (std::min)(base + 1, pageCount())
+                         : (std::max)(1, base - 1);
+    }
+    // Double-page states: stepping moves whole units. The page at the top of
+    // the viewport is already a unit's first page, so "next" is the following
+    // unit's first page (no-op past the last unit) and "prev" the previous
+    // unit's first page (no-op at the cover/first unit).
+    const int first = unitFirst(base);
+    if (delta > 0) {
+        const int next = unitLast(first) + 1;
+        return (next <= pageCount()) ? next : base;
+    }
+    return (std::max)(1, unitFirst(first - 1));
+}
+
 void ViewerController::setViewportSize(const QSize& size) {
     m_viewportSize = size;
     // Layout is not recomputed here: callers follow up with relayout(scrollY)
@@ -218,6 +358,14 @@ int ViewerController::pageAreaWidth() const {
 
 int ViewerController::pageAreaHeight() const {
     return std::max(1, m_viewportSize.height() - m_topChromePx - m_bottomChromePx);
+}
+
+// PgUp/PgDn step: one screenful, keeping a band of the previous screen visible
+// at the edge so the last line is not lost (design D12 "vertical block").
+static constexpr int kPageBlockOverlap = 32;
+
+int ViewerController::pageBlockStep() const {
+    return std::max(1, pageAreaHeight() - kPageBlockOverlap);
 }
 
 // Re-layout using the current zoom/rotation/fit, anchoring scrollY to the same
@@ -261,8 +409,23 @@ void ViewerController::computeFitZoom() {
     if (m_fitMode == FitMode::Manual)
         return;
 
-    PageInfo info = m_engine->pageDimensions(m_state.currentPage());
-    if (info.width <= 0 || info.height <= 0)
+    auto rotatedDims = [this](int page) {
+        PageInfo info = m_engine->pageDimensions(page);
+        if (m_rotation == 90 || m_rotation == 270)
+            std::swap(info.width, info.height);
+        return info;
+    };
+
+    // Fit target is the whole current unit (a single page in Single mode, a
+    // page pair in a double-page state), consistent with computeLayout (D8).
+    const int firstPage = unitFirst(m_state.currentPage());
+    const PageInfo first = rotatedDims(firstPage);
+    const int lastPage = unitLast(firstPage);
+    const bool paired = lastPage != firstPage;
+    const PageInfo last = paired ? rotatedDims(lastPage) : PageInfo();
+    const UnitSizes unit = unitBounds(first.width, first.height,
+                                      last.width, last.height, paired);
+    if (unit.width <= 0 || unit.height <= 0)
         return;
 
     // Fit targets live in layout units (the same units as the viewport):
@@ -274,21 +437,53 @@ void ViewerController::computeFitZoom() {
     const int vw = std::max(1, static_cast<int>(pageAreaWidth() * invScale));
     const int vh = std::max(1, static_cast<int>(pageAreaHeight() * invScale));
 
-    auto rotatedInfo = info;
-    if (m_rotation == 90 || m_rotation == 270) {
-        std::swap(rotatedInfo.width, rotatedInfo.height);
-    }
-
     if (m_fitMode == FitMode::FitToPage) {
-        m_state.setZoom(m_state.fitToPageZoom(rotatedInfo.width, rotatedInfo.height, vw, vh));
+        m_state.setZoom(m_state.fitToPageZoom(unit.width, unit.height, vw, vh));
     } else {
-        m_state.setZoom(m_state.fitToWidthZoom(rotatedInfo.width, vw));
+        // FitToWidth targets the widest row in the document (the combined
+        // spread in a double-page state, the widest page otherwise) so no unit
+        // overflows the viewport horizontally — even from a singleton cover or
+        // a trailing odd page, the two-page spread still fits by width (D6).
+        m_state.setZoom(m_state.fitToWidthZoom(maxRowWidth(), vw));
     }
 }
 
+// Doc-wide maximum row width under the current rotation/presentation: the
+// combined spread width per double-page unit, or the widest single page in a
+// single-page state. Mirrors computeLayout's `widest` (without the viewport
+// floor) so fit-to-width and the layout never disagree (D8).
+int ViewerController::maxRowWidth() const {
+    if (!m_engine || !m_engine->isOpen() || m_state.pageCount() <= 0)
+        return 1;
+    auto rotatedDims = [this](int page) {
+        PageInfo info = m_engine->pageDimensions(page);
+        if (m_rotation == 90 || m_rotation == 270)
+            std::swap(info.width, info.height);
+        return info;
+    };
+    int widest = 0;
+    if (isDoublePagePresentation()) {
+        for (int first = 1; first <= m_state.pageCount(); first = unitLast(first) + 1) {
+            const int last = unitLast(first);
+            const PageInfo a = rotatedDims(first);
+            const PageInfo b = last != first ? rotatedDims(last) : PageInfo();
+            const UnitSizes u = unitBounds(a.width, a.height, b.width, b.height,
+                                           last != first);
+            widest = std::max(widest, u.width);
+        }
+    } else {
+        for (int page = 1; page <= m_state.pageCount(); ++page)
+            widest = std::max(widest, rotatedDims(page).width);
+    }
+    return std::max(1, widest);
+}
+
 // Build m_pageRects + m_contentSize from the current zoom/rotation/dpi. Each
-// page uses its own scaled dimensions; the canvas width is the widest page (or
-// the viewport when it is wider) and every page is horizontally centered.
+// page uses its own scaled dimensions. In a double-page state units are laid
+// out side by side: unit members share a vertical cursor and are centered as a
+// row, so they enter/leave the viewport together. The canvas width is the
+// widest single page or combined unit width (or the viewport when wider) and
+// every unit is horizontally centered.
 void ViewerController::computeLayout() {
     m_pageRects.clear();
     m_contentSize = QSize();
@@ -325,15 +520,48 @@ void ViewerController::computeLayout() {
         widest = std::max(widest, sw);
     }
 
+    // In a double-page state rows span two pages, so the canvas must be at
+    // least the widest combined unit too (fit-by-width and centering agree).
+    const bool doubleState = isDoublePagePresentation();
+    if (doubleState) {
+        for (int first = 1; first <= m_state.pageCount(); first = unitLast(first) + 1) {
+            const int last = unitLast(first);
+            const QSize sf = sizes[first - 1];
+            const QSize sl = sizes[last - 1];
+            const UnitSizes u = unitBounds(sf.width(), sf.height(),
+                                           sl.width(), sl.height(),
+                                           last != first);
+            widest = std::max(widest, u.width);
+        }
+    }
     m_contentSize.setWidth(widest);
 
     int cursor = 0;
-    for (int i = 0; i < sizes.size(); ++i) {
-        const QSize s = sizes[i];
-        m_pageRects.append(QRect((widest - s.width()) / 2, cursor, s.width(), s.height()));
-        cursor += s.height();
-        if (i + 1 < sizes.size())
-            cursor += kPageGap;
+    if (doubleState) {
+        for (int first = 1; first <= m_state.pageCount(); first = unitLast(first) + 1) {
+            const int last = unitLast(first);
+            const QSize sf = sizes[first - 1];
+            const QSize sl = sizes[last - 1];
+            const UnitSizes u = unitBounds(sf.width(), sf.height(),
+                                           sl.width(), sl.height(),
+                                           last != first);
+            const int xLeft = (widest - u.width) / 2;
+            m_pageRects.append(QRect(xLeft, cursor, sf.width(), sf.height()));
+            if (last != first)
+                m_pageRects.append(QRect(xLeft + sf.width() + kPageGap, cursor,
+                                         sl.width(), sl.height()));
+            cursor += u.height;
+            if (last < m_state.pageCount())
+                cursor += kPageGap;
+        }
+    } else {
+        for (int i = 0; i < sizes.size(); ++i) {
+            const QSize s = sizes[i];
+            m_pageRects.append(QRect((widest - s.width()) / 2, cursor, s.width(), s.height()));
+            cursor += s.height();
+            if (i + 1 < sizes.size())
+                cursor += kPageGap;
+        }
     }
     m_contentSize.setHeight(std::max(cursor, 0));
 }
@@ -395,6 +623,34 @@ int ViewerController::maxScrollOffsetYForPage(int page) const {
     return std::max(0, r.height() - pageAreaHeight());
 }
 
+int ViewerController::maxScrollOffsetXForUnit(int unitFirstPage) const {
+    const QRect r1 = pageRect(unitFirstPage);
+    if (!r1.isValid())
+        return 0;
+    const int last = unitLast(unitFirstPage);
+    int unitW = r1.width();
+    if (last != unitFirstPage) {
+        const QRect r2 = pageRect(last);
+        if (r2.isValid())
+            unitW = r2.right() - r1.left() + 1;
+    }
+    return std::max(0, unitW - pageAreaWidth());
+}
+
+int ViewerController::maxScrollOffsetYForUnit(int unitFirstPage) const {
+    const QRect r1 = pageRect(unitFirstPage);
+    if (!r1.isValid())
+        return 0;
+    const int last = unitLast(unitFirstPage);
+    int unitH = r1.height();
+    if (last != unitFirstPage) {
+        const QRect r2 = pageRect(last);
+        if (r2.isValid())
+            unitH = std::max(r1.height(), r2.height());
+    }
+    return std::max(0, unitH - pageAreaHeight());
+}
+
 int ViewerController::scrollOffsetForPage(int page) const {
     QRect r = pageRect(page);
     return r.isValid() ? r.y() : 0;
@@ -405,6 +661,10 @@ int ViewerController::clampScroll(int scrollY) const {
 }
 
 void ViewerController::trackCurrentPage(int page) {
+    // In a double-page state keep the current page resolved to its unit's first
+    // page so unit-based navigation, layout and sidebar highlight stay correct.
+    if (isDoublePagePresentation())
+        page = unitFirst(page);
     m_state.goToPage(page);
 }
 
@@ -856,7 +1116,7 @@ int ViewerController::takeSearchJump() {
     m_searchJumpPending = false;
     if (m_activeHit < 0 || m_activeHit >= m_searchHits.size())
         return 0;
-    m_state.goToPage(m_searchHits[m_activeHit].page);
+    m_state.goToPage(unitFirst(m_searchHits[m_activeHit].page));
     return scrollToActiveMatch(0);
 }
 
@@ -910,7 +1170,7 @@ int ViewerController::nextMatch(int scrollY) {
         m_activeHit = 0;
     else
         m_activeHit = (m_activeHit + 1) % m_searchHits.size();
-    m_state.goToPage(m_searchHits[m_activeHit].page);
+    m_state.goToPage(unitFirst(m_searchHits[m_activeHit].page));
     const int out = scrollToActiveMatch(scrollY);
     notifyChanged();
     return out;
@@ -923,7 +1183,7 @@ int ViewerController::prevMatch(int scrollY) {
         m_activeHit = 0;
     else
         m_activeHit = (m_activeHit > 0) ? m_activeHit - 1 : m_searchHits.size() - 1;
-    m_state.goToPage(m_searchHits[m_activeHit].page);
+    m_state.goToPage(unitFirst(m_searchHits[m_activeHit].page));
     const int out = scrollToActiveMatch(scrollY);
     notifyChanged();
     return out;

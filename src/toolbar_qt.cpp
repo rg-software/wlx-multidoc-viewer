@@ -14,6 +14,7 @@ toolbar::Icon defaultIconFor(toolbar::Control c) {
     case Control::PrevPage:      return Icon::Prev;
     case Control::NextPage:      return Icon::Next;
     case Control::ModeToggle:    return Icon::ModePaged;
+    case Control::PresentationToggle: return Icon::PresentationSingle;
     case Control::FitButton:     return Icon::FitPage;
     case Control::RotateLeft:    return Icon::RotateLeft;
     case Control::RotateRight:   return Icon::RotateRight;
@@ -89,6 +90,7 @@ ToolbarQt::ToolbarQt(QWidget* parent)
     addSeparator();
 
     addButton(toolbar::Control::ModeToggle, true, QObject::tr("Toggle paged / continuous"), [this] { presenter()->onModeToggled(); });
+    addButton(toolbar::Control::PresentationToggle, false, QObject::tr("Single / double / double with cover"), [this] { presenter()->onPresentationCycled(); });
     addButton(toolbar::Control::FitButton, false, QObject::tr("Fit mode (manual / page / width)"), [this] { presenter()->onFitCycled(); });
     addSeparator();
 

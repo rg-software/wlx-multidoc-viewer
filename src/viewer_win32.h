@@ -47,6 +47,8 @@ private:
     void updateVisiblePage();
     void onControllerChanged();
     void pageJumpContinuous(int delta);
+    void pageBlockDown();
+    void pageBlockUp();
     void onSelectionStart(int x, int y);
     void onSelectionMove(int x, int y);
     void onSelectionEnd();
@@ -60,6 +62,11 @@ private:
     void drawPageBitmap(HDC hdc, HBITMAP hbm, int dstX, int dstY, int srcX, int srcY, int w, int h) const;
     int maxScrollX() const;
     int maxScrollY() const;
+    // Client-space on-screen rect of a page inside the current paged unit
+    // (single page mirrors the old single-page placement). Shared by onPaint,
+    // the selection overlay, clientToCanvas and pageUnderPoint so they cannot
+    // diverge on where a page is drawn.
+    QRect pagedPageRect(int page) const;
 
     // Toolbar / sidebar chrome.
     void layoutChrome();

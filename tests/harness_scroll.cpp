@@ -583,6 +583,366 @@ viewer.controller()->setManualZoom(1.0f, 0);
         pump(50);
     }
 
+    // ---------------- G) Two-page presentation: P key, unit pairing, scroll
+    {
+        std::string pdfPath = std::string(tmpPath) + "wlx_double.pdf";
+        if (!writeTestPdf(pdfPath.c_str(), 5, 420, 595)) {
+            std::printf("FAIL pdf gen\n");
+            return 2;
+        }
+        HWND host = CreateWindowExW(0, L"WLXHarnessHostScroll", L"harness",
+                                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                    120, 120, 800, 600,
+                                    nullptr, nullptr, wc.hInstance, nullptr);
+        pump(100);
+        ViewerWin32 viewer(host);
+        HWND vh = viewer.hwnd();
+        MoveWindow(vh, 0, 0, 800, 600, TRUE);
+        pump(100);
+        if (!viewer.loadDocument(QString::fromLocal8Bit(pdfPath.c_str()))) {
+            std::printf("FAIL load\n");
+            return 2;
+        }
+        pump(80);
+        viewer.controller()->setManualZoom(1.0f, 0);
+        pump(100);
+
+        // Post the real WM_KEYDOWN -> onKeyDown path (like B7/B8), optionally
+        // holding Shift for the guard test.
+        auto postKey = [vh](WORD vk) {
+            PostMessageW(vh, WM_KEYDOWN, vk, 0);
+            pump(200);
+        };
+        auto postShiftKey = [vh](WORD vk) {
+            BYTE shiftedState[256] = {};
+            GetKeyboardState(shiftedState);
+            BYTE holdShift[256] = {};
+            memcpy(holdShift, shiftedState, sizeof(holdShift));
+            holdShift[VK_SHIFT] |= 0x80;
+            SetKeyboardState(holdShift);
+            PostMessageW(vh, WM_KEYDOWN, vk, 0);
+            pump(150);
+            SetKeyboardState(shiftedState);
+        };
+        auto pr = [&viewer](int p) { return viewer.controller()->pageRect(p); };
+        const int gap = viewer_settings::kPageGap;
+
+        // Single-mode geometry before any cycling: byte-for-byte regression
+        // guard for when the cycle returns to Single.
+        const QRect singleP1 = pr(1);
+        const QRect singleP5 = pr(5);
+        CHECK("G1 starts Single",
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::Single);
+        CHECK("G1a single p1 centered",
+              singleP1.x() ==
+                  (viewer.controller()->contentSize().width() - singleP1.width()) / 2);
+
+        postKey('P');
+        CHECK("G2 P -> Double",
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::Double);
+        CHECK("G3 mode untouched (still paged)", viewer.controller()->isPagedMode());
+        CHECK("G4 current page resolves to unit first (1)",
+              viewer.controller()->currentPage() == 1);
+
+        // Unit (1,2): shared row, gap between members, unit centered as a whole.
+        const QRect p1 = pr(1);
+        const QRect p2 = pr(2);
+        const int unitW = p1.width() + gap + p2.width();
+        const int unitH = std::max(p1.height(), p2.height());
+        CHECK("G5 unit members share the row (y==0)",
+              p1.y() == 0 && p2.y() == 0);
+        CHECK("G6 unit centered as a whole",
+              p1.x() == (viewer.controller()->contentSize().width() - unitW) / 2);
+        CHECK("G7 gap between members",
+              p2.x() == p1.x() + p1.width() + gap);
+
+        // Row 2 starts below the whole unit height.
+        const QRect p3 = pr(3);
+        CHECK("G8 row 2 offset = unit height + gap",
+              p3.y() == unitH + gap);
+
+        // Odd last page stands alone, centered.
+        const int widest = viewer.controller()->contentSize().width();
+        CHECK("G9 odd last page is a singleton unit",
+              viewer.controller()->unitLast(5) == 5);
+        CHECK("G10 lone last page centered",
+              pr(5).x() == (widest - pr(5).width()) / 2);
+
+        // Paged navigation steps unit to unit; goToPage resolves to unit first.
+        viewer.controller()->nextPage();
+        pump(40);
+        CHECK("G11 paged nextPage jumps one unit (1 -> 3)",
+              viewer.controller()->currentPage() == 3);
+        viewer.controller()->goToPage(4);
+        pump(40);
+        CHECK("G12 goToPage(4) resolves to 3", viewer.controller()->currentPage() == 3);
+        viewer.controller()->goToPage(2);
+        pump(40);
+        CHECK("G13 goToPage(2) resolves to 1", viewer.controller()->currentPage() == 1);
+        viewer.controller()->goToPage(5);
+        pump(40);
+        CHECK("G14 goToPage(5) resolves to 5 (singleton unit)",
+              viewer.controller()->currentPage() == 5);
+
+        // Shift+P must not cycle.
+        postShiftKey('P');
+        CHECK("G15 Shift+P does not cycle",
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::Double);
+        CHECK("G16 Shift+P leaves page unchanged",
+              viewer.controller()->currentPage() == 5);
+
+        // Horizontal pan range covers the WHOLE unit (incl. the gap), and the
+        // H-scrollbar exposes it (updateScrollBars' paged unit width). Land on
+        // unit (1,2) so the range spans the pair, then zoom 2.0 makes it wider
+        // than the viewport.
+        viewer.controller()->goToPage(1);
+        pump(40);
+        viewer.controller()->setManualZoom(2.0f, 0);
+        pump(120);
+        const int unitW2 = pr(1).width() + gap + pr(2).width();
+        CHECK("G17 unit H-pan range = unit width - viewport",
+              viewer.controller()->maxScrollOffsetXForUnit(1) ==
+                  std::max(0, unitW2 - viewer.controller()->pageAreaWidth()));
+        PostMessageW(vh, WM_HSCROLL, MAKEWPARAM(SB_LINERIGHT, 0), 0);
+        pump(60);
+        SCROLLINFO hsi{};
+        hsi.cbSize = sizeof(hsi);
+        hsi.fMask = SIF_ALL;
+        GetScrollInfo(vh, SB_HORZ, &hsi);
+        std::printf("  [dbg] double-h: hPos=%d nMax=%d unitW2=%d pageAreaW=%d\n",
+                    hPos(vh), hsi.nMax, unitW2, viewer.controller()->pageAreaWidth());
+        std::fflush(stdout);
+        CHECK("G18 paged H-scrollbar range spans the unit (incl. gap)",
+              hsi.nMax == unitW2 - 1 && hsi.nMax > 0);
+        CHECK("G19 H-pan in double moves within the unit range",
+              hPos(vh) > 0 && hPos(vh) <= viewer.controller()->maxScrollOffsetXForUnit(1));
+        viewer.controller()->setManualZoom(1.0f, 0);
+        pump(80);
+        PostMessageW(vh, WM_HSCROLL, MAKEWPARAM(SB_LEFT, 0), 0);
+        pump(60);
+
+        // Double -> DoubleWithCover. Page 5's cover-mode unit is (4,5), so the
+        // resolved current page must be its unit first (4).
+        viewer.controller()->goToPage(5);
+        pump(40);
+        postKey('P');
+        CHECK("G20 P -> DoubleWithCover",
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::DoubleWithCover);
+        CHECK("G21 current page on cover-mode unit first (unitFirst(5)=4)",
+              viewer.controller()->currentPage() == 4);
+        CHECK("G22 cover page 1 is its own unit",
+              viewer.controller()->unitFirst(1) == 1 &&
+              viewer.controller()->unitLast(1) == 1);
+        CHECK("G23 (2,3) pair in cover mode",
+              viewer.controller()->unitFirst(2) == 2 &&
+              viewer.controller()->unitLast(2) == 3);
+        CHECK("G24 (4,5) pair in cover mode",
+              viewer.controller()->unitFirst(4) == 4 &&
+              viewer.controller()->unitLast(4) == 5);
+
+        // Cover-mode geometry: page 1 alone centered; pairs lay out normally.
+        const int widestCov = viewer.controller()->contentSize().width();
+        const QRect c1 = pr(1);
+        const QRect c2 = pr(2);
+        const QRect c3 = pr(3);
+        CHECK("G25 cover page 1 centered alone",
+              c1.x() == (widestCov - c1.width()) / 2);
+        CHECK("G26 cover page 1 sits above the pairs",
+              c1.y() == 0 && c2.y() == c1.height() + gap);
+        CHECK("G27 (2,3) share the row with the gap between",
+              c3.y() == c2.y() && c3.x() == c2.x() + c2.width() + gap);
+        CHECK("G28 pair (4,5) below (2,3) + gap",
+              pr(4).y() == c2.y() + std::max(c2.height(), c3.height()) + gap);
+
+        // Cover-aware navigation: 1 -> 2 -> 4 ...
+        viewer.controller()->goToPage(3);
+        pump(40);
+        CHECK("G29 goToPage(3) resolves to 2", viewer.controller()->currentPage() == 2);
+        viewer.controller()->nextPage();
+        pump(40);
+        CHECK("G30 cover nextPage 2 -> 4", viewer.controller()->currentPage() == 4);
+        viewer.controller()->prevPage();
+        pump(40);
+        CHECK("G31 cover prevPage 4 -> 2", viewer.controller()->currentPage() == 2);
+        viewer.controller()->prevPage();
+        pump(40);
+        CHECK("G32 cover prevPage 2 -> 1", viewer.controller()->currentPage() == 1);
+        viewer.controller()->nextPage();
+        pump(40);
+        CHECK("G33 cover nextPage 1 -> 2", viewer.controller()->currentPage() == 2);
+
+        // Cycle back to Single: geometry matches the original byte-for-byte.
+        postKey('P');
+        CHECK("G34 P -> Single",
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::Single);
+        CHECK("G35 returned to unit first", viewer.controller()->currentPage() == 2);
+        CHECK("G36 Single geometry identical to the original",
+              pr(1) == singleP1 && pr(5) == singleP5);
+
+        // Fit-to-width fits the combined unit across the viewport width.
+        postKey('P');
+        CHECK("G37 P -> Double (again)",
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::Double);
+        CHECK("G38 mode preserved across presentation cycle",
+              viewer.controller()->isPagedMode());
+        viewer.controller()->cycleFitMode(0); // Manual -> FitToPage
+        viewer.controller()->cycleFitMode(0); // FitToPage -> FitToWidth
+        pump(120);
+        const int fitUnitW = pr(1).width() + gap + pr(2).width();
+        std::printf("  [dbg] fit-to-width unitW=%d pageAreaW=%d\n", fitUnitW,
+                    viewer.controller()->pageAreaWidth());
+        std::fflush(stdout);
+        CHECK("G39 fit-to-width spans the whole unit",
+              std::abs(fitUnitW - viewer.controller()->pageAreaWidth()) <= 2);
+        viewer.controller()->cycleFitMode(0); // FitToWidth -> Manual(100%)
+        pump(120);
+
+        // Continuous double: unit members share a scroll offset; rows step by
+        // the combined height; the P cycle in continuous re-targets correctly.
+        viewer.controller()->goToPage(1);
+        pump(40);
+        viewer.controller()->toggleMode();
+        pump(150);
+        CHECK("G40 continuous mode active", !viewer.controller()->isPagedMode());
+        CHECK("G41 presentation survives mode toggle",
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::Double);
+        const int rowTop = pr(1).y();
+        CHECK("G42 unit members share the same scroll offset",
+              viewer.controller()->scrollOffsetForPage(1) ==
+                      viewer.controller()->scrollOffsetForPage(2) &&
+              viewer.controller()->scrollOffsetForPage(1) == rowTop);
+        CHECK("G43 next unit row = combined height + gap",
+              viewer.controller()->scrollOffsetForPage(3) ==
+                  rowTop + unitH + gap);
+
+        // Double -> DoubleWithCover in continuous keeps the view on a unit
+        // containing the current page (1 stays its own cover row at 0).
+        postKey('P');
+        CHECK("G44 P in continuous -> DoubleWithCover",
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::DoubleWithCover);
+        CHECK("G45 cover row scrolls to page 1's row",
+              vPos(vh) == viewer.controller()->scrollOffsetForPage(1));
+        postKey('P');
+        CHECK("G46 P -> Single in continuous",
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::Single);
+        CHECK("G47 single continuous keeps the page-anchored scroll",
+              vPos(vh) == viewer.controller()->scrollOffsetForPage(1));
+
+        // Fit-to-width from the cover must target the two-page spread, not the
+        // singleton cover, so the next spread still fits the viewport width.
+        viewer.controller()->toggleMode(); // continuous -> paged
+        pump(60);
+        postKey('P'); // Single -> Double
+        pump(40);
+        postKey('P'); // Double -> DoubleWithCover
+        pump(40);
+        viewer.controller()->goToPage(1);
+        pump(40);
+        CHECK("G48 cover is its own singleton unit",
+              viewer.controller()->currentPage() == 1 &&
+              viewer.controller()->unitLast(1) == 1);
+        viewer.controller()->cycleFitMode(0); // Manual -> FitToPage
+        viewer.controller()->cycleFitMode(0); // FitToPage -> FitToWidth
+        pump(120);
+        const int G48spreadW = pr(2).width() + gap + pr(3).width();
+        std::printf("  [dbg] G48 spreadW=%d pageAreaW=%d coverW=%d\n",
+                    G48spreadW, viewer.controller()->pageAreaWidth(),
+                    pr(1).width());
+        std::fflush(stdout);
+        CHECK("G49 fit-to-width off the cover targets the spread",
+              std::abs(G48spreadW - viewer.controller()->pageAreaWidth()) <= 2);
+        CHECK("G50 cover renders narrower than the viewport",
+              pr(1).width() < viewer.controller()->pageAreaWidth());
+        viewer.controller()->goToPage(2);
+        pump(60);
+        CHECK("G51 spread unit does not overflow horizontally",
+              viewer.controller()->maxScrollOffsetXForUnit(2) == 0);
+
+        // Navigation buttons step whole screens; the last screen is reached while
+        // currentPage < pageCount, so enablement is decided by hasNext/hasPrev.
+        viewer.controller()->cycleFitMode(0); // FitToWidth -> Manual
+        pump(40);
+        viewer.controller()->goToPage(2);     // unit {2,3}
+        pump(40);
+        CHECK("G52 after {2,3} a next screen exists",
+              viewer.controller()->hasNextPage());
+        viewer.controller()->nextPage();
+        pump(40);
+        CHECK("G52b nextPage advances to the following unit {4,5}",
+              viewer.controller()->currentPage() == 4);
+        CHECK("G53 in a cover doc the {4,5} unit is the final screen",
+              viewer.controller()->hasPrevPage() &&
+              !viewer.controller()->hasNextPage());
+        const bool g53bNoOp = viewer.controller()->nextPage();
+        pump(40);
+        CHECK("G53b nextPage from the final screen is a no-op",
+              !g53bNoOp && viewer.controller()->currentPage() == 4);
+        pump(40);
+        CHECK("G54 final screen still has a previous screen",
+              viewer.controller()->hasPrevPage());
+        viewer.controller()->goToPage(1);     // cover unit {1}
+        pump(40);
+        CHECK("G55 cover: no previous screen, next exists",
+              !viewer.controller()->hasPrevPage() &&
+              !viewer.controller()->prevPage() &&
+              viewer.controller()->hasNextPage());
+        viewer.controller()->cyclePagePresentation(); // DoubleWithCover -> Single (paged)
+        pump(40);
+        viewer.controller()->goToPage(viewer.controller()->pageCount());
+        pump(40);
+        CHECK("G56 single paged last page has no next",
+              !viewer.controller()->hasNextPage());
+        viewer.controller()->goToPage(1);
+        pump(40);
+        CHECK("G57 single paged first page has no prev",
+              !viewer.controller()->hasPrevPage());
+
+        // Continuous: the toolbar's screen step must move whole units in a
+        // double-page presentation (next from the cover hits {2,3}, from {2,3}
+        // hits {4,5}, and the final unit is a no-op) while single-paged
+        // continuous still steps raw pages.
+        viewer.controller()->cyclePagePresentation(); // Single -> Double (paged)
+        pump(40);
+        viewer.controller()->cyclePagePresentation(); // Double -> DoubleWithCover (paged)
+        pump(40);
+        viewer.controller()->toggleMode(); // paged -> continuous
+        pump(60);
+        CHECK("G58 continuous cover prev is a no-op",
+              viewer.controller()->scrollStepPage(1, -1) == 1);
+        CHECK("G58b continuous cover next lands on {2,3}",
+              viewer.controller()->scrollStepPage(1, +1) == 2);
+        CHECK("G59 continuous {2,3} next lands on {4,5}",
+              viewer.controller()->scrollStepPage(2, +1) == 4 &&
+              viewer.controller()->scrollStepPage(3, +1) == 4);
+        CHECK("G59b continuous {2,3} prev returns to the cover unit",
+              viewer.controller()->scrollStepPage(2, -1) == 1 &&
+              viewer.controller()->scrollStepPage(3, -1) == 1);
+        CHECK("G60 continuous final unit {4,5} next is a no-op",
+              viewer.controller()->scrollStepPage(4, +1) == 4 &&
+              viewer.controller()->scrollStepPage(5, +1) == 5);
+        CHECK("G60b continuous final unit prev steps back to {2,3}",
+              viewer.controller()->scrollStepPage(5, -1) == 2);
+        viewer.controller()->cyclePagePresentation(); // DoubleWithCover -> Single (continuous)
+        pump(40);
+        CHECK("G61 single continuous next/prev are raw page steps",
+              viewer.controller()->scrollStepPage(1, +1) == 2 &&
+              viewer.controller()->scrollStepPage(5, -1) == 4 &&
+              viewer.controller()->scrollStepPage(1, -1) == 1 &&
+              viewer.controller()->scrollStepPage(5, +1) == 5);
+
+        DestroyWindow(host);
+        pump(50);
+    }
+
     // ---------------- E) Text selection (MuPDF path)
     {
         std::string pdfPath = std::string(tmpPath) + "wlx_text.pdf";

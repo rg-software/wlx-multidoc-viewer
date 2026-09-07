@@ -331,6 +331,12 @@ void ViewerWin32::applyScroll(int scrollY) {
     m_controller->setScrollAnchor(m_scrollY);
     updateVisiblePage();
     updateScrollBars();
+    // Sync the toolbar's first-page enablement with the *new* anchor. During
+    // go-to/step/sidebar jumps the notify from goToPage already refreshed the
+    // toolbar against the old scroll (typically page 1 -> Prev disabled, Next
+    // enabled); without this refresh the buttons stay stale until a later
+    // scroll event, so a Next press on the final unit would silently no-op.
+    m_toolbarPresenter.refreshState();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -508,16 +514,16 @@ void ViewerWin32::onPaint() {
     if (paged) {
         if (m_controller && m_controller->hasDocument()) {
             if (vh > 0) {
-                QRect r = m_controller->pageRect(m_controller->currentPage());
-                int imgW = r.isValid() ? r.width() : 0;
-                int imgH = r.isValid() ? r.height() : 0;
-                if (imgW > 0 && imgH > 0) {
-                    // Center the page only when it fits; otherwise scroll the
-                    // visible part with m_scrollX/m_scrollY offset.
-                    int dstX = left + ((imgW <= vw) ? (std::max)(0, (vw - imgW) / 2) : -m_scrollX);
-                    int dstY = top + ((imgH <= vh) ? (std::max)(0, (vh - imgH) / 2) : -m_scrollY);
-                    drawPageBitmap(hdcMem, bitmapForPage(m_controller->currentPage()),
-                                   dstX, dstY, 0, 0, imgW, imgH);
+                // Draw every page of the current unit (one page in Single, the
+                // spread in Double/DoubleWithCover) at its shared placement.
+                const int first = m_controller->unitFirst(m_controller->currentPage());
+                const int last = m_controller->unitLast(first);
+                for (int page = first; page <= last; ++page) {
+                    const QRect on = pagedPageRect(page);
+                    if (on.width() <= 0 || on.height() <= 0)
+                        continue;
+                    drawPageBitmap(hdcMem, bitmapForPage(page),
+                                   on.left(), on.top(), 0, 0, on.width(), on.height());
                 }
             }
         }
@@ -602,7 +608,8 @@ int ViewerWin32::maxScrollX() const {
     if (!m_controller || !m_controller->hasDocument())
         return 0;
     if (m_controller->isPagedMode())
-        return m_controller->maxScrollOffsetXForPage(m_controller->currentPage());
+        return m_controller->maxScrollOffsetXForUnit(
+            m_controller->unitFirst(m_controller->currentPage()));
     return m_controller->maxScrollOffsetX();
 }
 
@@ -610,8 +617,40 @@ int ViewerWin32::maxScrollY() const {
     if (!m_controller || !m_controller->hasDocument())
         return 0;
     if (m_controller->isPagedMode())
-        return m_controller->maxScrollOffsetYForPage(m_controller->currentPage());
+        return m_controller->maxScrollOffsetYForUnit(
+            m_controller->unitFirst(m_controller->currentPage()));
     return m_controller->maxScrollOffset();
+}
+
+QRect ViewerWin32::pagedPageRect(int page) const {
+    // Mirrors the paint math: the unit is centered in the viewport when it
+    // fits, otherwise the visible part is scrolled with m_scrollX/m_scrollY.
+    // Each member page is then placed relative to the unit origin.
+    if (!m_controller || !m_controller->hasDocument())
+        return {};
+    const int first = m_controller->unitFirst(m_controller->currentPage());
+    const int last = m_controller->unitLast(first);
+    if (page < first || page > last)
+        return {};
+    const QRect r1 = m_controller->pageRect(first);
+    const QRect r = m_controller->pageRect(page);
+    if (!r1.isValid() || !r.isValid())
+        return {};
+    const QRect r2 = m_controller->pageRect(last);
+    const bool paired = last != first && r2.isValid();
+    const int unitW = paired ? (r2.right() - r1.left() + 1) : r1.width();
+    const int unitH = paired ? (std::max)(r1.height(), r2.height()) : r1.height();
+
+    const int top = pageAreaTop();
+    const int left = sidebarLeft();
+    RECT cr;
+    GetClientRect(m_hwnd, &cr);
+    const int vw = (std::max)(1, static_cast<int>(cr.right) - left);
+    const int vh = (std::max)(1, static_cast<int>(cr.bottom) - top);
+    const int ox = left + ((unitW <= vw) ? (std::max)(0, (vw - unitW) / 2) : -m_scrollX);
+    const int oy = top + ((unitH <= vh) ? (std::max)(0, (vh - unitH) / 2) : -m_scrollY);
+    return QRect(ox + (r.left() - r1.left()), oy + (r.top() - r1.top()),
+                 r.width(), r.height());
 }
 
 void ViewerWin32::onSize(int w, int h) {
@@ -648,6 +687,43 @@ void ViewerWin32::pageJumpContinuous(int delta) {
     m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
 }
 
+// PgDn/PgUp scroll by one vertical block (one screenful with a small overlap).
+// In paged mode, a page/unit that still has overflow scrolls within it; one
+// that is fully visible (or already at its foot) advances to the next/prev
+// page instead of skipping it.
+void ViewerWin32::pageBlockDown() {
+    if (!m_controller || !m_controller->hasDocument())
+        return;
+    m_scrollX = 0;
+    if (m_controller->isPagedMode()) {
+        const int first = m_controller->unitFirst(m_controller->currentPage());
+        const int maxY = m_controller->maxScrollOffsetYForUnit(first);
+        if (maxY > 0 && m_scrollY < maxY) {
+            m_scrollY = (std::min)(m_scrollY + m_controller->pageBlockStep(), maxY);
+        } else if (m_controller->nextPage()) {
+            m_scrollY = 0;
+        }
+    } else {
+        m_scrollY = (std::min)(m_scrollY + m_controller->pageBlockStep(),
+                               m_controller->maxScrollOffset());
+    }
+}
+
+void ViewerWin32::pageBlockUp() {
+    if (!m_controller || !m_controller->hasDocument())
+        return;
+    m_scrollX = 0;
+    if (m_controller->isPagedMode()) {
+        if (m_scrollY > 0) {
+            m_scrollY = (std::max)(m_scrollY - m_controller->pageBlockStep(), 0);
+        } else if (m_controller->prevPage()) {
+            m_scrollY = 0;
+        }
+    } else {
+        m_scrollY = (std::max)(m_scrollY - m_controller->pageBlockStep(), 0);
+    }
+}
+
 void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
     // Focus neutrality (design D8): typed characters belong to a focused
     // toolbar edit box and must never trigger viewer shortcuts.
@@ -662,7 +738,6 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
 
     switch (wp) {
     case VK_RIGHT:
-    case VK_NEXT:
         if (continuous)
             pageJumpContinuous(+1);
         else
@@ -670,11 +745,18 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         captured = true;
         break;
     case VK_LEFT:
-    case VK_PRIOR:
         if (continuous)
             pageJumpContinuous(-1);
         else
             m_controller->prevPage();
+        captured = true;
+        break;
+    case VK_NEXT:
+        pageBlockDown();
+        captured = true;
+        break;
+    case VK_PRIOR:
+        pageBlockUp();
         captured = true;
         break;
     case VK_UP:
@@ -729,6 +811,22 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         }
         captured = true;
         break;
+    case 'P':
+        // Plain P cycles the page presentation (single / double / double with
+        // cover) without touching the paged/continuous mode. Keep the view on
+        // the same unit: paged keeps a clean origin, continuous re-targets the
+        // scroll to the unit's new position.
+        if (!shift) {
+            const int page = m_controller->currentPage();
+            m_controller->cyclePagePresentation();
+            m_scrollX = 0;
+            if (continuous)
+                m_scrollY = m_controller->scrollOffsetForPage(page);
+            else
+                m_scrollY = 0;
+            captured = true;
+        }
+        break;
     case 'C':
         if (ctrl) {
             if (m_controller && m_controller->hasSelection()) {
@@ -781,13 +879,21 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
     }
 
     if (captured) {
-        if (continuous) {
-            m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+        if (continuous || wp == VK_NEXT || wp == VK_PRIOR) {
+            // Continuous scroll, and paged PgDn/PgUp that scrolled within the
+            // current unit (or advanced the page), both land here with a final
+            // scroll offset to apply. updateVisiblePage() is a no-op in paged
+            // mode and updateScrollBars() refreshes the page/unit indicators.
+            m_scrollY = (std::clamp)(m_scrollY, 0, maxScrollY());
             m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
+            // Keep the controller's scroll anchor in sync with keyboard-driven
+            // continuous motion (arrows/Home/End/P/V/PgDn/PgUp), so the toolbar
+            // Prev/Next enablement and stepping always read the live position.
+            m_controller->setScrollAnchor(m_scrollY);
             updateVisiblePage();
             updateScrollBars();
             InvalidateRect(m_hwnd, nullptr, FALSE);
-        } else if (wp == VK_RIGHT || wp == VK_LEFT || wp == VK_NEXT || wp == VK_PRIOR
+        } else if (wp == VK_RIGHT || wp == VK_LEFT
                    || wp == VK_HOME || wp == VK_END || wp == 'V' || wp == 'R'
                    || wp == 0xBB || wp == 0x6B || wp == 0xBD || wp == 0x6D || wp == '0') {
             m_scrollX = 0;
@@ -858,7 +964,17 @@ void ViewerWin32::onDragEnd() {
 
 int ViewerWin32::pageUnderPoint(int x, int y) const {
     if (!m_controller || m_controller->isPagedMode()) {
-        return m_controller ? m_controller->currentPage() : 1;
+        if (!m_controller)
+            return 1;
+        // In paged double-page view the pointer can sit on either unit member;
+        // fall back to the current (unit-first) page for margins/gaps.
+        const int first = m_controller->unitFirst(m_controller->currentPage());
+        const int last = m_controller->unitLast(first);
+        for (int page = first; page <= last; ++page) {
+            if (pagedPageRect(page).contains(x, y))
+                return page;
+        }
+        return first;
     }
     const QPointF cpt = clientToCanvas(x, y);
     for (int page = 1; page <= m_controller->pageCount(); ++page) {
@@ -880,15 +996,23 @@ QPointF ViewerWin32::clientToCanvas(int x, int y) const {
     const double viewH = (cr.bottom - top);
 
     if (m_controller->isPagedMode()) {
-        const QRect r = m_controller->pageRect(m_controller->currentPage());
-        const int imgW = r.isValid() ? r.width() : 0;
-        const int imgH = r.isValid() ? r.height() : 0;
-        const double dstX = left + ((imgW <= viewW) ? std::max(0, (int)((viewW - imgW) / 2)) : -m_scrollX);
-        const double dstY = top + ((imgH <= viewH) ? std::max(0, (int)((viewH - imgH) / 2)) : -m_scrollY);
-        // Page-local canvas: the on-screen page starts at (dstX,dstY), but the
-        // controller's transform places it at pageRect.topLeft(). Shift so the
-        // returned canvas point is in the same space as pageRect.
-        return QPointF(x - dstX + r.x(), y - dstY + r.y());
+        // The mapping stays in absolute canvas space (pageRect coordinates):
+        // the on-screen origin of the member page corresponds to its
+        // pageRect.topLeft(), so add that back after removing the screen offset.
+        const int first = m_controller->unitFirst(m_controller->currentPage());
+        const int last = m_controller->unitLast(first);
+        int page = first;
+        for (int p = first; p <= last; ++p) {
+            if (pagedPageRect(p).contains(x, y)) {
+                page = p;
+                break;
+            }
+        }
+        const QRect pr = m_controller->pageRect(page);
+        const QRect on = pagedPageRect(page);
+        if (!pr.isValid() || on.isNull())
+            return QPointF(x, y);
+        return QPointF(x - on.left() + pr.x(), y - on.top() + pr.y());
     }
 
     const QSize cs = m_controller->contentSize();
@@ -1037,15 +1161,17 @@ void ViewerWin32::paintSelectionOverlay(HDC hdc, const RECT& rc, int topChrome) 
     const int vh = (std::max)(1, hgt - topChrome);
     const QSize cs = m_controller->contentSize();
     const bool paged = m_controller->isPagedMode();
+    const int firstPage = paged ? m_controller->unitFirst(m_controller->currentPage()) : 1;
+    const int lastPage = paged ? m_controller->unitLast(firstPage) : m_controller->pageCount();
 
     // Rects are canvas-space; convert to client by mirroring onPaint placement
     // (canvas pageRect -> on-screen), then draw into the overlay surface.
-    auto pageOrigin = [&](const QRect& pr) -> QPointF {
+    auto pageOrigin = [&](int page, const QRect& pr) -> QPointF {
         if (paged) {
-            const int imgW = pr.width();
-            const int imgH = pr.height();
-            return QPointF(left + ((imgW <= vw) ? std::max(0, (vw - imgW) / 2) : -m_scrollX),
-                           topChrome + ((imgH <= vh) ? std::max(0, (vh - imgH) / 2) : -m_scrollY));
+            // Shared with onPaint so the highlight always sits exactly on the
+            // page bitmap.
+            const QRect on = pagedPageRect(page);
+            return QPointF(on.left(), on.top());
         }
         const int cx = std::max(0, (vw - cs.width()) / 2);
         const int cy = std::max(0, (vh - cs.height()) / 2);
@@ -1065,12 +1191,11 @@ void ViewerWin32::paintSelectionOverlay(HDC hdc, const RECT& rc, int topChrome) 
         addClientSpan(r, pr, org, kAr, kAg, kAb, kAa);
     };
 
-    for (int page = (paged ? m_controller->currentPage() : 1);
-         page <= (paged ? m_controller->currentPage() : m_controller->pageCount()); ++page) {
+    for (int page = firstPage; page <= lastPage; ++page) {
         const QRect pr = m_controller->pageRect(page);
         if (!pr.isValid())
             continue;
-        const QPointF origin = pageOrigin(pr);
+        const QPointF origin = pageOrigin(page, pr);
 
         // Text selection rects.
         if (m_controller->hasSelection()) {
@@ -1254,12 +1379,20 @@ void ViewerWin32::updateScrollBars() {
 
     if (!m_controller || !m_controller->hasDocument() || m_controller->isPagedMode()) {
         if (m_controller && m_controller->hasDocument() && m_controller->isPagedMode()) {
-            // Paged mode: if the current page overflows the viewport width,
-            // enable the horizontal scrollbar. nMax is the page width minus 1,
+            // Paged mode: if the current page unit overflows the viewport width,
+            // enable the horizontal scrollbar. nMax is the unit width minus 1,
             // nPage the viewport width, so the reachable track is
-            // nMax - nPage + 1 = pageW - viewportW (the overflow amount).
-            const QRect pr = m_controller->pageRect(m_controller->currentPage());
-            const int pageW = pr.isValid() ? pr.width() : 0;
+            // nMax - nPage + 1 = unitW - viewportW (the overflow amount). A
+            // double-page unit is panned as one group.
+            const int first = m_controller->unitFirst(m_controller->currentPage());
+            const int last = m_controller->unitLast(first);
+            const QRect pr = m_controller->pageRect(first);
+            int pageW = pr.isValid() ? pr.width() : 0;
+            if (last != first) {
+                const QRect pr2 = m_controller->pageRect(last);
+                if (pr.isValid() && pr2.isValid())
+                    pageW = pr2.right() - pr.left() + 1;
+            }
             if (pageW > vw && pageW > 0) {
                 si.nMin = 0;
                 si.nMax = pageW - 1;

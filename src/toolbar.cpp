@@ -12,15 +12,46 @@ void ToolbarPresenter::refreshState() {
     const bool hasDoc = m_controller && m_controller->hasDocument();
     const int page = hasDoc ? m_controller->currentPage() : 1;
     const int count = hasDoc ? m_controller->pageCount() : 0;
+    const bool paged = hasDoc && m_controller->isPagedMode();
 
-    m_backend->setEnabled(Control::PrevPage, hasDoc && page > 1);
-    m_backend->setEnabled(Control::NextPage, hasDoc && page < count);
+    // Prev/next step whole screens (units). In a double-page state the last
+    // unit is reached while currentPage < pageCount, so enablement must reflect
+    // whether an adjacent screen exists: use hasPrev/hasNext in paged mode, and
+    // in continuous mode check whether a whole-unit step from the page at the
+    // top of the viewport can actually move.
+    if (hasDoc) {
+        if (paged) {
+            m_backend->setEnabled(Control::PrevPage, m_controller->hasPrevPage());
+            m_backend->setEnabled(Control::NextPage, m_controller->hasNextPage());
+        } else {
+            const int base = m_controller->pageAtScrollOffset(m_controller->scrollAnchor());
+            const int stepPrev = m_controller->scrollStepPage(base, -1);
+            const int stepNext = m_controller->scrollStepPage(base, +1);
+            m_backend->setEnabled(Control::PrevPage, stepPrev != base);
+            m_backend->setEnabled(Control::NextPage, stepNext != base);
+        }
+    } else {
+        m_backend->setEnabled(Control::PrevPage, false);
+        m_backend->setEnabled(Control::NextPage, false);
+    }
     m_backend->setEditText(Control::PageBox, hasDoc ? QString::number(page) : QString());
     m_backend->setText(Control::PageCount, hasDoc ? QStringLiteral("/ %1").arg(count) : QString());
     m_backend->setChecked(Control::ModeToggle, hasDoc && !m_controller->isPagedMode());
     m_backend->setIcon(Control::ModeToggle,
                        hasDoc ? (m_controller->isPagedMode() ? Icon::ModePaged : Icon::ModeContinuous)
                               : Icon::ModePaged);
+
+    // Presentation is a three-state cycle reflected via its current icon.
+    m_backend->setEnabled(Control::PresentationToggle, hasDoc);
+    if (hasDoc) {
+        switch (m_controller->pagePresentation()) {
+        case ViewerState::PagePresentation::Single:          m_backend->setIcon(Control::PresentationToggle, Icon::PresentationSingle); break;
+        case ViewerState::PagePresentation::Double:          m_backend->setIcon(Control::PresentationToggle, Icon::PresentationDouble); break;
+        case ViewerState::PagePresentation::DoubleWithCover: m_backend->setIcon(Control::PresentationToggle, Icon::PresentationDoubleWithCover); break;
+        }
+    } else {
+        m_backend->setIcon(Control::PresentationToggle, Icon::PresentationSingle);
+    }
 
     Icon fitIcon = Icon::FitPage;
     if (hasDoc) {
@@ -93,10 +124,11 @@ void ToolbarPresenter::onPrevPage() {
         return;
     }
     // Continuous: navigate the VIEW, not just the counter. Start from the page
-    // at the top of the viewport, move one page, and scroll its top in.
+    // at the top of the viewport and scroll in the top of the neighbouring
+    // screen (whole unit in a double-page presentation).
     const int base = m_controller->pageAtScrollOffset(m_controller->scrollAnchor());
-    const int target = (std::max)(1, base - 1);
-    if (m_applyScroll)
+    const int target = m_controller->scrollStepPage(base, -1);
+    if (target != base && m_applyScroll)
         m_applyScroll(m_controller->scrollOffsetForPage(target));
 }
 
@@ -108,8 +140,8 @@ void ToolbarPresenter::onNextPage() {
         return;
     }
     const int base = m_controller->pageAtScrollOffset(m_controller->scrollAnchor());
-    const int target = (std::min)(base + 1, m_controller->pageCount());
-    if (m_applyScroll)
+    const int target = m_controller->scrollStepPage(base, +1);
+    if (target != base && m_applyScroll)
         m_applyScroll(m_controller->scrollOffsetForPage(target));
 }
 
@@ -135,6 +167,21 @@ void ToolbarPresenter::onModeToggled() {
     // scroll so the view does not reset to page 1 when switching modes.
     const int page = m_controller->currentPage();
     m_controller->toggleMode();
+    if (!m_applyScroll)
+        return;
+    if (m_controller->isPagedMode())
+        m_applyScroll(0);
+    else
+        m_applyScroll(m_controller->scrollOffsetForPage(page));
+}
+
+void ToolbarPresenter::onPresentationCycled() {
+    if (!m_controller)
+        return;
+    // Mirror the keyboard toggle: keep the current page, and restore the
+    // scroll so the view does not reset to page 1 when switching presentation.
+    const int page = m_controller->currentPage();
+    m_controller->cyclePagePresentation();
     if (!m_applyScroll)
         return;
     if (m_controller->isPagedMode())

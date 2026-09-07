@@ -19,6 +19,45 @@
 #include <windows.h>
 #endif
 
+namespace {
+
+// Logical-px layout size of the current paged unit: a single page in the
+// Single presentation, the whole spread in Double/DoubleWithCover. Returns a
+// null QSize when the pages are not laid out yet. Shared by canvas sizing,
+// painting, selection/search overlays and pan-overflow checks so they all
+// treat the unit as one centered group.
+QSize pagedUnitLayoutSize(const ViewerController* c) {
+    if (!c || !c->hasDocument())
+        return QSize();
+    const int first = c->unitFirst(c->currentPage());
+    const int last = c->unitLast(first);
+    const QRect r1 = c->pageRect(first);
+    if (!r1.isValid())
+        return QSize();
+    if (last == first)
+        return r1.size();
+    const QRect r2 = c->pageRect(last);
+    if (!r2.isValid())
+        return r1.size();
+    return QSize(r2.right() - r1.left() + 1, qMax(r1.height(), r2.height()));
+}
+
+// Translation applied to any page-local canvas rect belonging to the current
+// paged unit to place it on the canvas: pageRect.topLeft() cancels for every
+// unit member, so the whole unit shares one offset.
+QPointF pagedUnitCanvasOffset(const ViewerController* c, const QSize& canvasSize) {
+    const QSize unit = pagedUnitLayoutSize(c);
+    if (!unit.isValid() || unit.isEmpty())
+        return QPointF();
+    const QRect r1 = c->pageRect(c->unitFirst(c->currentPage()));
+    if (!r1.isValid())
+        return QPointF();
+    return QPointF((canvasSize.width() - unit.width()) / 2 - r1.x(),
+                   (canvasSize.height() - unit.height()) / 2 - r1.y());
+}
+
+} // namespace
+
 void ViewerCanvas::paintEvent(QPaintEvent* event) {
     QPainter p(this);
     const uint32_t bg = viewer_settings::kBackgroundColor;
@@ -40,16 +79,27 @@ void ViewerCanvas::paintEvent(QPaintEvent* event) {
 
     const bool paged = m_controller->isPagedMode();
     if (paged) {
-        const int page = m_controller->currentPage();
-        QImage img = m_controller->renderPageCached(page);
-        if (img.isNull())
+        // Draw every page of the current unit (one page in Single, the spread
+        // in Double/DoubleWithCover) at its shared placement. Canvas is at
+        // least the viewport; the unit is centered only if it fits.
+        const QPointF org = pagedUnitCanvasOffset(m_controller, size());
+        const int first = m_controller->unitFirst(m_controller->currentPage());
+        const int last = m_controller->unitLast(first);
+        bool any = false;
+        for (int page = first; page <= last; ++page) {
+            QImage img = m_controller->renderPageCached(page);
+            if (img.isNull())
+                continue;
+            any = true;
+            const int lw = qRound(img.width() * invRs);
+            const int lh = qRound(img.height() * invRs);
+            const QRect r = m_controller->pageRect(page);
+            const QPointF topLeft = QPointF(org.x() + r.x(), org.y() + r.y());
+            p.drawImage(QRect(std::max(0, qRound(topLeft.x())),
+                              std::max(0, qRound(topLeft.y())), lw, lh), img);
+        }
+        if (!any)
             return;
-        // Canvas is at least the viewport; center the page only if it fits.
-        const int lw = qRound(img.width() * invRs);
-        const int lh = qRound(img.height() * invRs);
-        const int x = (width() - lw) / 2;
-        const int y = (height() - lh) / 2;
-        p.drawImage(QRect(std::max(0, x), std::max(0, y), lw, lh), img);
         paintSelection(p, rect());
         paintSearchOverlay(p, rect());
         return;
@@ -83,20 +133,16 @@ void ViewerCanvas::paintSelection(QPainter& p, const QRect& vis) const {
         return;
 
     if (m_controller->isPagedMode()) {
-        const int page = m_controller->currentPage();
-        const QRect pr = m_controller->pageRect(page);
-        if (!pr.isValid())
-            return;
-        const QVector<QRectF> rects = m_controller->highlightRects(page);
-        if (rects.isEmpty())
-            return;
-        const QSize vp = size();
-        const int dx = (vp.width() - pr.width()) / 2;
-        const int dy = (vp.height() - pr.height()) / 2;
+        const QPointF org = pagedUnitCanvasOffset(m_controller, size());
         p.setBrush(QColor(255, 240, 105, 105));
         p.setPen(Qt::NoPen);
-        for (const QRectF& r : rects)
-            p.drawRect(r.translated(dx - pr.x(), dy - pr.y()));
+        const int first = m_controller->unitFirst(m_controller->currentPage());
+        const int last = m_controller->unitLast(first);
+        for (int page = first; page <= last; ++page) {
+            const QVector<QRectF> rects = m_controller->highlightRects(page);
+            for (const QRectF& r : rects)
+                p.drawRect(r.translated(org));
+        }
         return;
     }
 
@@ -122,8 +168,12 @@ void ViewerCanvas::paintSearchOverlay(QPainter& p, const QRect& vis) const {
         return;
 
     const bool paged = m_controller->isPagedMode();
-    const int first = paged ? m_controller->currentPage() : m_controller->firstPageAtScroll(vis.y());
-    const int last = paged ? m_controller->currentPage() : m_controller->pageCount();
+    const int first = paged ? m_controller->unitFirst(m_controller->currentPage()) : m_controller->firstPageAtScroll(vis.y());
+    const int last = paged ? m_controller->unitLast(first) : m_controller->pageCount();
+
+    // One shared translation per unit: pageRect.topLeft() cancels for every
+    // member, so page-local search rects land on the right bitmap.
+    const QPointF org = paged ? pagedUnitCanvasOffset(m_controller, size()) : QPointF();
 
     for (int page = first; page <= last; ++page) {
         const QRect pr = m_controller->pageRect(page);
@@ -135,22 +185,15 @@ void ViewerCanvas::paintSearchOverlay(QPainter& p, const QRect& vis) const {
         const QVector<QRectF> rects = m_controller->searchRectsOnPage(page);
         const QRectF active = m_controller->activeSearchRectOnPage(page);
 
-        QPointF origin(0, 0);
-        if (paged) {
-            const QSize vp = size();
-            origin = QPointF((vp.width() - pr.width()) / 2 - pr.x(),
-                             (vp.height() - pr.height()) / 2 - pr.y());
-        }
-
-p.setPen(Qt::NoPen);
+        p.setPen(Qt::NoPen);
         p.setBrush(QColor(255, 240, 105, 105));
         for (const QRectF& r : rects) {
-            const QRectF rr = r.translated(origin);
+            const QRectF rr = r.translated(org);
             p.drawRect(rr);
         }
 
         if (!active.isNull()) {
-            const QRectF rr = active.translated(origin);
+            const QRectF rr = active.translated(org);
             p.setBrush(QColor(0, 220, 220, 150));   // cyan active match
             p.setPen(QPen(QColor(0, 130, 130), 1));
             p.drawRect(rr);
@@ -255,10 +298,11 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     connect(new QShortcut(QKeySequence(Qt::Key_Left), this), &QShortcut::activated, this, &ViewerWidget::onPrevPage);
     connect(new QShortcut(QKeySequence(Qt::Key_Home), this), &QShortcut::activated, this, &ViewerWidget::onFirstPage);
     connect(new QShortcut(QKeySequence(Qt::Key_End), this), &QShortcut::activated, this, &ViewerWidget::onLastPage);
-    connect(new QShortcut(QKeySequence(Qt::Key_PageDown), this), &QShortcut::activated, this, &ViewerWidget::onNextPage);
-    connect(new QShortcut(QKeySequence(Qt::Key_PageUp), this), &QShortcut::activated, this, &ViewerWidget::onPrevPage);
+    connect(new QShortcut(QKeySequence(Qt::Key_PageDown), this), &QShortcut::activated, this, &ViewerWidget::onPageDown);
+    connect(new QShortcut(QKeySequence(Qt::Key_PageUp), this), &QShortcut::activated, this, &ViewerWidget::onPageUp);
     connect(new QShortcut(QKeySequence(Qt::Key_V), this), &QShortcut::activated, this, &ViewerWidget::onToggleMode);
     connect(new QShortcut(QKeySequence("Shift+V"), this), &QShortcut::activated, this, &ViewerWidget::onCycleFit);
+    connect(new QShortcut(QKeySequence(Qt::Key_P), this), &QShortcut::activated, this, &ViewerWidget::onTogglePresentation);
     connect(new QShortcut(QKeySequence(Qt::Key_Plus), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
     connect(new QShortcut(QKeySequence(Qt::Key_Equal), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
     connect(new QShortcut(QKeySequence(Qt::Key_Minus), this), &QShortcut::activated, this, &ViewerWidget::onZoomOut);
@@ -345,13 +389,13 @@ void ViewerWidget::resizeCanvas() {
     }
     if (m_controller->isPagedMode()) {
         const QSize vp = m_scrollArea->viewport()->size();
-        const QRect pr = m_controller->pageRect(m_controller->currentPage());
-        if (pr.isValid()) {
+        const QSize unit = pagedUnitLayoutSize(m_controller.get());
+        if (unit.isValid() && !unit.isEmpty()) {
             QSize canvasSize = vp;
-            if (pr.width() > vp.width())
-                canvasSize.setWidth(pr.width());
-            if (pr.height() > vp.height())
-                canvasSize.setHeight(pr.height());
+            if (unit.width() > vp.width())
+                canvasSize.setWidth(unit.width());
+            if (unit.height() > vp.height())
+                canvasSize.setHeight(unit.height());
             m_canvas->setContentSize(canvasSize);
         } else {
             m_canvas->setContentSize(vp);
@@ -372,6 +416,50 @@ void ViewerWidget::onNextPage() {
 
 void ViewerWidget::onPrevPage() {
     if (m_controller) m_controller->prevPage();
+}
+
+// PgDn/PgUp scroll by one vertical block (one screenful with a small overlap).
+// In paged mode a unit that still overflows scrolls within it; one that fits
+// (or is already at its foot) advances to the next/prev page instead.
+void ViewerWidget::onPageDown() {
+    if (!m_controller || !m_controller->hasDocument())
+        return;
+    QScrollBar* vBar = m_scrollArea->verticalScrollBar();
+    if (m_controller->isPagedMode()) {
+        const int first = m_controller->unitFirst(m_controller->currentPage());
+        const int maxY = m_controller->maxScrollOffsetYForUnit(first);
+        if (maxY > 0 && scrollYValue() < maxY) {
+            vBar->setValue(std::min(scrollYValue() + m_controller->pageBlockStep(), maxY));
+            return;
+        }
+        if (m_controller->nextPage()) {
+            m_suppressScrollTracking = true;
+            vBar->setValue(0);
+            m_suppressScrollTracking = false;
+        }
+        return;
+    }
+    vBar->setValue(std::min(scrollYValue() + m_controller->pageBlockStep(),
+                            m_controller->maxScrollOffset()));
+}
+
+void ViewerWidget::onPageUp() {
+    if (!m_controller || !m_controller->hasDocument())
+        return;
+    QScrollBar* vBar = m_scrollArea->verticalScrollBar();
+    if (m_controller->isPagedMode()) {
+        if (scrollYValue() > 0) {
+            vBar->setValue(std::max(scrollYValue() - m_controller->pageBlockStep(), 0));
+            return;
+        }
+        if (m_controller->prevPage()) {
+            m_suppressScrollTracking = true;
+            vBar->setValue(0);
+            m_suppressScrollTracking = false;
+        }
+        return;
+    }
+    vBar->setValue(std::max(scrollYValue() - m_controller->pageBlockStep(), 0));
 }
 
 void ViewerWidget::onFirstPage() {
@@ -409,6 +497,29 @@ void ViewerWidget::onToggleMode() {
     m_controller->toggleMode();
     if (m_controller->isPagedMode()) {
         m_scrollArea->verticalScrollBar()->setValue(0);
+        m_suppressScrollTracking = false;
+        resizeCanvas();
+        return;
+    }
+    resizeCanvas();
+    QTimer::singleShot(0, this, [this, page, target = m_controller->scrollOffsetForPage(page)]() {
+        m_scrollArea->verticalScrollBar()->setValue(target);
+        m_suppressScrollTracking = false;
+    });
+}
+
+void ViewerWidget::onTogglePresentation() {
+    if (!m_controller || !m_controller->hasDocument())
+        return;
+    // Mirror onToggleMode: keep the same unit in view while the spread shape
+    // changes. Paged resets to a clean origin; continuous re-targets the scroll
+    // to the unit's new top so the reader doesn't jump pages.
+    const int page = m_controller->currentPage();
+    m_suppressScrollTracking = true;
+    m_controller->cyclePagePresentation();
+    if (m_controller->isPagedMode()) {
+        m_scrollArea->verticalScrollBar()->setValue(0);
+        m_scrollArea->horizontalScrollBar()->setValue(0);
         m_suppressScrollTracking = false;
         resizeCanvas();
         return;
@@ -476,8 +587,17 @@ void ViewerWidget::clearSelectionUi() {
 
 QPointF ViewerWidget::widgetToCanvas(const QPoint& pos) const {
     if (m_controller->isPagedMode()) {
-        const QRect pr = m_controller->pageRect(m_controller->currentPage());
+        // The unit is centered as one group, so the page-specific term cancels
+        // and the mapping only needs the unit origin.
         const QSize vp = m_scrollArea->viewport()->size();
+        const QSize unit = pagedUnitLayoutSize(m_controller.get());
+        const QRect r1 = m_controller->pageRect(m_controller->unitFirst(m_controller->currentPage()));
+        if (!unit.isEmpty() && r1.isValid()) {
+            const int dx = (vp.width() - unit.width()) / 2;
+            const int dy = (vp.height() - unit.height()) / 2;
+            return QPointF(pos.x() - dx + r1.x(), pos.y() - dy + r1.y());
+        }
+        const QRect pr = m_controller->pageRect(m_controller->currentPage());
         const int dx = (vp.width() - pr.width()) / 2;
         const int dy = (vp.height() - pr.height()) / 2;
         return QPointF(pos.x() - dx + pr.x(), pos.y() - dy + pr.y());
@@ -486,8 +606,17 @@ QPointF ViewerWidget::widgetToCanvas(const QPoint& pos) const {
 }
 
 int ViewerWidget::pageAtCanvas(const QPointF& canvasPt) const {
-    if (m_controller->isPagedMode())
+    if (m_controller->isPagedMode()) {
+        // Any unit member can be the target of a selection/drag; the unit-first
+        // fallback preserves the old single-page behavior for margins.
+        const int first = m_controller->unitFirst(m_controller->currentPage());
+        const int last = m_controller->unitLast(first);
+        for (int page = first; page <= last; ++page) {
+            if (m_controller->pageRect(page).contains(canvasPt.toPoint()))
+                return page;
+        }
         return m_controller->currentPage();
+    }
     for (int page = 1; page <= m_controller->pageCount(); ++page) {
         if (m_controller->pageRect(page).contains(canvasPt.toPoint()))
             return page;
@@ -564,6 +693,9 @@ void ViewerWidget::onVerticalScrollChanged(int value) {
         m_controller->trackCurrentPage(page);
         m_sidebarPresenter.onPageChanged(page);
     }
+    // Keep the toolbar Prev/Next enablement in sync with the new anchor: the
+    // notify fired during goToPage refreshed against the pre-scroll position.
+    m_toolbarPresenter.refreshState();
     m_controller->trimRenderCache(value);
 }
 
@@ -585,9 +717,10 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
         if (startSelection(pos))
             return true;
         if (m_controller->isPagedMode()) {
-            const QRect pr = m_controller->pageRect(m_controller->currentPage());
+            const QSize unit = pagedUnitLayoutSize(m_controller.get());
             const QSize vp = m_scrollArea->viewport()->size();
-            const bool overflows = pr.isValid() && (pr.width() > vp.width() || pr.height() > vp.height());
+            const bool overflows = unit.isValid() && !unit.isEmpty() &&
+                                   (unit.width() > vp.width() || unit.height() > vp.height());
             if (!overflows)
                 break;
         }

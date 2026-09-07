@@ -25,11 +25,7 @@ char32_t laCodepoint(toolbar::Icon icon) {
     case Icon::FindNext:      return 0xe5e1; // arrow_forward_ios
     case Icon::SidebarToggle: return 0xe5d2; // menu
     case Icon::Print:         return 0xe8ad; // print
-    case Icon::ModePaged:     return 0xe7f9; // pages
     case Icon::ModeContinuous: return 0xe8e9; // view_agenda
-    case Icon::FitManual:     return 0xf4c2; // view_real_size
-    case Icon::FitPage:       return 0xea10; // fit_screen
-    case Icon::FitWidth:      return 0xf8f5; // width_full
     case Icon::RotateLeft:    return 0xe419; // rotate_left
     case Icon::RotateRight:   return 0xe41a; // rotate_right
     case Icon::ZoomOut:       return 0xe900; // zoom_out
@@ -38,6 +34,25 @@ char32_t laCodepoint(toolbar::Icon icon) {
     case Icon::MatchCase:     return 0xf6f1; // match_case
     case Icon::MatchCaseOff:  return 0xf36f; // match_case_off
     case Icon::Copy:          return 0xe14d; // content_copy
+    // The display-mode/fit/presentation glyphs below use codepoints re-carved
+    // into the embedded asset (MaterialSymbolsOutlined.ttf): check_box_outline_blank
+    // 0xe835, pinch 0xeb38, fit_page 0xf77a, fit_width 0xf779, article 0xef42,
+    // two_pager 0xf51f, chrome_reader_mode 0xe86d. The hasInk() guard still
+    // falls back to the vector shapes if FreeType ever rasterizes empty.
+    case Icon::ModePaged:
+        return 0xe835; // check_box_outline_blank
+    case Icon::FitManual:
+        return 0xeb38; // pinch
+    case Icon::FitPage:
+        return 0xf77a; // fit_page
+    case Icon::FitWidth:
+        return 0xf779; // fit_width
+    case Icon::PresentationSingle:
+        return 0xef42; // article
+    case Icon::PresentationDouble:
+        return 0xf51f; // two_pager
+    case Icon::PresentationDoubleWithCover:
+        return 0xe86d; // chrome_reader_mode
     default: return 0;
     }
 }
@@ -111,13 +126,8 @@ QImage rasterizeGlyph(char32_t cp, int px) {
 }
 
 // ---------------------------------------------------------------------------
-// Programmatic vector fallback (unchanged shapes) used when the glyph is not
-// available in the loaded font.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Programmatic vector fallback (unchanged shapes) used when the glyph is not
-// available in the loaded font.
+// Programmatic vector fallback used when the glyph is not available in the
+// loaded font.
 // ---------------------------------------------------------------------------
 
 class Glyph {
@@ -205,7 +215,9 @@ QImage drawVectorIcon(toolbar::Icon icon, int px) {
         g.poly({QPointF(g.pt(0.26f, 0.26f)), QPointF(g.pt(0.70f, 0.50f)), QPointF(g.pt(0.26f, 0.74f))});
         break;
     case Icon::ModePaged:
-        g.rect(0.30f, 0.22f, 0.70f, 0.78f);
+        // check_box_outline_blank (0xe835): a clean square outline (a "paged
+        // layout" page). Distinct from the continuous view_agenda stack.
+        g.rect(0.22f, 0.22f, 0.78f, 0.78f);
         break;
     case Icon::ModeContinuous:
         g.rect(0.28f, 0.64f, 0.72f, 0.88f);
@@ -213,21 +225,31 @@ QImage drawVectorIcon(toolbar::Icon icon, int px) {
         g.rect(0.34f, 0.14f, 0.80f, 0.50f);
         break;
     case Icon::FitManual:
-        g.rect(0.30f, 0.30f, 0.70f, 0.70f);
-        g.line(0.14f, 0.54f, 0.24f, 0.54f);
-        g.line(0.76f, 0.54f, 0.86f, 0.54f);
-        g.line(0.50f, 0.14f, 0.50f, 0.24f);
-        g.line(0.50f, 0.76f, 0.50f, 0.86f);
+        // pinch: index finger and thumb converging on a pinched point.
+        g.ellipse(0.52f, 0.42f, 0.05f, 0.05f);
+        g.line(0.30f, 0.14f, 0.50f, 0.38f);   // index finger
+        g.line(0.16f, 0.38f, 0.50f, 0.38f);   // hand back edge
+        g.line(0.34f, 0.86f, 0.50f, 0.38f);   // thumb
         break;
     case Icon::FitPage:
-        g.rect(0.24f, 0.18f, 0.76f, 0.82f);
-        g.poly({QPointF(g.pt(0.30f, 0.24f)), QPointF(g.pt(0.10f, 0.24f)), QPointF(g.pt(0.10f, 0.44f))});
-        g.poly({QPointF(g.pt(0.70f, 0.76f)), QPointF(g.pt(0.90f, 0.76f)), QPointF(g.pt(0.90f, 0.56f))});
+        // fit_page: a page inside four corner brackets.
+        g.line(0.20f, 0.32f, 0.20f, 0.16f);
+        g.line(0.20f, 0.16f, 0.32f, 0.16f);
+        g.line(0.80f, 0.16f, 0.68f, 0.16f);
+        g.line(0.80f, 0.16f, 0.80f, 0.32f);
+        g.line(0.20f, 0.68f, 0.20f, 0.84f);
+        g.line(0.20f, 0.84f, 0.32f, 0.84f);
+        g.line(0.80f, 0.68f, 0.80f, 0.84f);
+        g.line(0.80f, 0.84f, 0.68f, 0.84f);
+        g.rect(0.36f, 0.28f, 0.64f, 0.72f);
         break;
     case Icon::FitWidth:
-        g.rect(0.22f, 0.32f, 0.78f, 0.68f);
-        g.poly({QPointF(g.pt(0.10f, 0.32f)), QPointF(g.pt(0.06f, 0.50f)), QPointF(g.pt(0.10f, 0.68f))});
-        g.poly({QPointF(g.pt(0.90f, 0.32f)), QPointF(g.pt(0.94f, 0.50f)), QPointF(g.pt(0.90f, 0.68f))});
+        // fit_width: a page spanning the width, pinched in from both sides.
+        g.rect(0.30f, 0.24f, 0.70f, 0.76f);
+        g.line(0.14f, 0.50f, 0.28f, 0.50f);
+        g.poly({QPointF(g.pt(0.28f, 0.50f)), QPointF(g.pt(0.24f, 0.44f)), QPointF(g.pt(0.24f, 0.56f))});
+        g.line(0.86f, 0.50f, 0.72f, 0.50f);
+        g.poly({QPointF(g.pt(0.72f, 0.50f)), QPointF(g.pt(0.76f, 0.44f)), QPointF(g.pt(0.76f, 0.56f))});
         break;
     case Icon::RotateLeft:
         drawRotate(g, false);
@@ -272,6 +294,20 @@ case Icon::MatchCase:
         g.bar(0.22f, 0.30f, 0.66f, 0.38f);
         g.bar(0.22f, 0.50f, 0.78f, 0.58f);
         g.bar(0.22f, 0.70f, 0.58f, 0.78f);
+        break;
+    case Icon::PresentationSingle:
+        g.rect(0.30f, 0.20f, 0.70f, 0.80f);
+        break;
+    case Icon::PresentationDouble:
+        g.rect(0.16f, 0.20f, 0.48f, 0.80f);
+        g.rect(0.52f, 0.20f, 0.84f, 0.80f);
+        break;
+    case Icon::PresentationDoubleWithCover:
+        // Filled (solid) cover page + one open outline page, so the cover mode
+        // reads as "a cover ahead of the open pair" and stays visually distinct
+        // from the plain double view even at small pixel sizes.
+        g.bar(0.16f, 0.20f, 0.48f, 0.80f);
+        g.rect(0.52f, 0.20f, 0.84f, 0.80f);
         break;
     }
 

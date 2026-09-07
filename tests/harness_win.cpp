@@ -4,8 +4,14 @@
 // asserts scroll/cursor/page behaviour. Prints PASS/FAIL lines.
 
 #include "viewer_win32.h"
+#include "material_symbols_fontdata.h"
 
 #include <QImage>
+#include <QColor>
+#include <QFont>
+#include <QFontDatabase>
+#include <QGuiApplication>
+#include <QPainter>
 
 #include <windows.h>
 #include <windowsx.h>
@@ -26,6 +32,50 @@ static int g_failures = 0;
         if (!(cond))                                                          \
             ++g_failures;                                                     \
     } while (0)
+
+// ------------------------------------------------------------------ icons
+
+// Re-rasterizes the re-carved Material glyphs from the same embedded font data
+// the plugin uses (asset + QFontDatabase/QPainter) and reports whether each
+// codepoint actually produces ink, i.e. is present with a real outline.
+static bool glyphInks(char32_t cp, int px) {
+    static bool app = false;
+    if (!app && !QGuiApplication::instance()) {
+        static int charcoalArgc = 1;
+        static char charArg0[] = "harness";
+        static char* charArgv[] = { charArg0, nullptr };
+        new QGuiApplication(charcoalArgc, charArgv);
+    }
+    app = true;
+    const int fontId = QFontDatabase::addApplicationFontFromData(
+        QByteArray::fromRawData(reinterpret_cast<const char*>(toolbar::kMaterialSymbolsTtf),
+                                static_cast<int>(toolbar::kMaterialSymbolsTtfSize)));
+    if (fontId < 0)
+        return false;
+    const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+    if (families.isEmpty())
+        return false;
+
+    QImage img(px, px, QImage::Format_ARGB32);
+    img.fill(Qt::transparent);
+    QPainter p(&img);
+    QFont font(families.first());
+    font.setPixelSize(px);
+    font.setWeight(QFont::Light);
+    p.setFont(font);
+    p.setPen(QColor(0xff, 0xff, 0xff, 0xff));
+    p.drawText(QRect(0, 0, px, px), Qt::AlignCenter,
+               QString::fromUcs4(reinterpret_cast<const char32_t*>(&cp), 1));
+    p.end();
+    for (int y = 0; y < img.height(); ++y) {
+        const QRgb* line = reinterpret_cast<const QRgb*>(img.constScanLine(y));
+        for (int x = 0; x < img.width(); ++x) {
+            if (qAlpha(line[x]) > 0)
+                return true;
+        }
+    }
+    return false;
+}
 
 // ---------------------------------------------------------------- PDF gen
 
@@ -344,13 +394,14 @@ int main() {
     // ---- 4.6: shift+V fit-cycle preserves current page after navigation.
     // The cycle is FitToPage -> FitToWidth -> Manual -> FitToPage, so three
     // presses return to the starting mode. Precondition uses deterministic
-    // full-page jumps (VK_NEXT in continuous = advance one page top) so the
+    // full-page jumps (VK_RIGHT in continuous = advance one page top; PgUp/PgDn
+    // scroll by a screenful instead) so the
     // cursor never has to move off-screen.
     {
         SetFocus(vh);
         pump(60);
         for (int i = 0; i < 3; ++i)
-            PostMessageW(vh, WM_KEYDOWN, VK_NEXT, 0);
+            PostMessageW(vh, WM_KEYDOWN, VK_RIGHT, 0);
         pump(150);
         const int pageBefore = viewer.controller()->currentPage();
         std::printf("  [dbg] vPos=%d pageBefore=%d\n", vPos(vh), pageBefore);
@@ -366,6 +417,16 @@ int main() {
               viewer.controller()->fitMode() == ViewerController::FitMode::FitToPage &&
               pages[0] == pageBefore && pages[1] == pageBefore &&
               pages[2] == pageBefore);
+    }
+
+    {
+        const char32_t crafted[] = { 0xE835, 0xEB38, 0xF77A, 0xF779,
+                                     0xEF42, 0xF51F, 0xE86D };
+        for (char32_t cp : crafted) {
+            const bool inked = glyphInks(cp, 16);
+            std::printf("  [dbg] icon glyph U+%04X inked=%d\n", static_cast<unsigned>(cp), inked);
+            CHECK("carved icon glyph rasterizes ink", inked);
+        }
     }
 
     std::printf("\n%s (%d failure(s))\n", g_failures ? "RESULT: FAIL" : "RESULT: ALL PASS",

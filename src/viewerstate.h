@@ -5,6 +5,11 @@
 
 class ViewerState {
 public:
+    // How pages are grouped into display units. Single shows one page per view
+    // unit; Double pairs consecutive pages (1,2),(3,4),...; DoubleWithCover
+    // isolates page 1 as its own unit and pairs the remainder (2,3),(4,5),...
+    enum class PagePresentation { Single, Double, DoubleWithCover };
+
     // Page navigation
     bool nextPage() {
         if (m_currentPage < m_pageCount) {
@@ -75,6 +80,10 @@ public:
     void setPagedMode(bool paged) { m_pagedMode = paged; }
     bool isPagedMode() const { return m_pagedMode; }
 
+    // Presentation
+    void setPagePresentation(PagePresentation presentation) { m_pagePresentation = presentation; }
+    PagePresentation pagePresentation() const { return m_pagePresentation; }
+
     // State accessors
     int currentPage() const { return m_currentPage; }
     int pageCount() const { return m_pageCount; }
@@ -88,6 +97,7 @@ private:
     int m_pageCount = 0;
     float m_zoom = 1.0f;
     bool m_pagedMode = true;
+    PagePresentation m_pagePresentation = PagePresentation::Single;
 };
 
 #endif // VIEWERSTATE_H

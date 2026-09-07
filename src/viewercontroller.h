@@ -41,6 +41,11 @@ public:
     bool goToPage(int page);
     bool nextPageInContinuousMode();
     bool prevPageInContinuousMode();
+    // Whether a next/previous SCREEN (unit) exists. In a double-page state the
+    // last unit may contain the final page(s), so currentPage < pageCount alone
+    // is not enough to decide if "next" can advance.
+    bool hasNextPage() const;
+    bool hasPrevPage() const;
 
     // Zoom / fit. Each layout-affecting command takes the current continuous
     // scroll offset and returns the new offset that keeps the view anchored to
@@ -56,10 +61,35 @@ public:
     void toggleMode();
     bool isPagedMode() const { return m_state.isPagedMode(); }
 
+    // Page presentation (single / double / double-with-cover). cyclePagePresentation
+    // advances single -> double -> double-with-cover -> single and re-resolves the
+    // current page to its unit under the new state.
+    void cyclePagePresentation();
+    ViewerState::PagePresentation pagePresentation() const { return m_state.pagePresentation(); }
+
+    // Unit pairing: a unit is the set of pages displayed together (one in single,
+    // two in a double-page state; cover mode isolates page 1). unitFirst returns the
+    // first (leftmost) page of the unit containing page; unitLast returns the unit's
+    // second member, or the page itself when the unit is a singleton.
+    int unitFirst(int page) const;
+    int unitLast(int unitFirst) const;
+    bool isDoublePagePresentation() const {
+        return m_state.pagePresentation() != ViewerState::PagePresentation::Single;
+    }
+    // Continuous-mode screen step: the target page when the view is advanced by
+    // one whole screen (+1) or moved back (-1) from the page currently at the
+    // top of the viewport. In a double-page presentation the two members of a
+    // unit move together, so the step jumps to the neighbouring unit (and is a
+    // no-op past the first/last unit) instead of to the unit's other member.
+    int scrollStepPage(int base, int delta) const;
+
     // Viewport
     void setViewportSize(const QSize& size);
     int pageAreaHeight() const;
     int pageAreaWidth() const;
+    // PgUp/PgDn advance by one screenful of page area, keeping a small overlap
+    // band at the edge so the previous screen's last line stays readable.
+    int pageBlockStep() const;
     // Two scale roles, both defaulting to 1:
     // - layoutScale multiplies page geometry (pageRects, contentSize). Win32
     //   uses DPI/96 because HWND coordinates are physical device pixels; Qt
@@ -96,6 +126,11 @@ public:
     int maxScrollOffsetX() const;
     int maxScrollOffsetXForPage(int page) const;
     int maxScrollOffsetYForPage(int page) const;
+    // Overflow limits for the whole unit containing unitFirstPage (the page
+    // pair in a double-page state), not just the single page. Paged viewers use
+    // these so a wide/tall spread can be panned as one group.
+    int maxScrollOffsetXForUnit(int unitFirstPage) const;
+    int maxScrollOffsetYForUnit(int unitFirstPage) const;
     int scrollOffsetForPage(int page) const;
     void trackCurrentPage(int page);
     void trimRenderCache(int scrollY);
@@ -188,6 +223,11 @@ private:
     UiMarshalFn m_uiMarshal;
 
     void computeFitZoom();
+    // Doc-wide maximum row width under the current rotation/presentation: the
+    // combined spread width for a double-page state, the widest single page
+    // otherwise. Fit-to-width targets this so no unit overflows the viewport
+    // horizontally even off a singleton cover or trailing odd page.
+    int maxRowWidth() const;
     void computeLayout();
     int clampScroll(int scrollY) const;
     void notifyChanged();
