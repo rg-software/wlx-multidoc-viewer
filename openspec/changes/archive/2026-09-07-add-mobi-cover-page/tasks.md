@@ -25,15 +25,15 @@
 ## 5. Build verification
 
 - [x] 5.1 Windows: `BuildMakeSetup.bat` (x64 + x86) builds clean.
-- [ ] 5.2 Linux: `cmake --preset linux-release && cmake --build --preset linux-release`; confirm behavior (no `fz_extract_html_from_mobi` dependency anymore, so no external-symbol risk remains).
+- [x] 5.2 Linux: `cmake --preset linux-release && cmake --build --preset linux-release`; confirm behavior (no `fz_extract_html_from_mobi` dependency anymore, so no external-symbol risk remains).
 
 ## 6. Smoke tests (Windows)
 
 - [x] 6.1 Headless (new `harness-mobi`, built with `WLX_BUILD_HARNESS=ON`): open `examples/sample1.mobi` (EXTH[201]=0) → 24 pages (23 body + 1 cover), page 1 = cover image (no text layer, ~100% opaque coverage, 420x595 at zoom 1), page 2 = copyright. Section page breaks preserved: p03 = Contents, p04 = for-Sharon … identical to plain open shifted by the cover.
 - [x] 6.2 Headless: page 2 renders, whole-document search finds body text on page 2, outline targets in range, cover page renders non-blank.
 - [x] 6.3 Fallback (headless): a copy with the First-Image-Index at 0x5C rewritten to 0xFFFFFFFF → intercept bails, plain open yields the original 23 body pages, no crash.
-- [ ] 6.4 Regression (interactive): re-open a PDF and an EPUB and confirm identical page counts and first-page rendering vs. before the change; confirm DjVu/CHM/comic/image paths unaffected.
-- [ ] 6.5 Interactive: copy `MultidocViewer.wlx64` alongside Total Commander on Windows and repeat 6.1/6.2 in the lister panel (double-check the plugin loads, cover shows on page 1, and section page breaks are visibly preserved).
+- [x] 6.4 Regression (interactive): re-open a PDF and an EPUB and confirm identical page counts and first-page rendering vs. before the change; confirm DjVu/CHM/comic/image paths unaffected.
+- [x] 6.5 Interactive: copy `MultidocViewer.wlx64` alongside Total Commander on Windows and repeat 6.1/6.2 in the lister panel (double-check the plugin loads, cover shows on page 1, and section page breaks are visibly preserved).
 
 ## 7. MuPDF version pin note
 

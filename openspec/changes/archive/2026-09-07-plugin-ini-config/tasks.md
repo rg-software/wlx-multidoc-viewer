@@ -20,5 +20,5 @@
 ## 4. Build verification
 
 - [x] 4.1 Build the Windows preset (`cmake --preset windows-x64-release && cmake --build --preset windows-release`); confirm clean compile and `multidocviewer.ini` is present next to the output DLL. (Host env required `VCPKG_VISUAL_STUDIO_PATH=C:\Program Files\Microsoft Visual Studio\18\Community` to override a stale user-scope value pointing at an incomplete 2022 install — see vcpkg-tool VS-instance detection; the plugin + staged INI build cleanly otherwise.)
-- [ ] 4.2 Build the Linux preset (`cmake --preset linux-release && cmake --build --preset linux-release`); confirm clean compile and `multidocviewer.ini` is fetched into the build directory.
-- [ ] 4.3 Smoke test: load a document with no INI file present (default gray background); create a `multidocviewer.ini` with `[Viewer] BackgroundColor=#FFFFFF`, reload (new viewer window), confirm white background; test malformed value (`BackgroundColor=red`) falls back to gray.
+- [x] 4.2 Build the Linux preset (`cmake --preset linux-release && cmake --build --preset linux-release`); confirm clean compile and `multidocviewer.ini` is fetched into the build directory.
+- [x] 4.3 Smoke test: load a document with no INI file present (default gray background); create a `multidocviewer.ini` with `[Viewer] BackgroundColor=#FFFFFF`, reload (new viewer window), confirm white background; test malformed value (`BackgroundColor=red`) falls back to gray.
