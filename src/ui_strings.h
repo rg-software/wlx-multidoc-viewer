@@ -24,7 +24,7 @@ inline QString tooltipZoomIn()           { return QStringLiteral("Zoom in"); }
 inline QString tooltipFindPrev()         { return QStringLiteral("Previous match"); }
 inline QString tooltipFindNext()         { return QStringLiteral("Next match"); }
 inline QString tooltipMatchCase()        { return QStringLiteral("Match case"); }
-inline QString tooltipCopy()             { return QStringLiteral("Copy (text selection arrives in a future change)"); }
+inline QString tooltipCopy()             { return QStringLiteral("Copy selection"); }
 
 // --- Toolbar status / edit-text --------------------------------------------
 inline QString pageCountSuffix()         { return QStringLiteral("/ %1"); }

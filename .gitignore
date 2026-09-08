@@ -24,9 +24,8 @@ BuildMakeSetup.out
 *.dll
 *.dylib
 
-# Qt
+# Qt (moc/qrc outputs; build/ dirs already ignore actual generated files).
 moc_*.cpp
-ui_*.h
 qrc_*.cpp
 *.pro.user
 
