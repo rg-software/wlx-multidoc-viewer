@@ -16,7 +16,7 @@ inline QString tooltipPrevPage()         { return QStringLiteral("Previous page"
 inline QString tooltipNextPage()         { return QStringLiteral("Next page"); }
 inline QString tooltipToggleMode()       { return QStringLiteral("Paged /continuous"); }
 inline QString tooltipPresentation()     { return QStringLiteral("Single / double / skip cover double"); }
-inline QString tooltipFitMode()          { return QStringLiteral("Fit (manual / page / width)"); }
+inline QString tooltipFitMode()          { return QStringLiteral("Fit (page / width / manual)"); }
 inline QString tooltipRotateLeft()       { return QStringLiteral("Rotate left"); }
 inline QString tooltipRotateRight()      { return QStringLiteral("Rotate right"); }
 inline QString tooltipZoomOut()          { return QStringLiteral("Zoom out"); }
