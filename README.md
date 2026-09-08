@@ -11,8 +11,8 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
 
   - fixed-layout (PDF, XPS/OXPS, DJVU/DJV);
   - eBooks (EPUB, FB2, MOBI, CHM);
-  - comic books (CBR, CBZ);
-  - images (JPEG, PNG, TIFF, GIF, BMP, WEBP).
+  - comic books (CBR, CBZ) and multi-page TIFF;
+  - images (JPEG, PNG, GIF, BMP).
 
   Verified over generated `examples` and
   real-world files.
@@ -21,13 +21,18 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
   scrollbar that covers the whole document, accurate even for very long or
   high-zoom files.
 
-- **Fit & zoom**: fit-to-page / fit-to-width / 100%, zoom in/out, rotation.
+- **Single-page & double-page modes**: show one or two pages side by side.
+  Optionally use the double-page mode from the second page of the document. 
+
+- **Fit, zoom, & rotation**: fit-to-page / fit-to-width / manual, zoom in/out, rotation.
 
 - **Outline sidebar**: table of contents for PDF/EPUB/CHM documents.
 
 - **Text selection & find**: select text with the mouse and copy it, search
   across pages with per-match highlights in documents with a text layer
   (PDF, EPUB, XPS, CHM).
+  
+- **Folder browsing**: navigate between images in the current folder using Next and Previous buttons.
 
 - **Printing**: page range and copies through the host print dialog.
 
