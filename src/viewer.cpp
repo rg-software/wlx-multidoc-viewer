@@ -566,16 +566,6 @@ void ViewerWidget::onRotateCcw() {
     m_scrollArea->verticalScrollBar()->setValue(m_controller->rotateCcw(scrollYValue()));
 }
 
-void ViewerWidget::onExitRequested() {
-    QWidget* parent = parentWidget();
-    if (!parent)
-        return;
-    QCoreApplication::postEvent(parent,
-        new QKeyEvent(QEvent::KeyPress, Qt::Key_Q, Qt::NoModifier));
-    QCoreApplication::postEvent(parent,
-        new QKeyEvent(QEvent::KeyRelease, Qt::Key_Q, Qt::NoModifier));
-}
-
 void ViewerWidget::copySelection() {
     if (!m_controller || !m_controller->hasSelection())
         return;
@@ -827,7 +817,8 @@ void ViewerWidget::resizeEvent(QResizeEvent* event) {
         m_controller->setViewportSize(QSize(width(), height()));
         refreshChrome();
         m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(scrollYValue()));
-resizeCanvas();
+    }
+    resizeCanvas();
     syncAnimationTimer();
 }
 
@@ -853,5 +844,4 @@ void ViewerWidget::onAnimationTick() {
         m_canvas->update();
     if (m_animTimer)
         m_animTimer->start((std::max)(10, m_controller->animationDelayMs()));
-}
 }
