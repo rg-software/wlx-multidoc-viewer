@@ -41,19 +41,6 @@
 namespace {
 using viewer_settings::kPageGap;
 using viewer_settings::kCacheWindowPages;
-
-// Combined on-screen size of a double-page unit given the two member pages'
-// sizes (in the caller's units) and whether the unit actually has a partner.
-// Shared by computeLayout and computeFitZoom so they never disagree (D8).
-// A singleton unit collapses to the single page's size with no gap.
-struct UnitSizes {
-    int width = 0;
-    int height = 0;
-};
-UnitSizes unitBounds(int firstW, int firstH, int lastW, int lastH, bool paired) {
-    return {firstW + (paired ? kPageGap + lastW : 0),
-            std::max(firstH, paired ? lastH : 0)};
-}
 }
 
 ViewerController::ViewerController() = default;
@@ -125,10 +112,12 @@ bool ViewerController::nextPage() {
         if (next <= 1 || next > m_state.pageCount())
             return openSibling(+1);
         m_state.goToPage(next);
+        refitAfterNavigation();
         notifyChanged();
         return true;
     }
     if (m_state.nextPage()) {
+        refitAfterNavigation();
         notifyChanged();
         return true;
     }
@@ -146,10 +135,12 @@ bool ViewerController::prevPage() {
         if (prev >= current)
             return openSibling(-1);
         m_state.goToPage(prev);
+        refitAfterNavigation();
         notifyChanged();
         return true;
     }
     if (m_state.prevPage()) {
+        refitAfterNavigation();
         notifyChanged();
         return true;
     }
@@ -159,6 +150,7 @@ bool ViewerController::prevPage() {
 bool ViewerController::firstPage() {
     if (!m_state.firstPage())
         return false;
+    refitAfterNavigation();
     notifyChanged();
     return true;
 }
@@ -166,6 +158,7 @@ bool ViewerController::firstPage() {
 bool ViewerController::lastPage() {
     if (!m_state.lastPage())
         return false;
+    refitAfterNavigation();
     notifyChanged();
     return true;
 }
@@ -175,8 +168,26 @@ bool ViewerController::goToPage(int page) {
         page = unitFirst(page);
     if (!m_state.goToPage(page))
         return false;
+    refitAfterNavigation();
     notifyChanged();
     return true;
+}
+
+// Paged mode: re-fit the active fit mode to the new current unit after a
+// navigation command. The fit zoom is otherwise computed once (open/relayout/
+// zoom-change) and frozen, so on mixed-size documents a non-anchor page could
+// overflow the viewport and PgUp/PgDn would scroll within it instead of
+// advancing (two taps per page). The epsilon guard makes navigating a
+// uniform-size document a no-op (no relayout, no cache invalidation). Manual
+// zoom is never touched; continuous mode keeps its document-wide anchored
+// zoom (see design D1/D2).
+void ViewerController::refitAfterNavigation() {
+    if (!hasDocument() || !isPagedMode() || m_fitMode == FitMode::Manual)
+        return;
+    const float before = m_state.zoom();
+    computeFitZoom();
+    if (std::abs(m_state.zoom() - before) > 1e-4f)
+        computeLayout();
 }
 
 bool ViewerController::nextPageInContinuousMode() {
@@ -424,22 +435,9 @@ void ViewerController::computeFitZoom() {
     if (m_fitMode == FitMode::Manual)
         return;
 
-    auto rotatedDims = [this](int page) {
-        PageInfo info = m_engine->pageDimensions(page);
-        if (m_rotation == 90 || m_rotation == 270)
-            std::swap(info.width, info.height);
-        return info;
-    };
-
     // Fit target is the whole current unit (a single page in Single mode, a
     // page pair in a double-page state), consistent with computeLayout (D8).
-    const int firstPage = unitFirst(m_state.currentPage());
-    const PageInfo first = rotatedDims(firstPage);
-    const int lastPage = unitLast(firstPage);
-    const bool paired = lastPage != firstPage;
-    const PageInfo last = paired ? rotatedDims(lastPage) : PageInfo();
-    const UnitSizes unit = unitBounds(first.width, first.height,
-                                      last.width, last.height, paired);
+    const UnitSizes unit = currentUnitSizes();
     if (unit.width <= 0 || unit.height <= 0)
         return;
 
@@ -455,12 +453,43 @@ void ViewerController::computeFitZoom() {
     if (m_fitMode == FitMode::FitToPage) {
         m_state.setZoom(m_state.fitToPageZoom(unit.width, unit.height, vw, vh));
     } else {
-        // FitToWidth targets the widest row in the document (the combined
-        // spread in a double-page state, the widest page otherwise) so no unit
-        // overflows the viewport horizontally — even from a singleton cover or
-        // a trailing odd page, the two-page spread still fits by width (D6).
-        m_state.setZoom(m_state.fitToWidthZoom(maxRowWidth(), vw));
+        // FitToWidth targets the current unit in paged mode (the fit rule
+        // applies to the unit in view) and the widest row in the document in
+        // continuous mode (the combined spread in a double-page state, the
+        // widest page otherwise) so no unit overflows the viewport horizontally
+        // — even from a singleton cover or a trailing odd page, the two-page
+        // spread still fits by width (D6).
+        const int rowW = isPagedMode() ? unit.width : maxRowWidth();
+        m_state.setZoom(m_state.fitToWidthZoom(rowW, vw));
     }
+}
+
+// Rotated dimensions of the unit containing the current page, in the caller's
+// units. Shared by both fit modes so paged fit-to-page and fit-to-width target
+// the same unit the layout and navigation operate on (design D1/D2).
+ViewerController::UnitSizes ViewerController::currentUnitSizes() const {
+    if (!m_engine || !m_engine->isOpen())
+        return {};
+    auto rotatedDims = [this](int page) {
+        PageInfo info = m_engine->pageDimensions(page);
+        if (m_rotation == 90 || m_rotation == 270)
+            std::swap(info.width, info.height);
+        return info;
+    };
+    const int firstPage = unitFirst(m_state.currentPage());
+    const PageInfo first = rotatedDims(firstPage);
+    const int lastPage = unitLast(firstPage);
+    const bool paired = lastPage != firstPage;
+    const PageInfo last = paired ? rotatedDims(lastPage) : PageInfo();
+    return unitBounds(first.width, first.height,
+                      last.width, last.height, paired);
+}
+
+ViewerController::UnitSizes ViewerController::unitBounds(int firstW, int firstH,
+                                                        int lastW, int lastH,
+                                                        bool paired) {
+    return {firstW + (paired ? kPageGap + lastW : 0),
+            std::max(firstH, paired ? lastH : 0)};
 }
 
 // Doc-wide maximum row width under the current rotation/presentation: the
@@ -664,6 +693,15 @@ int ViewerController::maxScrollOffsetYForUnit(int unitFirstPage) const {
             unitH = std::max(r1.height(), r2.height());
     }
     return std::max(0, unitH - pageAreaHeight());
+}
+
+// Design D3: PgUp/PgDn advance one unit per press unless the unit overflows the
+// viewport by more than the block-overlap band. An overflow up to that band
+// (e.g. from fit-zoom float rounding on a freshly re-fitted page) would only
+// reveal pixels the next block scroll would show anyway, so it must not cost an
+// extra key press.
+bool ViewerController::unitRequiresVerticalScroll(int unitFirstPage) const {
+    return maxScrollOffsetYForUnit(unitFirstPage) > kPageBlockOverlap;
 }
 
 int ViewerController::scrollOffsetForPage(int page) const {

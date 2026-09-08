@@ -445,7 +445,8 @@ void ViewerWidget::onPrevPage() {
 
 // PgDn/PgUp scroll by one vertical block (one screenful with a small overlap).
 // In paged mode a unit that still overflows scrolls within it; one that fits
-// (or is already at its foot) advances to the next/prev page instead.
+// (or is within the overlap band of being so, or is already at its foot)
+// advances to the next/prev page instead.
 void ViewerWidget::onPageDown() {
     if (!m_controller || !m_controller->hasDocument())
         return;
@@ -453,7 +454,7 @@ void ViewerWidget::onPageDown() {
     if (m_controller->isPagedMode()) {
         const int first = m_controller->unitFirst(m_controller->currentPage());
         const int maxY = m_controller->maxScrollOffsetYForUnit(first);
-        if (maxY > 0 && scrollYValue() < maxY) {
+        if (m_controller->unitRequiresVerticalScroll(first) && scrollYValue() < maxY) {
             vBar->setValue(std::min(scrollYValue() + m_controller->pageBlockStep(), maxY));
             return;
         }
@@ -473,7 +474,8 @@ void ViewerWidget::onPageUp() {
         return;
     QScrollBar* vBar = m_scrollArea->verticalScrollBar();
     if (m_controller->isPagedMode()) {
-        if (scrollYValue() > 0) {
+        if (m_controller->unitRequiresVerticalScroll(
+                m_controller->unitFirst(m_controller->currentPage())) && scrollYValue() > 0) {
             vBar->setValue(std::max(scrollYValue() - m_controller->pageBlockStep(), 0));
             return;
         }

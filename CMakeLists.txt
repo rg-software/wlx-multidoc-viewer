@@ -352,6 +352,41 @@ if(WLX_BUILD_HARNESS AND WIN32)
         chmlib::chmlib
     )
 
+    # Paged per-unit fit refit + one-tap PgUp/PgDn harness
+    # (fix-refit-fit-zoom-on-navigation).
+    add_executable(harness-refit
+        tests/harness_refit.cpp
+        src/viewer_win32.cpp
+        src/pluginconfig.cpp
+        src/toolbar_win32.cpp
+        src/sidebar_win32.cpp
+        src/viewercontroller.cpp
+        src/textselection.cpp
+        src/formatdispatcher.cpp
+        src/mupdfengine.cpp
+        src/djvuengine.cpp
+        src/chmengine.cpp
+        src/comicengine.cpp
+        src/naturalsort.cpp
+        src/imageengine.cpp
+        src/imagefolder.cpp
+        src/searchcontroller.cpp
+        src/toolbar.cpp
+        src/toolbar_icons.cpp
+        src/printcoordinator.cpp
+        src/print_win32.cpp
+    )
+    target_include_directories(harness-refit PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
+    add_dependencies(harness-refit material_symbols_font_header)
+    target_link_libraries(harness-refit
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
+        ${DJVU_TARGET}
+        LibArchive::LibArchive
+        chmlib::chmlib
+    )
+
     # Headless MOBI cover-page smoke harness (add-mobi-cover-page).
     add_executable(harness-mobi
         tests/harness_mobi.cpp

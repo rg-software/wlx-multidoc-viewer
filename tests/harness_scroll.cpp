@@ -837,8 +837,10 @@ viewer.controller()->setManualZoom(1.0f, 0);
         CHECK("G47 single continuous keeps the page-anchored scroll",
               vPos(vh) == viewer.controller()->scrollOffsetForPage(1));
 
-        // Fit-to-width from the cover must target the two-page spread, not the
-        // singleton cover, so the next spread still fits the viewport width.
+        // Fit-to-width in paged mode targets the CURRENT unit: from the cover
+        // the singleton fills the viewport width, and on navigating to the next
+        // unit the refit re-targets the {2,3} spread so it fills the width
+        // without horizontal overflow (fix-refit-fit-zoom-on-navigation).
         viewer.controller()->toggleMode(); // continuous -> paged
         pump(60);
         postKey('P'); // Single -> Double
@@ -858,12 +860,17 @@ viewer.controller()->setManualZoom(1.0f, 0);
                     G48spreadW, viewer.controller()->pageAreaWidth(),
                     pr(1).width());
         std::fflush(stdout);
-        CHECK("G49 fit-to-width off the cover targets the spread",
-              std::abs(G48spreadW - viewer.controller()->pageAreaWidth()) <= 2);
-        CHECK("G50 cover renders narrower than the viewport",
-              pr(1).width() < viewer.controller()->pageAreaWidth());
+        CHECK("G49 paged fit-to-width off the cover targets the cover"
+              " (current unit fills the width)",
+              std::abs(pr(1).width() - viewer.controller()->pageAreaWidth()) <= 2);
         viewer.controller()->goToPage(2);
         pump(60);
+        const int G48refitSpreadW = pr(2).width() + gap + pr(3).width();
+        std::printf("  [dbg] G48 refit-spreadW=%d pageAreaW=%d\n",
+                    G48refitSpreadW, viewer.controller()->pageAreaWidth());
+        std::fflush(stdout);
+        CHECK("G49b navigating to the spread refits so IT fills the width",
+              std::abs(G48refitSpreadW - viewer.controller()->pageAreaWidth()) <= 2);
         CHECK("G51 spread unit does not overflow horizontally",
               viewer.controller()->maxScrollOffsetXForUnit(2) == 0);
 

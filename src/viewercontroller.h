@@ -156,6 +156,11 @@ public:
     // these so a wide/tall spread can be panned as one group.
     int maxScrollOffsetXForUnit(int unitFirstPage) const;
     int maxScrollOffsetYForUnit(int unitFirstPage) const;
+    // Whether the unit needs an in-page scroll on PgUp/PgDn: only a vertical
+    // overflow larger than the block-overlap band counts as real overflow. A
+    // unit within the band (or exactly fitted) advances to the next unit on the
+    // first press (see design D3).
+    bool unitRequiresVerticalScroll(int unitFirstPage) const;
     int scrollOffsetForPage(int page) const;
     void trackCurrentPage(int page);
     void trimRenderCache(int scrollY);
@@ -247,7 +252,29 @@ private:
     mutable bool m_searchJumpPending = false;
     UiMarshalFn m_uiMarshal;
 
+    // Rotated on-screen size of a view unit (a single page, or a two-page
+    // spread in a double-page state, after rotation). Shared by the fit
+    // computations so both fit modes target the unit currently in view.
+    struct UnitSizes {
+        int width = 0;
+        int height = 0;
+    };
+
     void computeFitZoom();
+    // Paged mode: after a navigation command, re-fit the active fit mode to the
+    // NEW current unit instead of keeping the open/relayout-time anchor. No-op
+    // on uniform documents (zoom unchanged) and in manual zoom. Continuous mode
+    // deliberately keeps the document-wide anchored zoom.
+    void refitAfterNavigation();
+    // Rotated dimensions of the unit containing the current page. The fit
+    // target for both fit modes in paged mode (see design D1/D2).
+    UnitSizes currentUnitSizes() const;
+    // Combined on-screen size of a double-page unit given the two member sizes
+    // (in the caller's units) and whether the unit has a partner. A singleton
+    // unit collapses to the single page's size. Shared by computeLayout,
+    // maxRowWidth and the fit computations so they never disagree (D8).
+    static UnitSizes unitBounds(int firstW, int firstH,
+                                int lastW, int lastH, bool paired);
     // Doc-wide maximum row width under the current rotation/presentation: the
     // combined spread width for a double-page state, the widest single page
     // otherwise. Fit-to-width targets this so no unit overflows the viewport

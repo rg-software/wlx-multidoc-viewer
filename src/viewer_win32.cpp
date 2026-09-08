@@ -759,8 +759,8 @@ void ViewerWin32::pageJumpContinuous(int delta) {
 
 // PgDn/PgUp scroll by one vertical block (one screenful with a small overlap).
 // In paged mode, a page/unit that still has overflow scrolls within it; one
-// that is fully visible (or already at its foot) advances to the next/prev
-// page instead of skipping it.
+// that is fully visible (or within the overlap band of being so, or already at
+// its foot) advances to the next/prev page instead of skipping it.
 void ViewerWin32::pageBlockDown() {
     if (!m_controller || !m_controller->hasDocument())
         return;
@@ -768,7 +768,7 @@ void ViewerWin32::pageBlockDown() {
     if (m_controller->isPagedMode()) {
         const int first = m_controller->unitFirst(m_controller->currentPage());
         const int maxY = m_controller->maxScrollOffsetYForUnit(first);
-        if (maxY > 0 && m_scrollY < maxY) {
+        if (m_controller->unitRequiresVerticalScroll(first) && m_scrollY < maxY) {
             m_scrollY = (std::min)(m_scrollY + m_controller->pageBlockStep(), maxY);
         } else if (m_controller->nextPage()) {
             m_scrollY = 0;
@@ -784,7 +784,8 @@ void ViewerWin32::pageBlockUp() {
         return;
     m_scrollX = 0;
     if (m_controller->isPagedMode()) {
-        if (m_scrollY > 0) {
+        if (m_controller->unitRequiresVerticalScroll(
+                m_controller->unitFirst(m_controller->currentPage())) && m_scrollY > 0) {
             m_scrollY = (std::max)(m_scrollY - m_controller->pageBlockStep(), 0);
         } else if (m_controller->prevPage()) {
             m_scrollY = 0;
