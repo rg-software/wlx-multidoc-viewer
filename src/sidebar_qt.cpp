@@ -70,6 +70,27 @@ SidebarQt::SidebarQt(QWidget* parent)
     m_grip = new ResizeGrip(this);
     layout->addWidget(m_grip, 0);
 
+    const uint32_t sbg = viewer_settings::kSidebarBackground;
+    const QColor sbgColor(static_cast<int>((sbg >> 16) & 0xFF),
+                          static_cast<int>((sbg >> 8) & 0xFF),
+                          static_cast<int>(sbg & 0xFF));
+
+    // The tree viewport has its own palette copy at construction, so set both
+    // explicitly; Base covers the tree rows, Window the surrounding strip.
+    QPalette treePal = m_tree->palette();
+    treePal.setColor(QPalette::Window, sbgColor);
+    treePal.setColor(QPalette::Base, sbgColor);
+    m_tree->setPalette(treePal);
+    m_tree->viewport()->setPalette(treePal);
+    m_tree->setAutoFillBackground(true);
+    m_tree->viewport()->setAutoFillBackground(true);
+
+    // Container background; the grip inherits this palette as a child widget.
+    QPalette panelPal = palette();
+    panelPal.setColor(QPalette::Window, sbgColor);
+    setPalette(panelPal);
+    setAutoFillBackground(true);
+
     setFixedWidth(viewer_settings::kSidebarInitialWidth);
 
     connect(m_tree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {

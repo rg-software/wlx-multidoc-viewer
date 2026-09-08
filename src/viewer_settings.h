@@ -73,6 +73,11 @@ bool parseBool(const std::string& value, bool fallback) {
 inline uint32_t kBackgroundColor = parseHexColor(
     PluginConfig::get().get("Viewer").get("BackgroundColor"), 0xE8E8E8);
 
+// Outline sidebar background color (0x00RRGGBB), read from the plugin INI's
+// [Viewer] SidebarBackground key at startup; falls back to 0xE8E8E8.
+inline uint32_t kSidebarBackground = parseHexColor(
+    PluginConfig::get().get("Viewer").get("SidebarBackground"), 0xE8E8E8);
+
 inline constexpr int kWheelStepPx = 60;         // px per wheel notch (continuous mode)
 inline constexpr int kKeyboardStepPx = 60;      // px per Up/Down arrow key press
 inline constexpr int kScrollBarLineStepPx = 20; // px per scrollbar line click

@@ -12,6 +12,21 @@
 
 #pragma comment(lib, "comctl32.lib")
 
+// Process-lifetime brush for the sidebar background. The window classes are
+// registered once and outlive any SidebarWin32 instance, so the brush must
+// outlive them too: create it on first construction and never DeleteObject
+// (reclaimed by the OS at process teardown). The INI-fed color is already
+// cached at first access, so the brush never changes at runtime.
+HBRUSH sidebarBackgroundBrush() {
+    static HBRUSH brush = [] {
+        const uint32_t bg = viewer_settings::kSidebarBackground;
+        return CreateSolidBrush(RGB(static_cast<BYTE>((bg >> 16) & 0xFF),
+                                    static_cast<BYTE>((bg >> 8) & 0xFF),
+                                    static_cast<BYTE>(bg & 0xFF)));
+    }();
+    return brush;
+}
+
 SidebarWin32::SidebarWin32(HWND hParent)
     : m_parent(hParent)
 {
@@ -28,7 +43,7 @@ SidebarWin32::SidebarWin32(HWND hParent)
     wc.lpfnWndProc = wndProc;
     wc.hInstance = hInst;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    wc.hbrBackground = sidebarBackgroundBrush();
     wc.lpszClassName = WLX_SIDEBAR_CLASS;
 
     static bool registered = false;
@@ -43,7 +58,7 @@ SidebarWin32::SidebarWin32(HWND hParent)
     wcGrip.lpfnWndProc = gripProc;
     wcGrip.hInstance = hInst;
     wcGrip.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wcGrip.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
+    wcGrip.hbrBackground = sidebarBackgroundBrush();
     wcGrip.lpszClassName = WLX_SIDEBAR_GRIP_CLASS;
 
     static bool gripRegistered = false;
@@ -65,6 +80,15 @@ SidebarWin32::SidebarWin32(HWND hParent)
         0, 0, 10, 10, m_hwnd,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(1)),
         hInst, nullptr);
+
+    // Color the tree viewport (which fills the sidebar) with the configured
+    // background so it matches the panel and grip class brushes.
+    if (m_tree) {
+        const uint32_t sbg = viewer_settings::kSidebarBackground;
+        TreeView_SetBkColor(m_tree, RGB(static_cast<BYTE>((sbg >> 16) & 0xFF),
+                                        static_cast<BYTE>((sbg >> 8) & 0xFF),
+                                        static_cast<BYTE>(sbg & 0xFF)));
+    }
 
     // Right-edge drag handle. Non-focusable so it never participates in tab
     // order, and WS_EX_NOPARENTNOTIFY so it does not echo mouse-parent events.
