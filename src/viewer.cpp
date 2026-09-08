@@ -8,7 +8,6 @@
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QGuiApplication>
-#include <QInputDialog>
 #include <QMetaObject>
 #include <QMouseEvent>
 #include <QPainter>
@@ -334,7 +333,6 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     connect(new QShortcut(QKeySequence(Qt::Key_0), this), &QShortcut::activated, this, &ViewerWidget::onZoomOriginal);
     connect(new QShortcut(QKeySequence(Qt::Key_R), this), &QShortcut::activated, this, &ViewerWidget::onRotateCw);
     connect(new QShortcut(QKeySequence("Shift+R"), this), &QShortcut::activated, this, &ViewerWidget::onRotateCcw);
-    connect(new QShortcut(QKeySequence(Qt::Key_G), this), &QShortcut::activated, this, &ViewerWidget::onGoToPage);
     connect(new QShortcut(QKeySequence(Qt::Key_Escape), this), &QShortcut::activated, this, &ViewerWidget::onEscapePressed);
     connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_C), this), &QShortcut::activated, this, &ViewerWidget::copySelection);
 
@@ -568,18 +566,14 @@ void ViewerWidget::onRotateCcw() {
     m_scrollArea->verticalScrollBar()->setValue(m_controller->rotateCcw(scrollYValue()));
 }
 
-void ViewerWidget::onGoToPage() {
-    if (!m_controller || !m_controller->hasDocument())
+void ViewerWidget::onExitRequested() {
+    QWidget* parent = parentWidget();
+    if (!parent)
         return;
-    bool ok;
-    int page = QInputDialog::getInt(this, ui_strings::gotoPageTitle(),
-                                     ui_strings::gotoPagePrompt(), m_controller->currentPage(),
-                                     1, m_controller->pageCount(), 1, &ok);
-    if (ok) {
-        m_controller->goToPage(page);
-        if (!m_controller->isPagedMode())
-            m_scrollArea->verticalScrollBar()->setValue(m_controller->scrollOffsetForPage(page));
-    }
+    QCoreApplication::postEvent(parent,
+        new QKeyEvent(QEvent::KeyPress, Qt::Key_Q, Qt::NoModifier));
+    QCoreApplication::postEvent(parent,
+        new QKeyEvent(QEvent::KeyRelease, Qt::Key_Q, Qt::NoModifier));
 }
 
 void ViewerWidget::copySelection() {

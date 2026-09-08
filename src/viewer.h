@@ -53,7 +53,6 @@ private slots:
     void onTogglePresentation();
     void onRotateCw();
     void onRotateCcw();
-    void onGoToPage();
     void onExitRequested();
     void onEscapePressed();
     void copySelection();

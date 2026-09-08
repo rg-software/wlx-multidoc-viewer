@@ -10,13 +10,13 @@
 namespace ui_strings {
 
 // --- Toolbar tooltips -----------------------------------------------------
-inline QString tooltipToggleSidebar()    { return QStringLiteral("Toggle outline sidebar"); }
+inline QString tooltipToggleSidebar()    { return QStringLiteral("Sidebar"); }
 inline QString tooltipPrint()            { return QStringLiteral("Print"); }
 inline QString tooltipPrevPage()         { return QStringLiteral("Previous page"); }
 inline QString tooltipNextPage()         { return QStringLiteral("Next page"); }
-inline QString tooltipToggleMode()       { return QStringLiteral("Toggle paged / continuous"); }
-inline QString tooltipPresentation()     { return QStringLiteral("Single / double / double with cover"); }
-inline QString tooltipFitMode()          { return QStringLiteral("Fit mode (manual / page / width)"); }
+inline QString tooltipToggleMode()       { return QStringLiteral("Paged /continuous"); }
+inline QString tooltipPresentation()     { return QStringLiteral("Single / double / skip cover double"); }
+inline QString tooltipFitMode()          { return QStringLiteral("Fit (manual / page / width)"); }
 inline QString tooltipRotateLeft()       { return QStringLiteral("Rotate left"); }
 inline QString tooltipRotateRight()      { return QStringLiteral("Rotate right"); }
 inline QString tooltipZoomOut()          { return QStringLiteral("Zoom out"); }
@@ -35,10 +35,6 @@ inline QString findNoMatch()             { return QStringLiteral("No matches"); 
 // --- Print (Qt message box) ---------------------------------------------------
 inline QString printTitle()              { return QStringLiteral("Print"); }
 inline QString printFailedMessage()      { return QStringLiteral("Printing failed: the printer rejected the document."); }
-
-// --- Go-to-page dialog (Qt only) ----------------------------------------------
-inline QString gotoPageTitle()           { return QStringLiteral("Go to page"); }
-inline QString gotoPagePrompt()          { return QStringLiteral("Page number:"); }
 
 } // namespace ui_strings
 
