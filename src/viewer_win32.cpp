@@ -943,8 +943,13 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         m_scrollY = m_controller->zoomOut(m_scrollY);
         captured = true;
         break;
-    case '0':
+    case 0x60:          // VK_NUMPAD0
+    case 0xBF:          // VK_OEM_2  (forward slash /)
         m_scrollY = m_controller->setManualZoom(1.0f, m_scrollY);
+        captured = true;
+        break;
+    case 0xDC:          // VK_OEM_5  (backslash \)
+        onSidebarToggle();
         captured = true;
         break;
     }
@@ -966,7 +971,8 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
             InvalidateRect(m_hwnd, nullptr, FALSE);
         } else if (wp == VK_RIGHT || wp == VK_LEFT
                    || wp == VK_HOME || wp == VK_END || wp == 'V' || wp == 'R'
-                   || wp == 0xBB || wp == 0x6B || wp == 0xBD || wp == 0x6D || wp == '0') {
+                   || wp == 0xBB || wp == 0x6B || wp == 0xBD || wp == 0x6D
+                   || wp == 0x60 || wp == 0xBF) {
             m_scrollX = 0;
             m_scrollY = 0;
         }
