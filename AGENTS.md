@@ -107,6 +107,9 @@ Write conventional, structured commit messages so the release pipeline can group
 ### Fixed (in add-image-browsing-and-animation)
 - ~~Standalone raster images have no animation and no folder navigation~~ — a new `ImageEngine` (`QImageReader`) now handles `.jpg/.jpeg/.png/.gif/.tif/.tiff/.bmp/.webp` as single-page documents, plays multi-frame GIFs in place (per-frame delay + loop count via the `DocumentEngine` animation virtuals `isAnimated`/`frameDelayMs`/`advanceFrame`), and the `ViewerController` opens sibling images at next/prev document bounds (`ImageFolder` + shared `naturalsort`). The `QGifHandler` jumpToImage gotcha and the Win32 playback timer (delivered as `WM_TIMER`, not a custom message) are both accounted for; sample generators live in `tools/generate_sample_images.py` and `examples/` ships generated `sample1.jpg`…`sample5.tiff` + `sample-animated.gif`.
 
+### Fixed (in add-icc-color-management)
+- ~~CMYK/ICC images render near-black (naive CMYK→RGB fallback)~~ — the `trim-binary-size` drop of lcms2 (`FZ_ENABLE_ICC=0` in the libmupdf overlay port) made MuPDF convert embedded CMYK JPEGs with a naive `1-min(1, c+k)` formula, collapsing ICC-managed content (e.g. the title page of `examples/AC3_GW_Notebook_GER.pdf`) to near-black/dark-red with the pattern invisible. Fix: re-enabled ICC in the overlay port (`FZ_ENABLE_ICC=1` in `overlay-ports/libmupdf/CMakeLists.txt`), added the `lcms` vcpkg dependency, linked `lcms2::lcms2`, and added `find_dependency(lcms2 CONFIG)` to `unofficial-libmupdf-config.cmake.in` (without it the consuming `find_package(unofficial-libmupdf)` fails on the unresolved transitive target). Windows-only (Linux ships distro MuPDF with ICC); Windows x64 binary grows ~22 → 23.78 MB. Regression harness: `tests/harness_icc.cpp` (renders the title page headlessly and asserts brown pixels / no red-collapse signature).
+
 ### Open gaps
 
 | Gap | Severity | Note |

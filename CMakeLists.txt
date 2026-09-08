@@ -372,4 +372,19 @@ if(WLX_BUILD_HARNESS AND WIN32)
         LibArchive::LibArchive
         chmlib::chmlib
     )
+
+    # Headless ICC color-management smoke harness (add-icc-color-management).
+    add_executable(harness-icc
+        tests/harness_icc.cpp
+        src/mupdfengine.cpp
+    )
+    target_include_directories(harness-icc PRIVATE src)
+    target_link_libraries(harness-icc
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
+        ${DJVU_TARGET}
+        LibArchive::LibArchive
+        chmlib::chmlib
+    )
 endif()

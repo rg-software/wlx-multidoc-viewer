@@ -35,3 +35,8 @@ Thumbs.db
 
 # CMake user presets
 CMakePresets.user.json
+
+# Large sample documents (used by tests/harness_icc.cpp regression; present
+# only on dev machines, downloadable separately)
+examples/AC3_GW_Notebook_GER.pdf
+examples/Volvo V70 Handbuch.pdf

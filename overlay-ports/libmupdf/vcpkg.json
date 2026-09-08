@@ -10,6 +10,7 @@
     "gumbo",
     "harfbuzz",
     "jbig2dec",
+    "lcms",
     "libjpeg-turbo",
     {
       "name": "libmupdf",
