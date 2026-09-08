@@ -1,5 +1,6 @@
 #include "toolbar_win32.h"
 #include "toolbar_icons.h"
+#include "ui_strings.h"
 
 #ifdef Q_OS_WIN
 
@@ -160,23 +161,23 @@ void ToolbarWin32::setDpiScale(float scale) {
 void ToolbarWin32::createControls() {
     HFONT guiFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
-struct Def { int id; toolbar::Control ctrl; toolbar::Icon icon; bool checkable; const wchar_t* tip; };
+struct Def { int id; toolbar::Control ctrl; toolbar::Icon icon; bool checkable; };
     const Def defs[] = {
-        {ID_SIDEBAR,   toolbar::Control::SidebarToggle, toolbar::Icon::SidebarToggle, true,  L"Toggle outline sidebar"},
-        {ID_PRINT,     toolbar::Control::Print,          toolbar::Icon::Print,         false, L"Print"},
-        {ID_PREV,      toolbar::Control::PrevPage,       toolbar::Icon::Prev,          false, L"Previous page"},
-        {ID_NEXT,      toolbar::Control::NextPage,       toolbar::Icon::Next,          false, L"Next page"},
-        {ID_MODE,      toolbar::Control::ModeToggle,     toolbar::Icon::ModePaged,     true,  L"Toggle paged / continuous"},
-        {ID_PRESENTATION, toolbar::Control::PresentationToggle, toolbar::Icon::PresentationSingle, false, L"Single / double / double with cover"},
-        {ID_FIT,       toolbar::Control::FitButton,      toolbar::Icon::FitPage,       false, L"Fit mode (manual / page / width)"},
-        {ID_ROT_L,     toolbar::Control::RotateLeft,     toolbar::Icon::RotateLeft,    false, L"Rotate left"},
-        {ID_ROT_R,     toolbar::Control::RotateRight,    toolbar::Icon::RotateRight,   false, L"Rotate right"},
-        {ID_ZOOM_OUT,  toolbar::Control::ZoomOut,        toolbar::Icon::ZoomOut,       false, L"Zoom out"},
-        {ID_ZOOM_IN,   toolbar::Control::ZoomIn,         toolbar::Icon::ZoomIn,        false, L"Zoom in"},
-        {ID_FIND_PREV, toolbar::Control::FindPrev,       toolbar::Icon::FindPrev,      false, L"Previous match"},
-        {ID_FIND_NEXT, toolbar::Control::FindNext,       toolbar::Icon::FindNext,      false, L"Next match"},
-        {ID_MATCH_CASE, toolbar::Control::MatchCase,     toolbar::Icon::MatchCase,     true,  L"Match case"},
-        {ID_COPY,      toolbar::Control::Copy,           toolbar::Icon::Copy,          false, L"Copy: text selection arrives in a future change"},
+        {ID_SIDEBAR,   toolbar::Control::SidebarToggle, toolbar::Icon::SidebarToggle, true},
+        {ID_PRINT,     toolbar::Control::Print,          toolbar::Icon::Print,         false},
+        {ID_PREV,      toolbar::Control::PrevPage,       toolbar::Icon::Prev,          false},
+        {ID_NEXT,      toolbar::Control::NextPage,       toolbar::Icon::Next,          false},
+        {ID_MODE,      toolbar::Control::ModeToggle,     toolbar::Icon::ModePaged,     true},
+        {ID_PRESENTATION, toolbar::Control::PresentationToggle, toolbar::Icon::PresentationSingle, false},
+        {ID_FIT,       toolbar::Control::FitButton,      toolbar::Icon::FitPage,       false},
+        {ID_ROT_L,     toolbar::Control::RotateLeft,     toolbar::Icon::RotateLeft,    false},
+        {ID_ROT_R,     toolbar::Control::RotateRight,    toolbar::Icon::RotateRight,   false},
+        {ID_ZOOM_OUT,  toolbar::Control::ZoomOut,        toolbar::Icon::ZoomOut,       false},
+        {ID_ZOOM_IN,   toolbar::Control::ZoomIn,         toolbar::Icon::ZoomIn,        false},
+        {ID_FIND_PREV, toolbar::Control::FindPrev,       toolbar::Icon::FindPrev,      false},
+        {ID_FIND_NEXT, toolbar::Control::FindNext,       toolbar::Icon::FindNext,      false},
+        {ID_MATCH_CASE, toolbar::Control::MatchCase,     toolbar::Icon::MatchCase,     true},
+        {ID_COPY,      toolbar::Control::Copy,           toolbar::Icon::Copy,          false},
     };
     for (const Def& d : defs) {
         Btn b{};
@@ -199,11 +200,12 @@ struct Def { int id; toolbar::Control ctrl; toolbar::Icon icon; bool checkable; 
         m_btnIcon[d.id] = d.icon;
         buildButtonBitmaps(d.id, d.icon);
         m_ctrlId[d.ctrl] = d.id;
+        const wchar_t* tip = tipFor(d.ctrl);
         if (h) {
             SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(guiFont), TRUE);
             // Buttons may transiently take focus on click; the presenter hands
             // focus back to the viewer after each command so hotkeys recover.
-            SetPropW(h, L"ToolbarTip", const_cast<wchar_t*>(d.tip));
+            SetPropW(h, L"ToolbarTip", const_cast<wchar_t*>(tip));
         }
     }
 
@@ -234,6 +236,37 @@ struct Def { int id; toolbar::Control ctrl; toolbar::Icon icon; bool checkable; 
 
     layout();
     createTooltips();
+}
+
+const wchar_t* ToolbarWin32::tipFor(toolbar::Control c) {
+    QString text;
+    switch (c) {
+    case toolbar::Control::SidebarToggle:  text = ui_strings::tooltipToggleSidebar();  break;
+    case toolbar::Control::Print:          text = ui_strings::tooltipPrint();          break;
+    case toolbar::Control::PrevPage:       text = ui_strings::tooltipPrevPage();       break;
+    case toolbar::Control::NextPage:       text = ui_strings::tooltipNextPage();       break;
+    case toolbar::Control::ModeToggle:     text = ui_strings::tooltipToggleMode();     break;
+    case toolbar::Control::PresentationToggle: text = ui_strings::tooltipPresentation(); break;
+    case toolbar::Control::FitButton:      text = ui_strings::tooltipFitMode();        break;
+    case toolbar::Control::RotateLeft:     text = ui_strings::tooltipRotateLeft();     break;
+    case toolbar::Control::RotateRight:    text = ui_strings::tooltipRotateRight();    break;
+    case toolbar::Control::ZoomOut:        text = ui_strings::tooltipZoomOut();        break;
+    case toolbar::Control::ZoomIn:         text = ui_strings::tooltipZoomIn();         break;
+    case toolbar::Control::FindPrev:       text = ui_strings::tooltipFindPrev();       break;
+    case toolbar::Control::FindNext:       text = ui_strings::tooltipFindNext();       break;
+    case toolbar::Control::MatchCase:      text = ui_strings::tooltipMatchCase();      break;
+    case toolbar::Control::Copy:           text = ui_strings::tooltipCopy();           break;
+    default:                               text = QString();
+    }
+    // Convert to a wide string and cache it in m_btnTip keyed by the child id
+    // assigned to this control (m_ctrlId), so the c_str() pointer stays valid
+    // for the toolbar's lifetime.
+    const int id = m_ctrlId.value(c, -1);
+    if (id < 0)
+        return nullptr;
+    const std::wstring wide(reinterpret_cast<const wchar_t*>(text.utf16()), static_cast<size_t>(text.size()));
+    m_btnTip.insert(id, wide);
+    return m_btnTip.find(id).value().c_str();
 }
 
 void ToolbarWin32::createTooltips() {

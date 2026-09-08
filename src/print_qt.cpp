@@ -1,6 +1,7 @@
 #include "viewercontroller.h"
 #include "print_qt.h"
 #include "printcoordinator.h"
+#include "ui_strings.h"
 
 #include <QImage>
 #include <QMessageBox>
@@ -39,8 +40,8 @@ bool printDocumentQt(QWidget* parent, ViewerController* controller) {
 
     QPainter painter;
     if (!painter.begin(&printer)) {
-        QMessageBox::warning(parent, QObject::tr("Print"),
-                             QObject::tr("Printing failed: the printer rejected the document."));
+        QMessageBox::warning(parent, ui_strings::printTitle(),
+                             ui_strings::printFailedMessage());
         return false;
     }
 

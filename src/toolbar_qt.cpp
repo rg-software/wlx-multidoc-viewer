@@ -1,5 +1,6 @@
 #include "toolbar_qt.h"
 #include "toolbar_icons.h"
+#include "ui_strings.h"
 
 #include <QApplication>
 #include <QHBoxLayout>
@@ -77,35 +78,35 @@ ToolbarQt::ToolbarQt(QWidget* parent)
     };
     auto addSeparator = [&]() { layout->addSpacing(8); };
 
-    addButton(toolbar::Control::SidebarToggle, true, QObject::tr("Toggle outline sidebar"), [this] { presenter()->onSidebarToggled(); });
+    addButton(toolbar::Control::SidebarToggle, true, ui_strings::tooltipToggleSidebar(), [this] { presenter()->onSidebarToggled(); });
     addSeparator();
 
-    addButton(toolbar::Control::Print, false, QObject::tr("Print"), [this] { presenter()->onPrint(); });
+    addButton(toolbar::Control::Print, false, ui_strings::tooltipPrint(), [this] { presenter()->onPrint(); });
     addSeparator();
 
-    addButton(toolbar::Control::PrevPage, false, QObject::tr("Previous page"), [this] { presenter()->onPrevPage(); });
+    addButton(toolbar::Control::PrevPage, false, ui_strings::tooltipPrevPage(), [this] { presenter()->onPrevPage(); });
     addEdit(toolbar::Control::PageBox, 40, Qt::AlignRight|Qt::AlignVCenter);
     addLabel(toolbar::Control::PageCount);
-    addButton(toolbar::Control::NextPage, false, QObject::tr("Next page"), [this] { presenter()->onNextPage(); });
+    addButton(toolbar::Control::NextPage, false, ui_strings::tooltipNextPage(), [this] { presenter()->onNextPage(); });
     addSeparator();
 
-    addButton(toolbar::Control::ModeToggle, true, QObject::tr("Toggle paged / continuous"), [this] { presenter()->onModeToggled(); });
-    addButton(toolbar::Control::PresentationToggle, false, QObject::tr("Single / double / double with cover"), [this] { presenter()->onPresentationCycled(); });
-    addButton(toolbar::Control::FitButton, false, QObject::tr("Fit mode (manual / page / width)"), [this] { presenter()->onFitCycled(); });
+    addButton(toolbar::Control::ModeToggle, true, ui_strings::tooltipToggleMode(), [this] { presenter()->onModeToggled(); });
+    addButton(toolbar::Control::PresentationToggle, false, ui_strings::tooltipPresentation(), [this] { presenter()->onPresentationCycled(); });
+    addButton(toolbar::Control::FitButton, false, ui_strings::tooltipFitMode(), [this] { presenter()->onFitCycled(); });
     addSeparator();
 
-    addButton(toolbar::Control::RotateLeft, false, QObject::tr("Rotate left"), [this] { presenter()->onRotateLeft(); });
-    addButton(toolbar::Control::RotateRight, false, QObject::tr("Rotate right"), [this] { presenter()->onRotateRight(); });
-    addButton(toolbar::Control::ZoomOut, false, QObject::tr("Zoom out"), [this] { presenter()->onZoomOut(); });
-    addButton(toolbar::Control::ZoomIn, false, QObject::tr("Zoom in"), [this] { presenter()->onZoomIn(); });
+    addButton(toolbar::Control::RotateLeft, false, ui_strings::tooltipRotateLeft(), [this] { presenter()->onRotateLeft(); });
+    addButton(toolbar::Control::RotateRight, false, ui_strings::tooltipRotateRight(), [this] { presenter()->onRotateRight(); });
+    addButton(toolbar::Control::ZoomOut, false, ui_strings::tooltipZoomOut(), [this] { presenter()->onZoomOut(); });
+    addButton(toolbar::Control::ZoomIn, false, ui_strings::tooltipZoomIn(), [this] { presenter()->onZoomIn(); });
     addSeparator();
 
     addEdit(toolbar::Control::FindBox, 110);
-    addButton(toolbar::Control::FindPrev, false, QObject::tr("Previous match"), [this] { presenter()->onFindPrev(); });
-    addButton(toolbar::Control::FindNext, false, QObject::tr("Next match"), [this] { presenter()->onFindNext(); });
-    addButton(toolbar::Control::MatchCase, true, QObject::tr("Match case"), [this] { (void)this; });
+    addButton(toolbar::Control::FindPrev, false, ui_strings::tooltipFindPrev(), [this] { presenter()->onFindPrev(); });
+    addButton(toolbar::Control::FindNext, false, ui_strings::tooltipFindNext(), [this] { presenter()->onFindNext(); });
+    addButton(toolbar::Control::MatchCase, true, ui_strings::tooltipMatchCase(), [this] { (void)this; });
     // Copy directly after Match case - no spacer.
-    addButton(toolbar::Control::Copy, false, QObject::tr("Copy (text selection arrives in a future change)"), [this] { presenter()->onCopy(); });
+    addButton(toolbar::Control::Copy, false, ui_strings::tooltipCopy(), [this] { presenter()->onCopy(); });
     addLabel(toolbar::Control::FindStatus);   // "n / m" at the rightmost end
     layout->addStretch(1);
 

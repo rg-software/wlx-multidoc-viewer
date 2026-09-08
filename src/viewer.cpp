@@ -3,6 +3,7 @@
 #include "toolbar_qt.h"
 #include "sidebar_qt.h"
 #include "print_qt.h"
+#include "ui_strings.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -571,8 +572,8 @@ void ViewerWidget::onGoToPage() {
     if (!m_controller || !m_controller->hasDocument())
         return;
     bool ok;
-    int page = QInputDialog::getInt(this, tr("Go to page"),
-                                     tr("Page number:"), m_controller->currentPage(),
+    int page = QInputDialog::getInt(this, ui_strings::gotoPageTitle(),
+                                     ui_strings::gotoPagePrompt(), m_controller->currentPage(),
                                      1, m_controller->pageCount(), 1, &ok);
     if (ok) {
         m_controller->goToPage(page);

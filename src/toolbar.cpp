@@ -1,4 +1,5 @@
 #include "toolbar.h"
+#include "ui_strings.h"
 
 #include <QString>
 #include <algorithm>
@@ -35,7 +36,7 @@ void ToolbarPresenter::refreshState() {
         m_backend->setEnabled(Control::NextPage, false);
     }
     m_backend->setEditText(Control::PageBox, hasDoc ? QString::number(page) : QString());
-    m_backend->setText(Control::PageCount, hasDoc ? QStringLiteral("/ %1").arg(count) : QString());
+    m_backend->setText(Control::PageCount, hasDoc ? ui_strings::pageCountSuffix().arg(count) : QString());
 
     // A standalone image document is a single page whose "pages" are really its
     // sibling images: show the image position/total instead of a page count.
@@ -44,7 +45,7 @@ void ToolbarPresenter::refreshState() {
         if (imgPos > 0) {
             m_backend->setEditText(Control::PageBox, QString::number(imgPos));
             m_backend->setText(Control::PageCount,
-                               QStringLiteral("/ %1").arg(m_controller->imageCount()));
+                               ui_strings::pageCountSuffix().arg(m_controller->imageCount()));
         }
     }
 
@@ -100,11 +101,11 @@ void ToolbarPresenter::refreshState() {
     QString findInfo;
     if (canSearch) {
         if (m_controller->searchInProgress())
-            findInfo = QStringLiteral("Searching");
+            findInfo = ui_strings::findSearching();
         else if (m_controller->searchNoMatch())
-            findInfo = QStringLiteral("No matches");
+            findInfo = ui_strings::findNoMatch();
         else if (hasMatches)
-            findInfo = QStringLiteral("%1 / %2")
+            findInfo = ui_strings::matchCountFraction()
                            .arg(m_controller->activeMatchIndex() + 1)
                            .arg(matchCount);
     }

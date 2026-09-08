@@ -64,6 +64,10 @@ private:
     void drawButton(HDC parentDc, const DRAWITEMSTRUCT& dis);
     void onEditCommit(int id);
     bool buildButtonBitmaps(int id, toolbar::Icon icon);
+    // Wide (wchar_t) copy of the ui_strings tooltip for one control. The
+    // returned buffer is owned by m_btnTip so it stays valid for the toolbar's
+    // lifetime (tooltip APIs hold the pointer, they do not copy).
+    const wchar_t* tipFor(toolbar::Control c);
 
     int dpi(int v) const { return static_cast<int>(v * m_dpiScale + 0.5f); }
     int iconSizePx() const { return dpi(viewer_settings::kIconBaseSize); }
@@ -87,6 +91,8 @@ private:
     QHash<int, bool> m_btnEnabled;
     QHash<int, bool> m_btnCheckable;
     QHash<int, bool> m_manualCheck; // our own checked state for toggle buttons
+    // Wide-string tooltip copy per child id (lifetime: toolbar liveness).
+    QHash<int, std::wstring> m_btnTip;
 
     int m_editPage = 0;
     int m_editFind = 0;
