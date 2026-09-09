@@ -332,7 +332,7 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     connect(new QShortcut(QKeySequence(Qt::Key_Minus), this), &QShortcut::activated, this, &ViewerWidget::onZoomOut);
     connect(new QShortcut(QKeySequence(Qt::Key_0 | Qt::KeypadModifier), this), &QShortcut::activated, this, &ViewerWidget::onZoomOriginal);
     connect(new QShortcut(QKeySequence(Qt::Key_Slash), this), &QShortcut::activated, this, &ViewerWidget::onZoomOriginal);
-    connect(new QShortcut(QKeySequence(Qt::Key_Backslash), this), &QShortcut::activated, this, &ViewerWidget::onSidebarToggle);
+    connect(new QShortcut(QKeySequence(Qt::Key_F12), this), &QShortcut::activated, this, &ViewerWidget::onSidebarToggle);
     connect(new QShortcut(QKeySequence(Qt::Key_R), this), &QShortcut::activated, this, &ViewerWidget::onRotateCw);
     connect(new QShortcut(QKeySequence("Shift+R"), this), &QShortcut::activated, this, &ViewerWidget::onRotateCcw);
     connect(new QShortcut(QKeySequence(Qt::Key_Escape), this), &QShortcut::activated, this, &ViewerWidget::onEscapePressed);

@@ -948,7 +948,7 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         m_scrollY = m_controller->setManualZoom(1.0f, m_scrollY);
         captured = true;
         break;
-    case 0xDC:          // VK_OEM_5  (backslash \)
+    case 0x7B:          // VK_F12 (sidebar toggle)
         onSidebarToggle();
         captured = true;
         break;

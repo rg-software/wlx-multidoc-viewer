@@ -47,7 +47,7 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
 | `Home` / `End` | First / last page |
 | `V` | Toggle paged / continuous mode |
 | `Shift+V` | Cycle fit mode (page / width / 100%) |
-| `\` | Show / hide sidebar |
+| `F12` | Show / hide sidebar |
 | `+` / `-` / `Numpad 0` or `/` | Zoom in / out / reset |
 | `R` / `Shift+R` | Rotate clockwise / counter-clockwise |
 | Mouse wheel | Smooth scroll (continuous) / page turn (paged) |

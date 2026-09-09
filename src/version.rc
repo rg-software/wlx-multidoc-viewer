@@ -1,8 +1,8 @@
 #include <winver.h>
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,2,1,0
- PRODUCTVERSION 0,2,1,0
+ FILEVERSION 0,2,2,0
+ PRODUCTVERSION 0,2,2,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -19,12 +19,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "RG Software"
             VALUE "FileDescription", "WLX multi-document viewer plugin for Total Commander"
-            VALUE "FileVersion", "0.2.1.0"
+            VALUE "FileVersion", "0.2.2.0"
             VALUE "InternalName", "wlx-multidoc-viewer"
             VALUE "LegalCopyright", "(c) 2026"
             VALUE "OriginalFilename", "wlx-multidoc-viewer.dll"
             VALUE "ProductName", "WLX multi-document viewer"
-            VALUE "ProductVersion", "0.2.1.0"
+            VALUE "ProductVersion", "0.2.2.0"
         END
     END
     BLOCK "VarFileInfo"
