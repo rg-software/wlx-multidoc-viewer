@@ -56,7 +56,7 @@ copy /Y "build\release\Release\MultidocViewer.wlx64" "%OUT%\" >nul || (
 copy /Y "build\release-x86\Release\MultidocViewer.wlx"  "%OUT%\" >nul || (
     echo [ERROR] x86 plugin .wlx not found.& exit /b 1 )
 
-copy /Y "pluginst.inf" "%OUT%\" >nul
+copy /Y "assets\pluginst.inf" "%OUT%\" >nul
 copy /Y "assets\multidocviewer.ini" "%OUT%\" >nul
 
 REM --- compress the package (zip goes OUTSIDE the packaged dir so it

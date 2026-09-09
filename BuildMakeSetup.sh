@@ -30,7 +30,7 @@ cp "build/linux-release/MultidocViewer.wlx64" "$OUT/" || {
     exit 1
 }
 
-cp pluginst.inf "$OUT/"
+cp assets/pluginst.inf "$OUT/"
 cp assets/multidocviewer.ini "$OUT/"
 
 # --- 3. Compress the package (zip goes outside the packaged dir; remove
