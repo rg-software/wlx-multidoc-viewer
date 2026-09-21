@@ -35,9 +35,11 @@ typedef int BOOL;
 #define lcp_darkmode 128
 #define lcp_darkmodenative 256
 
-#define lc_copy 8
-#define lc_newparams 9
-#define lc_showparams 10
+// Lister command codes, per the official WLX SDK (ghisler/WLX-SDK src/listplug.h).
+#define lc_copy 1
+#define lc_newparams 2
+#define lc_selectall 3
+#define lc_setpercent 4
 
 struct ListDefaultParamStruct {
     int size;
