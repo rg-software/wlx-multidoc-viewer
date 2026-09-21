@@ -153,7 +153,10 @@ int main() {
             return 2;
         HWND vh = viewer->hwnd();
 
-        CHECK("A0 paged by default", viewer->controller()->isPagedMode());
+        viewer->controller()->toggleMode(); // default is continuous; enter paged
+        pump(80);
+
+        CHECK("A0 toggled into paged mode", viewer->controller()->isPagedMode());
         CHECK("A1 default fit mode = FitToPage",
               viewer->controller()->fitMode() == ViewerController::FitMode::FitToPage);
 
@@ -230,6 +233,9 @@ int main() {
         if (!viewer)
             return 2;
 
+        viewer->controller()->toggleMode(); // default is continuous; enter paged
+        pump(80);
+
         // Paged fit-to-width: navigate to a portrait page and confirm its
         // fitted width equals the page area (the narrow current unit is the fit
         // target, NOT the document's wide landscape row).
@@ -300,6 +306,9 @@ int main() {
         ViewerWin32* viewer = loadPdf(wc, pdfPath, &host);
         if (!viewer)
             return 2;
+
+        viewer->controller()->toggleMode(); // default is continuous; enter paged
+        pump(80);
 
         const float zoomStart = viewer->controller()->zoom();
         bool zoomStable = true;

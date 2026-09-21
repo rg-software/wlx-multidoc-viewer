@@ -50,10 +50,10 @@ The viewer SHALL provide a keyboard command that toggles between paged and conti
 - **WHEN** the viewer is in continuous mode and the toggle command is issued
 - **THEN** the viewer switches to paged mode showing the view unit that was at the top of the current viewport
 
-### Requirement: Default mode is paged
+### Requirement: Default mode is continuous
 
-The viewer SHALL start in paged mode with single-page presentation when a document is opened.
+The viewer SHALL start in continuous mode with single-page presentation when a document is opened.
 
 #### Scenario: Fresh load
 - **WHEN** a document is opened
-- **THEN** the viewer is in paged mode on page 1 with single-page presentation
+- **THEN** the viewer is in continuous mode on page 1 with single-page presentation

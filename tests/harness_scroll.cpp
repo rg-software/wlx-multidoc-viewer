@@ -225,8 +225,6 @@ int main() {
         pump(150);
 viewer.controller()->setManualZoom(1.0f, 0);
         pump(80);
-        viewer.controller()->toggleMode();
-        pump(200);
         CHECK("A0 continuous mode active", !viewer.controller()->isPagedMode());
         pump(80);
 
@@ -326,8 +324,6 @@ viewer.controller()->setManualZoom(1.0f, 0);
         pump(80);
 viewer.controller()->setManualZoom(1.0f, 0);
         pump(80);
-        viewer.controller()->toggleMode();
-        pump(200);
         CHECK("B0 continuous mode active", !viewer.controller()->isPagedMode());
         pump(80);
 
@@ -398,7 +394,9 @@ viewer.controller()->setManualZoom(1.0f, 0);
         pump(80);
         viewer.controller()->setManualZoom(1.0f, 0);
         pump(80);
-        CHECK("B7a starts paged", viewer.controller()->isPagedMode());
+        viewer.controller()->toggleMode(); // default is continuous; enter paged
+        pump(80);
+        CHECK("B7a toggled into paged mode", viewer.controller()->isPagedMode());
 
         // Land on page 5 in paged mode (both via controller and the real key
         // path once focused) then press 'V'.
@@ -461,6 +459,8 @@ viewer.controller()->setManualZoom(1.0f, 0);
             return 2;
         }
         pump(80);
+        viewer.controller()->toggleMode(); // default is continuous; enter paged
+        pump(80);
         // Leave the default fit mode (FitToPage) intact — setManualZoom would
         // force Manual. Instead just confirm the default after load.
         CHECK("B8a default fit mode = FitToPage",
@@ -519,6 +519,8 @@ viewer.controller()->setManualZoom(1.0f, 0);
             std::printf("FAIL load\n");
             return 2;
         }
+        pump(80);
+        viewer.controller()->toggleMode(); // default is continuous; enter paged
         pump(80);
         viewer.controller()->setManualZoom(2.0f, 0); // 840px wide > ~784px client
         pump(200);
@@ -603,6 +605,8 @@ viewer.controller()->setManualZoom(1.0f, 0);
             std::printf("FAIL load\n");
             return 2;
         }
+        pump(80);
+        viewer.controller()->toggleMode(); // default is continuous; enter paged
         pump(80);
         viewer.controller()->setManualZoom(1.0f, 0);
         pump(100);
@@ -1045,6 +1049,8 @@ viewer.controller()->setManualZoom(1.0f, 0);
             return 2;
         }
         pump(150);
+        viewer.controller()->toggleMode(); // default is continuous; enter paged
+        pump(80);
         viewer.controller()->setManualZoom(1.0f, 0);
         pump(100);
 

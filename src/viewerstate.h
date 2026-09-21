@@ -96,7 +96,7 @@ private:
     int m_currentPage = 1;
     int m_pageCount = 0;
     float m_zoom = 1.0f;
-    bool m_pagedMode = true;
+    bool m_pagedMode = false;
     PagePresentation m_pagePresentation = PagePresentation::Single;
 };
 

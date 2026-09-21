@@ -280,7 +280,10 @@ int main() {
         return 2;
     }
     pump(150);
-    CHECK("precondition: starts in paged mode", viewer.controller()->isPagedMode());
+    viewer.controller()->toggleMode(); // default is now continuous; enter paged
+    pump(80);
+    CHECK("precondition: paged mode active (toggled from continuous default)",
+          viewer.controller()->isPagedMode());
 
     // ---- 4.3: paged mode -> drag does nothing, cursor unchanged
     // Only meaningful when the current page fits the page area; with the taller
