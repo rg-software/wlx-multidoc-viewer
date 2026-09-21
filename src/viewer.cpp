@@ -337,8 +337,8 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     connect(new QShortcut(QKeySequence(Qt::Key_V), this), &QShortcut::activated, this, &ViewerWidget::onToggleMode);
     connect(new QShortcut(QKeySequence("Shift+V"), this), &QShortcut::activated, this, &ViewerWidget::onCycleFit);
     connect(new QShortcut(QKeySequence(Qt::Key_B), this), &QShortcut::activated, this, &ViewerWidget::onTogglePresentation);
+    connect(new QShortcut(QKeySequence("Shift+B"), this), &QShortcut::activated, this, &ViewerWidget::onToggleFavorite);
     connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F), this), &QShortcut::activated, this, &ViewerWidget::onFocusFind);
-    connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_B), this), &QShortcut::activated, this, &ViewerWidget::onToggleFavorite);
     connect(new QShortcut(QKeySequence(Qt::Key_Plus), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
     connect(new QShortcut(QKeySequence(Qt::Key_Equal), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
     connect(new QShortcut(QKeySequence(Qt::Key_Minus), this), &QShortcut::activated, this, &ViewerWidget::onZoomOut);
@@ -458,8 +458,13 @@ void ViewerWidget::resizeCanvas() {
         const QSize unit = pagedUnitLayoutSize(m_controller.get());
         if (unit.isValid() && !unit.isEmpty()) {
             QSize canvasSize = vp;
-            if (unit.width() > vp.width())
-                canvasSize.setWidth(unit.width());
+            // Real horizontal overflow only: the banded query ignores a
+            // fit-width spread's sub-pixel overshoot, so the canvas (and the
+            // horizontal scrollbar range) stays at the viewport in fit-width.
+            const int hOverflow = m_controller->maxScrollOffsetXForUnit(
+                m_controller->unitFirst(m_controller->currentPage()));
+            if (hOverflow > 0)
+                canvasSize.setWidth(vp.width() + hOverflow);
             if (unit.height() > vp.height())
                 canvasSize.setHeight(unit.height());
             m_canvas->setContentSize(canvasSize);
@@ -730,7 +735,32 @@ void ViewerWidget::endSelectionGesture() {
 }
 
 void ViewerWidget::keyPressEvent(QKeyEvent* event) {
+    if (onControlKey(event))
+        return;
     QFrame::keyPressEvent(event);
+}
+
+// Bare Ctrl+letter handling that must work even when the host (Total
+// Commander / Double Commander) binds the same key to its own application
+// action, which would starve the matching QShortcut (QShortcut resolves at a
+// lower priority than host actions). Mirrors the Win32 native key handler.
+// Called from both the event filter (page area focus) and keyPressEvent
+// (focus on this widget or a non-consuming descendant).
+bool ViewerWidget::onControlKey(QKeyEvent* event) {
+    if (!event)
+        return false;
+    const Qt::KeyboardModifiers mods = event->modifiers() & Qt::KeyboardModifierMask;
+    if (mods != Qt::ControlModifier)
+        return false;
+    if (event->key() == Qt::Key_F) {
+        focusFind();
+        return true;
+    }
+    if (event->key() == Qt::Key_C) {
+        copySelection();
+        return true;
+    }
+    return false;
 }
 
 void ViewerWidget::wheelEvent(QWheelEvent* event) {
@@ -772,6 +802,12 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
     }
 
     switch (event->type()) {
+    case QEvent::KeyPress: {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (onControlKey(ke))
+            return true;
+        break;
+    }
     case QEvent::MouseButtonPress: {
         auto* me = static_cast<QMouseEvent*>(event);
         if (me->button() != Qt::LeftButton)
@@ -788,7 +824,7 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
                 break;
         }
         m_dragging = true;
-        m_lastMousePos = me->position().toPoint();
+        m_lastMousePos = me->globalPosition();
         setCursor(Qt::PointingHandCursor);
         return true;
     }
@@ -810,12 +846,27 @@ if (!m_dragging) {
             }
             break;
         }
-        const QPoint delta = m_lastMousePos - pos;
-        m_lastMousePos = pos;
+        // Track the pointer in SCREEN coordinates: the canvas moves under the
+        // cursor as the view scrolls, so widget-relative positions would
+        // double-count the motion and make the drag jump (the Win32 backend
+        // avoids this because captured client coordinates are window-fixed).
+        const QPointF gpos = me->globalPosition();
+        const QPointF delta = m_lastMousePos - gpos;
+        m_lastMousePos = gpos;
         QScrollBar* vBar = m_scrollArea->verticalScrollBar();
         QScrollBar* hBar = m_scrollArea->horizontalScrollBar();
-        vBar->setValue(vBar->value() + delta.y());
-        hBar->setValue(hBar->value() + delta.x());
+        vBar->setValue(vBar->value() + qRound(delta.y()));
+        // Horizontal pan only while the content genuinely overflows: a
+        // fit-width spread can exceed the viewport by a sub-band rounding
+        // overshoot (the inter-page gap is not scaled), which must not make the
+        // page draggable sideways.
+        if (m_controller->isPagedMode()) {
+            if (m_controller->maxScrollOffsetXForUnit(
+                    m_controller->unitFirst(m_controller->currentPage())) > 0)
+                hBar->setValue(hBar->value() + qRound(delta.x()));
+        } else if (m_controller->maxScrollOffsetX() > 0) {
+            hBar->setValue(hBar->value() + qRound(delta.x()));
+        }
         return true;
     }
     case QEvent::MouseButtonRelease: {

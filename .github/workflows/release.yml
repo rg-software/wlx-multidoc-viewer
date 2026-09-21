@@ -84,7 +84,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential ninja-build \
+            build-essential ninja-build ca-certificates \
             qt6-base-dev libgl1-mesa-dev \
             libdjvulibre-dev \
             libchm-dev \
@@ -146,7 +146,7 @@ jobs:
   # ── Create GitHub Release ────────────────────────────────────────
   release:
     needs: [build-windows, build-linux]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # Need full history + tags to diff commits between the previous and
       # current release tags for the summary.

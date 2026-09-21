@@ -17,6 +17,11 @@ namespace toolbar {
 
 QImage makeIcon(Icon icon, int pixelSize);
 
+// Grey (~50% alpha) disabled variant of the same glyph, matching the Win32
+// backend's disabled-button transform. The Qt backend registers it as the
+// icon's Disabled mode so a disabled toolbar button reads distinctly.
+QImage makeIconDisabled(Icon icon, int pixelSize);
+
 } // namespace toolbar
 
 #endif // TOOLBAR_ICONS_H

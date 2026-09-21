@@ -367,5 +367,25 @@ QImage makeIcon(Icon icon, int pixelSize) {
     return drawVectorIcon(icon, px);
 }
 
+// Grey + ~50% alpha disabled variant (the same transform toolbar_win32 applies
+// in imageToIconBitmap's grey path). Worked on an unpremultiplied copy so the
+// alpha reduction lands on real colors; the Qt backend draws the result through
+// its own premultiplied pipeline.
+QImage makeIconDisabled(Icon icon, int pixelSize) {
+    QImage src = makeIcon(icon, pixelSize);
+    if (src.isNull())
+        return {};
+    QImage img = src.convertToFormat(QImage::Format_ARGB32);
+    for (int y = 0; y < img.height(); ++y) {
+        QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
+        for (int x = 0; x < img.width(); ++x) {
+            const int gray = (qRed(line[x]) + qGreen(line[x]) + qBlue(line[x])) / 3;
+            const int a = qAlpha(line[x]) * 5 / 10;
+            line[x] = qRgba(gray, gray, gray, a);
+        }
+    }
+    return img;
+}
+
 } // namespace toolbar
 

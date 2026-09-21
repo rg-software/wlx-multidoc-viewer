@@ -41,7 +41,14 @@ toolbar::Icon defaultIconFor(toolbar::Control c) {
 }
 
 QIcon makeIcon(toolbar::Icon icon) {
-    return QIcon(QPixmap::fromImage(toolbar::makeIcon(icon, viewer_settings::kIconBaseSize)));
+    const int s = viewer_settings::kIconBaseSize;
+    QIcon icn;
+    icn.addPixmap(QPixmap::fromImage(toolbar::makeIcon(icon, s)));
+    // Disabled-mode pixmap so disabled buttons visibly grey out (a single
+    // normal pixmap would otherwise render identically in both states).
+    icn.addPixmap(QPixmap::fromImage(toolbar::makeIconDisabled(icon, s)),
+                  QIcon::Mode::Disabled, QIcon::State::Off);
+    return icn;
 }
 
 template <typename T>

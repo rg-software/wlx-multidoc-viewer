@@ -60,8 +60,14 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
 ## Requirements
 
 - **Windows**: Visual Studio 2026 with Build Tools,
-  CMake 4.2+, and [vcpkg](https://vcpkg.io/).
-- **Linux**: CMake 3.20+, Ninja, Qt 6, and the system packages listed below.
+  CMake 4.2+ (required for the VS 2026 generator), and [vcpkg](https://vcpkg.io/).
+- **Linux**: Ninja, Qt 6, and the system packages listed below. CMake 3.25+
+  is required for the `--preset` flows; CMake 3.20+ still works for a plain
+  `cmake -S . -B build` configure.
+- **MuPDF (Linux)**: the MuPDF system package `libmupdf-dev` must be 1.23+
+  (meaning Ubuntu 24.04+ or Debian 13+). Note that Ubuntu's MuPDF package lives in the
+  `universe` archive, and distributions shipping an older MuPDF can build a
+  newer one from the `vcpkg` overlay port.
 
 ## Dependencies
 
@@ -69,16 +75,26 @@ Everything for Windows comes from the `vcpkg.json` manifest. On Linux, install t
 
 ```bash
 # Debian / Ubuntu
-sudo apt install build-essential cmake ninja-build \
-    qt6-base-dev libmupdf-dev libdjvulibre-dev libchm-dev
+sudo apt install build-essential cmake ninja-build ca-certificates \
+    qt6-base-dev libmupdf-dev libdjvulibre-dev libchm-dev libarchive-dev \
+    libfreetype-dev libjpeg-dev zlib1g-dev libopenjp2-7-dev \
+    libharfbuzz-dev libpng-dev libjbig2dec0-dev libmujs-dev libgumbo-dev
 
 # Fedora
-sudo dnf install gcc-c++ cmake ninja-build \
-    qt6-qtbase-devel mupdf-devel djvulibre-devel chmlib-devel
+sudo dnf install gcc-c++ cmake ninja-build ca-certificates \
+    qt6-qtbase-devel mupdf-devel djvulibre-devel chmlib-devel libarchive-devel
 
 # Arch
-sudo pacman -S --needed base-devel cmake ninja qt6-base mupdf djvulibre chmlib
+sudo pacman -S --needed base-devel cmake ninja ca-certificates \
+    qt6-base mupdf djvulibre chmlib libarchive
 ```
+
+On Debian/Ubuntu the extra codec packages are required because `libmupdf-dev` is
+a static library with no declared dependencies; the build links it via
+`pkg-config --static`. The `ca-certificates` package is only needed in minimal build
+environments (containers, chroots, sbuild) where a CA bundle may not be
+installed. Packages `libarchive-dev`/`libarchive-devel`/`libarchive` provides the
+comic-engine archive backend (CBR/CB7).
 
 ## Building
 

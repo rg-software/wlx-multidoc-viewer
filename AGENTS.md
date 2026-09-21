@@ -6,7 +6,7 @@ WLX multi-document viewer plugin for Total Commander and Double Commander. Displ
 
 ## Build
 
-Windows uses vcpkg (any checkout location exposed as the `VCPKG_ROOT` environment variable; manifest mode, `x64-windows-static-md` triplet). Linux uses system packages via `find_library` (see CMakeLists.txt) — no vcpkg needed.
+Windows uses vcpkg (any checkout location exposed as the `VCPKG_ROOT` environment variable; manifest mode, `x64-windows-static-md` triplet). Linux uses system packages — MuPDF is found via `pkg-config --static` (Debian/Ubuntu ship only static `libmupdf.a` + `libmupdf-third.a`) falling back to `find_library` for a shared `.so` (CI builds one via vcpkg) — see CMakeLists.txt.
 
 ```bash
 # Windows: configure + build from a VS 2026 developer shell
@@ -64,6 +64,8 @@ src/
 
 MuPDF and DjVuLibre are linked as static libraries on Windows via vcpkg and as system libraries on Linux. Both return `QImage` from `renderPage(page, zoom)`. The engine interface (`DocumentEngine`) is platform-agnostic.
 
+**MuPDF version floor (Linux):** the system `libmupdf-dev` must be ≥ 1.23 to compile (`FZ_STEXT_ACCURATE_BBOXES` from 1.25+, `fz_style_document` from 1.28+, richer `fz_error` codes `FZ_ERROR_FORMAT`/`FZ_ERROR_SYSTEM` from 1.24+). `CMakeLists.txt` runs three `check_c_source_compiles` capability probes against the found lib and feeds the results to all engine consumers via `unofficial::libmupdf::libmupdf`'s `INTERFACE_COMPILE_DEFINITIONS`: `MUPDF_HAVE_STEXT_ACCURATE_BBOXES` (both engines build stext via the shared `newStextPage()` helper, which zeroes flags without it), `MUPDF_HAVE_STYLE_DOCUMENT` (mupdfengine falls back to the context-level `fz_set_user_css`, the same hook chmengine always uses), and `MUPDF_HAVE_FZ_ERROR_FORMAT` (mupdfengine maps `kErrorFormat`/`kErrorSystem` to the legacy `SYNTAX`/`MEMORY` codes). The Windows overlay pins 1.28.x and hard-codes all three ON. Always use the probes (or the version macros) — never reference the raw symbols without a guard.
+
 Standalone raster images (`.jpg/.jpeg/.png/.gif/.bmp/.ico`) route to `ImageEngine` (Qt `QImageReader`). Every listed raster is a single page; multi-frame GIFs animate in place and are **not** step-through pages. GIF decoding has a Qt gotcha: `QGifHandler` does **not** implement `jumpToImage`/`jumpToNextImage`, so `ImageEngine` decodes frames 0..N sequentially via `read()` from a fresh reader (`readFrameImage`). Sibling images in the same directory (natural order via `naturalsort.h`) are opened at next/prev document bounds. TIFF (`.tif/.tiff`) is a **document**, not an image: it routes to the default MuPDF engine, where each TIFF IFD becomes a page (real multi-page TIFF support), and it is excluded from the image-folder sibling set — matching how PDF/CBR/CB7 are handled. WEBP (`.webp`) currently has **no decoder** (neither Qt `QImageReader` nor MuPDF ships one in this trimmed build) and is not routed; see the AGENTS gaps table.
 
 ### Build system
@@ -71,7 +73,7 @@ Standalone raster images (`.jpg/.jpeg/.png/.gif/.bmp/.ico`) route to `ImageEngin
 - `CMakePresets.json`: VS 2026 generator + `x64-windows-static-md` triplet (Windows); Ninja (Linux)
 - `vcpkg.json`: manifest mode with builtin-baseline (Windows only)
 - `overlay-ports/djvulibre/`: custom port with manual config.cmake (debug+release imported locations, empty API macros for static linking)
-- `CMakeLists.txt`: platform-conditional — `Qt6::Core`+`Qt6::Gui` on Windows, `Qt6::Widgets`+`Qt6::PrintSupport` on Linux; `find_package` on Windows vs `find_library` on Linux. CHMLib and LibArchive ship no clean imported-target configs, so both are located via `find_path`/`find_library` into hand-rolled imported targets (LibArchive also carries its codec backends lz4/lzma/zstd/bz2/openssl + Windows system libs as per-config INTERFACE deps).
+- `CMakeLists.txt`: platform-conditional — `Qt6::Core`+`Qt6::Gui` on Windows, `Qt6::Widgets`+`Qt6::PrintSupport` on Linux; `find_package` on Windows vs `pkg-config --static` (distro `libmupdf.a`) with a `find_library` shared fallback on Linux. CHMLib and LibArchive ship no clean imported-target configs, so both are located via `find_path`/`find_library` into hand-rolled imported targets (LibArchive also carries its codec backends lz4/lzma/zstd/bz2/openssl + Windows system libs as per-config INTERFACE deps).
 
 ## Conventions
 
@@ -122,6 +124,6 @@ Write conventional, structured commit messages so the release pipeline can group
 | **DjVu text-layer selection & search** | Low | The vcpkg djvulibre static build does not export the core miniexp accessors (`miniexp_car/cdr/consp/symbolp/to_int`), so `ddjvu_document_get_pagetext` trees cannot be walked. DjVu pages report no text layer and `supportsSearch() == false` (selection and find work only for MuPDF-backed formats). Revisit if a djvulibre build with the miniexp public API is available, or add a local miniexp.h overlay. |
 | **Qt in-host verification** | Medium | The toolbar/sidebar/print rework changed `viewer.*`, `toolbar_qt.*`, `sidebar_qt.*`, `print_qt.cpp`; Linux must re-verify `cmake --preset linux-release` (new `Qt6::PrintSupport` dependency) and scroll + selection + toolbar behavior in Total/Double Commander. Windows interactive smoke tests (task 4.4) are likewise pending. |
 | **Print worker on Qt** | Low | QPrinter must be used on the main thread, so the Qt print path renders synchronously instead of on a `PrintCoordinator` worker; the Win32 path uses the worker. Page/copy resolution and fit math are still shared. |
-| **CHM engine Linux build** | Low | `chmengine.*` compiles against system libchm via `find_library`, but `cmake --preset linux-release` has not been re-run since the CHM engine landed (Windows-only verification so far). Also pending: Qt sidebar ESC-forwarding parity check on Linux. |
+| **CHM engine Linux build** | Low | `chmengine.*` now compiles and links in `cmake --preset linux-release` (verified in-host against MuPDF 1.28 and against the 1.23 Ubuntu headers via the capability probes). Still pending: interactive verification of CHM rendering + Qt sidebar ESC-forwarding parity in a file manager on Linux. |
 | **Comic engine real-RAR verification** | Low | `ComicEngine` is verified against a genuine RAR5 CBR (`examples/sample.cbr`) in the host; 7-Zip-based CB7 still awaits a real sample (libarchive handles the format). |
 | **WEBP decode support** | Medium | WEBP has no decoder in the trimmed build: Qt's `QImageReader` (no webp image-format plugin vendored in `qtbase`) and MuPDF (no `load-webp`) both fail on `.webp`, so it is not routed anywhere. Treating webp as an image (like GIF, incl. animated webp) means adding the Qt webp plugin + `libwebp` to the `qtbase` overlay port and rebuilding it — a build-system change, not a flag flip. |
