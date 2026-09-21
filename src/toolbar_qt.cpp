@@ -123,7 +123,7 @@ ToolbarQt::ToolbarQt(QWidget* parent)
     addButton(toolbar::Control::RotateRight, false, ui_strings::tooltipRotateRight(), [this] { presenter()->onRotateRight(); });
     addButton(toolbar::Control::ZoomOut, false, ui_strings::tooltipZoomOut(), [this] { presenter()->onZoomOut(); });
     addButton(toolbar::Control::ZoomIn, false, ui_strings::tooltipZoomIn(), [this] { presenter()->onZoomIn(); });
-    addButton(toolbar::Control::ToggleFavorite, true, ui_strings::tooltipToggleFavorite(), [this] { presenter()->onToggleFavorite(); });
+    addButton(toolbar::Control::ToggleFavorite, false, ui_strings::tooltipToggleFavorite(), [this] { presenter()->onToggleFavorite(); });
     addSeparator();
 
     addEdit(toolbar::Control::FindBox, 110);

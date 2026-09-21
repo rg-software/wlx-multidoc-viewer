@@ -199,7 +199,7 @@ struct Def { int id; toolbar::Control ctrl; toolbar::Icon icon; bool checkable; 
         {ID_ROT_R,     toolbar::Control::RotateRight,    toolbar::Icon::RotateRight,   false},
         {ID_ZOOM_OUT,  toolbar::Control::ZoomOut,        toolbar::Icon::ZoomOut,       false},
         {ID_ZOOM_IN,   toolbar::Control::ZoomIn,         toolbar::Icon::ZoomIn,        false},
-        {ID_FAVORITE,  toolbar::Control::ToggleFavorite, toolbar::Icon::Favorites,     true},
+        {ID_FAVORITE,  toolbar::Control::ToggleFavorite, toolbar::Icon::Favorites,     false},
         {ID_FIND_PREV, toolbar::Control::FindPrev,       toolbar::Icon::FindPrev,      false},
         {ID_FIND_NEXT, toolbar::Control::FindNext,       toolbar::Icon::FindNext,      false},
         {ID_MATCH_CASE, toolbar::Control::MatchCase,     toolbar::Icon::MatchCase,     true},
@@ -526,6 +526,7 @@ void ToolbarWin32::layout() {
     place(ID_ROT_R, slotWidth);
     place(ID_ZOOM_OUT, slotWidth);
     place(ID_ZOOM_IN, slotWidth);
+    place(ID_FAVORITE, slotWidth); // bookmark, right of zoom-in
     x += step();
 
     place(ID_FIND_PREV, slotWidth);

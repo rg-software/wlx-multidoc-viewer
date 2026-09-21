@@ -117,8 +117,12 @@ void ToolbarPresenter::refreshState() {
     m_backend->setEnabled(Control::Copy, hasDoc && m_controller->hasSelection());
 
     m_backend->setEnabled(Control::ToggleFavorite, hasDoc);
-    m_backend->setChecked(Control::ToggleFavorite,
-                          hasDoc && m_controller->isCurrentPageFavorite());
+    // Reflect the current-page state with the icon itself (outlined bookmark vs
+    // filled bookmark_star) rather than a pressed-button background.
+    m_backend->setIcon(Control::ToggleFavorite,
+                       (hasDoc && m_controller->isCurrentPageFavorite())
+                           ? Icon::FavoritesStar
+                           : Icon::Favorites);
 
     m_backend->setEnabled(Control::Print, hasDoc);
     m_backend->setEnabled(Control::SidebarToggle, hasDoc && (!sidebarAvailable || sidebarAvailable()));

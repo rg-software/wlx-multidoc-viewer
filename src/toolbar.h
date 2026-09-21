@@ -46,7 +46,7 @@ enum class Icon {
     RotateLeft, RotateRight, ZoomIn, ZoomOut,
     Find, FindPrev, FindNext, MatchCase, MatchCaseOff,
     Print, Copy, SidebarToggle,
-    Favorites,
+    Favorites, FavoritesStar,
     PresentationSingle, PresentationDouble, PresentationDoubleWithCover,
 };
 

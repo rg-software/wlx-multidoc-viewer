@@ -1,6 +1,7 @@
 #include "toolbar_icons.h"
 #include "viewer_settings.h"
 
+#include <QBrush>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPointF>
@@ -39,7 +40,8 @@ char32_t laCodepoint(toolbar::Icon icon) {
     case Icon::MatchCase:     return 0xf6f1; // match_case
     case Icon::MatchCaseOff:  return 0xf36f; // match_case_off
     case Icon::Copy:          return 0xe14d; // content_copy
-    case Icon::Favorites:     return 0xe866; // bookmark
+    case Icon::Favorites:     return 0xe8e7; // bookmark
+    case Icon::FavoritesStar: return 0xf454; // bookmark_star
     // The display-mode/fit/presentation glyphs below use codepoints re-carved
     // into the embedded asset (MaterialSymbolsOutlined.ttf): check_box_outline_blank
     // 0xe835, pinch 0xeb38, fit_page 0xf77a, fit_width 0xf779, article 0xef42,
@@ -162,6 +164,23 @@ public:
         for (int i = 1; i < pts.size(); ++i)
             path.lineTo(pts[i]);
         m_p.drawPath(path);
+    }
+    // Closed, filled outline (used for the "marked" variants that must read as
+    // solid, e.g. bookmark_star vs the outlined bookmark).
+    void solid(QVector<QPointF> pts) {
+        if (pts.size() < 3)
+            return;
+        QPainterPath path(pts.first());
+        for (int i = 1; i < pts.size(); ++i)
+            path.lineTo(pts[i]);
+        path.closeSubpath();
+        QBrush old = m_p.brush();
+        QPen pen = m_p.pen();
+        pen.setJoinStyle(Qt::RoundJoin);
+        m_p.setPen(pen);
+        m_p.setBrush(QColor::fromRgba(glyphColor()));
+        m_p.drawPath(path);
+        m_p.setBrush(old);
     }
     void rect(float u0, float v0, float u1, float v1) {
         m_p.drawRect(QRectF(pt(u0, v0), pt(u1, v1)).normalized());
@@ -296,11 +315,17 @@ case Icon::MatchCase:
         break;
     }
     case Icon::Favorites:
-        // bookmark: outline page marker with a center-bottom notch, so the
-        // filled (checked) state is implied by the same shape at small sizes.
+        // bookmark: outline page marker with a center-bottom notch.
         g.poly({QPointF(g.pt(0.26f, 0.16f)), QPointF(g.pt(0.74f, 0.16f)),
                 QPointF(g.pt(0.74f, 0.86f)), QPointF(g.pt(0.50f, 0.70f)),
                 QPointF(g.pt(0.26f, 0.86f))});
+        break;
+    case Icon::FavoritesStar:
+        // bookmark_star: the same marker, filled, so the marked state reads as
+        // solid at small sizes without relying on a pressed-button background.
+        g.solid({QPointF(g.pt(0.26f, 0.16f)), QPointF(g.pt(0.74f, 0.16f)),
+                 QPointF(g.pt(0.74f, 0.86f)), QPointF(g.pt(0.50f, 0.70f)),
+                 QPointF(g.pt(0.26f, 0.86f))});
         break;
     case Icon::SidebarToggle:
         g.line(0.18f, 0.24f, 0.18f, 0.76f);
