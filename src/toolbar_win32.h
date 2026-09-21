@@ -34,6 +34,7 @@ public:
     void setEditText(toolbar::Control c, const QString& text) override;
     QString editText(toolbar::Control c) const override;
     bool isEditFocused() const override;
+    void focusFind() override;
 
     void relayout(); // re-run after DPI change or parent resize
     void setDpiScale(float scale);

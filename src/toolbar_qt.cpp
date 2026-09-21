@@ -6,8 +6,16 @@
 #include <QHBoxLayout>
 #include <QHash>
 #include <QIcon>
+#include <QPalette>
 
 namespace {
+
+// Packs a palette slot (0x00RRGGBB) into an opaque QColor.
+QColor opaqueColor(uint32_t rgb) {
+    return QColor(static_cast<int>((rgb >> 16) & 0xFF),
+                  static_cast<int>((rgb >> 8) & 0xFF),
+                  static_cast<int>(rgb & 0xFF));
+}
 
 toolbar::Icon defaultIconFor(toolbar::Control c) {
     using namespace toolbar;
@@ -48,6 +56,21 @@ ToolbarQt::ToolbarQt(QWidget* parent)
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(6, 1, 6, 1);
     layout->setSpacing(4);
+
+    // The toolbar owns its chrome: an explicit palette derived from the active
+    // theme instead of inheriting the host application palette.
+    const viewer_settings::Palette& pal = viewer_settings::activePalette();
+    QPalette tp = palette();
+    tp.setColor(QPalette::Window, opaqueColor(pal.toolbarBg));
+    tp.setColor(QPalette::Button, opaqueColor(pal.toolbarBg));
+    tp.setColor(QPalette::Base, opaqueColor(pal.editBg));
+    tp.setColor(QPalette::Text, opaqueColor(pal.editText));
+    tp.setColor(QPalette::WindowText, opaqueColor(pal.editText));
+    tp.setColor(QPalette::ButtonText, opaqueColor(pal.editText));
+    tp.setColor(QPalette::Highlight, opaqueColor(pal.toolbarCheckedTint));
+    tp.setColor(QPalette::HighlightedText, opaqueColor(pal.editText));
+    setPalette(tp);
+    setAutoFillBackground(true);
 
     auto addButton = [&](toolbar::Control c, bool checkable, const QString& tooltip,
                          const std::function<void()>& click) {
@@ -159,4 +182,11 @@ bool ToolbarQt::isEditFocused() const {
         return false;
     return w == m_ctl.value(toolbar::Control::PageBox) ||
            w == m_ctl.value(toolbar::Control::FindBox);
+}
+
+void ToolbarQt::focusFind() {
+    if (auto* e = qobject_cast<QLineEdit*>(m_ctl.value(toolbar::Control::FindBox))) {
+        e->setFocus();
+        e->selectAll(); // select existing text so a new term replaces it
+    }
 }

@@ -57,11 +57,19 @@ QPointF pagedUnitCanvasOffset(const ViewerController* c, const QSize& canvasSize
                    (canvasSize.height() - unit.height()) / 2 - r1.y());
 }
 
+// Unpacks a palette overlay slot (0xAARRGGBB) into a QColor with explicit alpha.
+QColor paletteColor(uint32_t argb) {
+    return QColor(static_cast<int>((argb >> 16) & 0xFF),
+                  static_cast<int>((argb >> 8) & 0xFF),
+                  static_cast<int>(argb & 0xFF),
+                  static_cast<int>((argb >> 24) & 0xFF));
+}
+
 } // namespace
 
 void ViewerCanvas::paintEvent(QPaintEvent* event) {
     QPainter p(this);
-    const uint32_t bg = viewer_settings::kBackgroundColor;
+    const uint32_t bg = viewer_settings::activePalette().pageBg;
     p.fillRect(event->rect(), QColor(static_cast<int>((bg >> 16) & 0xFF),
                                      static_cast<int>((bg >> 8) & 0xFF),
                                      static_cast<int>(bg & 0xFF)));
@@ -135,7 +143,7 @@ void ViewerCanvas::paintSelection(QPainter& p, const QRect& vis) const {
 
     if (m_controller->isPagedMode()) {
         const QPointF org = pagedUnitCanvasOffset(m_controller, size());
-        p.setBrush(QColor(255, 240, 105, 105));
+        p.setBrush(paletteColor(viewer_settings::activePalette().selectionFill));
         p.setPen(Qt::NoPen);
         const int first = m_controller->unitFirst(m_controller->currentPage());
         const int last = m_controller->unitLast(first);
@@ -157,7 +165,7 @@ void ViewerCanvas::paintSelection(QPainter& p, const QRect& vis) const {
         const QVector<QRectF> rects = m_controller->highlightRects(page);
         if (rects.isEmpty())
             continue;
-        p.setBrush(QColor(255, 240, 105, 105));
+        p.setBrush(paletteColor(viewer_settings::activePalette().selectionFill));
         p.setPen(Qt::NoPen);
         for (const QRectF& r : rects)
             p.drawRect(r);
@@ -187,7 +195,7 @@ void ViewerCanvas::paintSearchOverlay(QPainter& p, const QRect& vis) const {
         const QRectF active = m_controller->activeSearchRectOnPage(page);
 
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(255, 240, 105, 105));
+        p.setBrush(paletteColor(viewer_settings::activePalette().selectionFill));
         for (const QRectF& r : rects) {
             const QRectF rr = r.translated(org);
             p.drawRect(rr);
@@ -195,8 +203,8 @@ void ViewerCanvas::paintSearchOverlay(QPainter& p, const QRect& vis) const {
 
         if (!active.isNull()) {
             const QRectF rr = active.translated(org);
-            p.setBrush(QColor(0, 220, 220, 150));   // cyan active match
-            p.setPen(QPen(QColor(0, 130, 130), 1));
+            p.setBrush(paletteColor(viewer_settings::activePalette().searchActiveFill));   // cyan active match
+            p.setPen(QPen(paletteColor(viewer_settings::activePalette().searchActivePen), 1));
             p.drawRect(rr);
         }
     }
@@ -262,10 +270,10 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     // The scroll-area viewport paints the page-area background around the
     // canvas whenever the canvas does not cover it (e.g. before the first
     // layout sizes the canvas, or in continuous mode when content is narrower
-    // than the viewport). Give it the INI-fed BackgroundColor so the configured
-    // color is visible from the very first paint instead of the default palette.
+    // than the viewport). Give it the active palette's page background so the
+    // themed color is visible from the very first paint.
     {
-        const uint32_t vbg = viewer_settings::kBackgroundColor;
+        const uint32_t vbg = viewer_settings::activePalette().pageBg;
         const QColor vbgColor(static_cast<int>((vbg >> 16) & 0xFF),
                               static_cast<int>((vbg >> 8) & 0xFF),
                               static_cast<int>(vbg & 0xFF));
@@ -326,7 +334,8 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     connect(new QShortcut(QKeySequence(Qt::Key_PageUp), this), &QShortcut::activated, this, &ViewerWidget::onPageUp);
     connect(new QShortcut(QKeySequence(Qt::Key_V), this), &QShortcut::activated, this, &ViewerWidget::onToggleMode);
     connect(new QShortcut(QKeySequence("Shift+V"), this), &QShortcut::activated, this, &ViewerWidget::onCycleFit);
-    connect(new QShortcut(QKeySequence(Qt::Key_P), this), &QShortcut::activated, this, &ViewerWidget::onTogglePresentation);
+    connect(new QShortcut(QKeySequence(Qt::Key_B), this), &QShortcut::activated, this, &ViewerWidget::onTogglePresentation);
+    connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F), this), &QShortcut::activated, this, &ViewerWidget::onFocusFind);
     connect(new QShortcut(QKeySequence(Qt::Key_Plus), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
     connect(new QShortcut(QKeySequence(Qt::Key_Equal), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
     connect(new QShortcut(QKeySequence(Qt::Key_Minus), this), &QShortcut::activated, this, &ViewerWidget::onZoomOut);
@@ -558,6 +567,11 @@ void ViewerWidget::onTogglePresentation() {
         m_scrollArea->verticalScrollBar()->setValue(target);
         m_suppressScrollTracking = false;
     });
+}
+
+void ViewerWidget::onFocusFind() {
+    if (m_toolbar)
+        m_toolbar->focusFind();
 }
 
 void ViewerWidget::onRotateCw() {

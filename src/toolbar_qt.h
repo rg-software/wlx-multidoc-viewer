@@ -26,6 +26,7 @@ public:
     void setEditText(toolbar::Control c, const QString& text) override;
     QString editText(toolbar::Control c) const override;
     bool isEditFocused() const override;
+    void focusFind() override;
 
 private:
     QToolButton* button(toolbar::Control c) const { return qobject_cast<QToolButton*>(m_ctl.value(c)); }

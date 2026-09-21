@@ -19,7 +19,7 @@
 // cached at first access, so the brush never changes at runtime.
 HBRUSH sidebarBackgroundBrush() {
     static HBRUSH brush = [] {
-        const uint32_t bg = viewer_settings::kSidebarBackground;
+        const uint32_t bg = viewer_settings::activePalette().sidebarBg;
         return CreateSolidBrush(RGB(static_cast<BYTE>((bg >> 16) & 0xFF),
                                     static_cast<BYTE>((bg >> 8) & 0xFF),
                                     static_cast<BYTE>(bg & 0xFF)));
@@ -84,10 +84,15 @@ SidebarWin32::SidebarWin32(HWND hParent)
     // Color the tree viewport (which fills the sidebar) with the configured
     // background so it matches the panel and grip class brushes.
     if (m_tree) {
-        const uint32_t sbg = viewer_settings::kSidebarBackground;
+        const viewer_settings::Palette& pal = viewer_settings::activePalette();
+        const uint32_t sbg = pal.sidebarBg;
         TreeView_SetBkColor(m_tree, RGB(static_cast<BYTE>((sbg >> 16) & 0xFF),
                                         static_cast<BYTE>((sbg >> 8) & 0xFF),
                                         static_cast<BYTE>(sbg & 0xFF)));
+        const uint32_t stc = pal.treeText;
+        TreeView_SetTextColor(m_tree, RGB(static_cast<BYTE>((stc >> 16) & 0xFF),
+                                          static_cast<BYTE>((stc >> 8) & 0xFF),
+                                          static_cast<BYTE>(stc & 0xFF)));
     }
 
     // Right-edge drag handle. Non-focusable so it never participates in tab

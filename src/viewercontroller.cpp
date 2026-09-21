@@ -762,7 +762,7 @@ QImage ViewerController::renderCachedViewport(int scrollY, int scrollX) {
         return renderPageCached(m_state.currentPage());
 
     QImage slice(vw, vh, QImage::Format_RGB888);
-    slice.fill(viewer_settings::kBackgroundColor); // page background
+    slice.fill(viewer_settings::activePalette().pageBg); // page background
 
     const int visTop = scrollY;
     const int visBot = scrollY + vh;

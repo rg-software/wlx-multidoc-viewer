@@ -1,12 +1,12 @@
 ## Purpose
 
-Defines how the plugin derives and applies its chrome color palette — page background, sidebar, toolbar, and text fields — so the lister matches the ambient light or dark mode of its host on both platforms.
+Defines how the plugin derives and applies its chrome color palette — page background, sidebar, toolbar, and text fields — so the lister matches the ambient light or dark mode of its host on both platforms, with the palette values themselves supplied by the INI theme sections.
 
 ## ADDED Requirements
 
 ### Requirement: Theme source and selection
 
-The viewer SHALL render its chrome from a palette selected by the `[Viewer] Theme` key in the plugin's INI, accepting `light`, `dark`, or `auto`, and SHALL behave as `auto` when the key is absent or malformed. In `auto` mode the viewer SHALL follow the host's ambient mode: dark when the host signals dark mode (Windows: the dark-mode flag passed to a load entry point; Linux: the Qt color-scheme hint), light otherwise. The active theme SHALL be resolved once per process at first viewer construction and remain frozen for the process lifetime.
+The viewer SHALL render its chrome from a palette selected by the `[Viewer] Theme` key in the plugin's INI, accepting `light`, `dark`, or `auto`, and SHALL behave as `auto` when the key is absent or malformed. In `auto` mode the viewer SHALL follow the host's ambient mode: dark when the host signals dark mode (Windows: the dark-mode flag passed to a load entry point; Linux: the Qt color-scheme hint), light otherwise. The palette's slot values SHALL come from the selected theme's INI section (`[Theme:light]` or `[Theme:dark]`, per the `plugin-config` capability), falling back to built-in defaults for missing keys. The active palette SHALL be resolved once per process at first viewer construction and remain frozen for the process lifetime.
 
 #### Scenario: INI selects dark
 - **WHEN** `[Viewer] Theme=dark`
@@ -28,13 +28,17 @@ The viewer SHALL render its chrome from a palette selected by the `[Viewer] Them
 - **WHEN** `[Viewer] Theme` contains an unrecognized value
 - **THEN** the viewer behaves as `auto`
 
+#### Scenario: palette values come from the theme section
+- **WHEN** the active theme is dark and `[Theme:dark]` sets `PageBackground=#102030`
+- **THEN** the page area renders `#102030`
+
 #### Scenario: theme frozen per process
 - **WHEN** multiple viewer windows open in one process
 - **THEN** all of them render with the same, first-resolved palette
 
 ### Requirement: Palette slots
 
-The palette SHALL define values for the page-area background, sidebar background, toolbar background, toolbar checked-state tint, toolbar checked-state ring, toolbar icon glyph, sidebar tree text, toolbar edit-field background, and toolbar edit-field text. The light palette SHALL match the plugin's pre-theme default appearance on both platforms.
+The palette SHALL define values for the page-area background, sidebar background, toolbar background, toolbar checked-state tint, toolbar checked-state ring, toolbar icon glyph, sidebar tree text, toolbar edit-field background, and toolbar edit-field text. The `PageBackground` and `SidebarBackground` slots SHALL replace the retired flat `[Viewer] BackgroundColor`/`SidebarBackground` keys as the single source for those surfaces. The light palette SHALL match the plugin's pre-theme default appearance on both platforms.
 
 #### Scenario: all slots present
 - **WHEN** a theme is active
@@ -43,6 +47,10 @@ The palette SHALL define values for the page-area background, sidebar background
 #### Scenario: light palette parity
 - **WHEN** the light palette is active
 - **THEN** the page-area and sidebar backgrounds match the pre-theme defaults on both platforms
+
+#### Scenario: retired keys are ignored
+- **WHEN** the INI still contains `[Viewer] BackgroundColor` or `[Viewer] SidebarBackground`
+- **THEN** those keys have no effect; the theme section's `PageBackground`/`SidebarBackground` are used
 
 ### Requirement: Document and overlay rendering unaffected by theme
 

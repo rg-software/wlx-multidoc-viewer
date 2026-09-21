@@ -583,7 +583,7 @@ viewer.controller()->setManualZoom(1.0f, 0);
         pump(50);
     }
 
-    // ---------------- G) Two-page presentation: P key, unit pairing, scroll
+    // ---------------- G) Two-page presentation: B key, unit pairing, scroll
     {
         std::string pdfPath = std::string(tmpPath) + "wlx_double.pdf";
         if (!writeTestPdf(pdfPath.c_str(), 5, 420, 595)) {
@@ -638,8 +638,8 @@ viewer.controller()->setManualZoom(1.0f, 0);
               singleP1.x() ==
                   (viewer.controller()->contentSize().width() - singleP1.width()) / 2);
 
-        postKey('P');
-        CHECK("G2 P -> Double",
+        postKey('B');
+        CHECK("G2 B -> Double",
               viewer.controller()->pagePresentation() ==
                   ViewerState::PagePresentation::Double);
         CHECK("G3 mode untouched (still paged)", viewer.controller()->isPagedMode());
@@ -686,12 +686,12 @@ viewer.controller()->setManualZoom(1.0f, 0);
         CHECK("G14 goToPage(5) resolves to 5 (singleton unit)",
               viewer.controller()->currentPage() == 5);
 
-        // Shift+P must not cycle.
-        postShiftKey('P');
-        CHECK("G15 Shift+P does not cycle",
+        // Shift+B must not cycle.
+        postShiftKey('B');
+        CHECK("G15 Shift+B does not cycle",
               viewer.controller()->pagePresentation() ==
                   ViewerState::PagePresentation::Double);
-        CHECK("G16 Shift+P leaves page unchanged",
+        CHECK("G16 Shift+B leaves page unchanged",
               viewer.controller()->currentPage() == 5);
 
         // Horizontal pan range covers the WHOLE unit (incl. the gap), and the
@@ -728,8 +728,8 @@ viewer.controller()->setManualZoom(1.0f, 0);
         // resolved current page must be its unit first (4).
         viewer.controller()->goToPage(5);
         pump(40);
-        postKey('P');
-        CHECK("G20 P -> DoubleWithCover",
+        postKey('B');
+        CHECK("G20 B -> DoubleWithCover",
               viewer.controller()->pagePresentation() ==
                   ViewerState::PagePresentation::DoubleWithCover);
         CHECK("G21 current page on cover-mode unit first (unitFirst(5)=4)",
@@ -776,8 +776,8 @@ viewer.controller()->setManualZoom(1.0f, 0);
         CHECK("G33 cover nextPage 1 -> 2", viewer.controller()->currentPage() == 2);
 
         // Cycle back to Single: geometry matches the original byte-for-byte.
-        postKey('P');
-        CHECK("G34 P -> Single",
+        postKey('B');
+        CHECK("G34 B -> Single",
               viewer.controller()->pagePresentation() ==
                   ViewerState::PagePresentation::Single);
         CHECK("G35 returned to unit first", viewer.controller()->currentPage() == 2);
@@ -785,8 +785,8 @@ viewer.controller()->setManualZoom(1.0f, 0);
               pr(1) == singleP1 && pr(5) == singleP5);
 
         // Fit-to-width fits the combined unit across the viewport width.
-        postKey('P');
-        CHECK("G37 P -> Double (again)",
+        postKey('B');
+        CHECK("G37 B -> Double (again)",
               viewer.controller()->pagePresentation() ==
                   ViewerState::PagePresentation::Double);
         CHECK("G38 mode preserved across presentation cycle",
@@ -804,7 +804,7 @@ viewer.controller()->setManualZoom(1.0f, 0);
         pump(120);
 
         // Continuous double: unit members share a scroll offset; rows step by
-        // the combined height; the P cycle in continuous re-targets correctly.
+        // the combined height; the B cycle in continuous re-targets correctly.
         viewer.controller()->goToPage(1);
         pump(40);
         viewer.controller()->toggleMode();
@@ -824,14 +824,14 @@ viewer.controller()->setManualZoom(1.0f, 0);
 
         // Double -> DoubleWithCover in continuous keeps the view on a unit
         // containing the current page (1 stays its own cover row at 0).
-        postKey('P');
-        CHECK("G44 P in continuous -> DoubleWithCover",
+        postKey('B');
+        CHECK("G44 B in continuous -> DoubleWithCover",
               viewer.controller()->pagePresentation() ==
                   ViewerState::PagePresentation::DoubleWithCover);
         CHECK("G45 cover row scrolls to page 1's row",
               vPos(vh) == viewer.controller()->scrollOffsetForPage(1));
-        postKey('P');
-        CHECK("G46 P -> Single in continuous",
+        postKey('B');
+        CHECK("G46 B -> Single in continuous",
               viewer.controller()->pagePresentation() ==
                   ViewerState::PagePresentation::Single);
         CHECK("G47 single continuous keeps the page-anchored scroll",
@@ -843,9 +843,9 @@ viewer.controller()->setManualZoom(1.0f, 0);
         // without horizontal overflow (fix-refit-fit-zoom-on-navigation).
         viewer.controller()->toggleMode(); // continuous -> paged
         pump(60);
-        postKey('P'); // Single -> Double
+        postKey('B'); // Single -> Double
         pump(40);
-        postKey('P'); // Double -> DoubleWithCover
+        postKey('B'); // Double -> DoubleWithCover
         pump(40);
         viewer.controller()->goToPage(1);
         pump(40);

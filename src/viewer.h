@@ -51,6 +51,7 @@ private slots:
     void onCycleFit();
     void onToggleMode();
     void onTogglePresentation();
+    void onFocusFind();
     void onRotateCw();
     void onRotateCcw();
     void onExitRequested();

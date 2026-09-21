@@ -1,4 +1,5 @@
 #include "toolbar_icons.h"
+#include "viewer_settings.h"
 
 #include <QPainter>
 #include <QPainterPath>
@@ -12,7 +13,11 @@
 namespace toolbar {
 namespace {
 
-constexpr QRgb kGlyphColor = 0xFF4A4A4A; // softer dark gray: visible but lighter
+// Glyph ink comes from the active theme's palette (dark-on-light or
+// light-on-dark), resolved once per process.
+QRgb glyphColor() {
+    return 0xFF000000u | viewer_settings::activePalette().glyph;
+}
 
 // Material Symbols Outlined codepoints for the embedded (subset, weight-300)
 // font. All values verified against the font's cmap.
@@ -118,7 +123,7 @@ QImage rasterizeGlyph(char32_t cp, int px) {
     font.setPixelSize(px);
     font.setWeight(QFont::Light); // light stroke matches the outline set
     p.setFont(font);
-    p.setPen(QColor::fromRgba(kGlyphColor));
+    p.setPen(QColor::fromRgba(glyphColor()));
     p.drawText(QRect(0, 0, px, px), Qt::AlignCenter,
                QString::fromUcs4(reinterpret_cast<const char32_t*>(&cp), 1));
     p.end();
@@ -135,7 +140,7 @@ public:
     Glyph(QPainter& p, int size, float inset)
         : m_p(p), m_s(static_cast<float>(size) - 2.0f * inset), m_off(inset)
     {
-        QPen pen(QColor::fromRgba(kGlyphColor));
+        QPen pen(QColor::fromRgba(glyphColor()));
         pen.setWidthF(qMax(1.0f, m_s / 9.0f));
         pen.setCapStyle(Qt::RoundCap);
         pen.setJoinStyle(Qt::RoundJoin);
@@ -166,7 +171,7 @@ public:
     void bar(float u0, float v0, float u1, float v1) {
         QPen old = m_p.pen();
         m_p.setPen(Qt::NoPen);
-        m_p.setBrush(QColor::fromRgba(kGlyphColor));
+        m_p.setBrush(QColor::fromRgba(glyphColor()));
         m_p.drawRect(QRectF(pt(u0, v0), pt(u1, v1)).normalized());
         m_p.setPen(old);
         m_p.setBrush(Qt::NoBrush);

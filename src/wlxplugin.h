@@ -30,6 +30,7 @@ typedef int BOOL;
 #define lcp_center 0x1000
 #define lcp_fitlargeonly 0x2000
 #define lcp_hidewindowtitle 0x4000
+#define lcp_darkmode 0x8000
 
 #define lc_copy 8
 #define lc_newparams 9

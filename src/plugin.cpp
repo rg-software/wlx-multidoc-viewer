@@ -7,6 +7,8 @@
 #else
 #include "viewer.h"
 #include <QApplication>
+#include <QPalette>
+#include <QStyleHints>
 #include <QWidget>
 
 static bool ensureQApplication() {
@@ -19,6 +21,25 @@ static bool ensureQApplication() {
     return true;
 }
 #endif
+
+#include "viewer_settings.h"
+
+// Records the host's ambient mode once, before any viewer constructs and thus
+// before the active palette is first resolved (it is frozen thereafter).
+// Windows: the lcp_darkmode bit TC/DC passes in ShowFlags. Linux: the Qt
+// color-scheme hint (6.5+; older Qt falls back to the window palette lightness).
+static void recordHostTheme(int showFlags) {
+#if defined(_WIN32)
+    viewer_settings::setHostDark((showFlags & lcp_darkmode) != 0);
+#else
+    Q_UNUSED(showFlags)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    viewer_settings::setHostDark(QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark);
+#else
+    viewer_settings::setHostDark(QGuiApplication::palette().color(QPalette::Window).lightness() < 128);
+#endif
+#endif
+}
 
 #define SUPPORTED_EXTENSIONS \
     "EXT=\"PDF\"|EXT=\"XPS\"|EXT=\"OXPS\"|" \
@@ -37,11 +58,12 @@ static_assert(sizeof(SUPPORTED_EXTENSIONS) <= 260,
 // locale. Total Commander (and Double Commander on Windows) call the `...W`
 // variants with UTF-16 whenever they are exported, so every viewer path must go
 // through here with a proper QString.
-static HANDLE loadDocumentIntoViewer(HANDLE ParentWin, const QString& path) {
+static HANDLE loadDocumentIntoViewer(HANDLE ParentWin, const QString& path, int showFlags) {
     if (!ParentWin)
         return nullptr;
 
 #if defined(_WIN32)
+    recordHostTheme(showFlags);
     auto* viewer = new ViewerWin32(static_cast<HWND>(ParentWin));
     if (!viewer->loadDocument(path)) {
         qWarning() << "ListLoad: failed to load" << path;
@@ -51,6 +73,7 @@ static HANDLE loadDocumentIntoViewer(HANDLE ParentWin, const QString& path) {
     return static_cast<HANDLE>(viewer->hwnd());
 #else
     ensureQApplication();
+    recordHostTheme(showFlags);
 
     auto* parent = static_cast<QWidget*>(ParentWin);
     if (!parent)
@@ -69,26 +92,24 @@ static HANDLE loadDocumentIntoViewer(HANDLE ParentWin, const QString& path) {
 }
 
 DCPCALL HANDLE ListLoad(HANDLE ParentWin, char* FileToLoad, int ShowFlags) {
-    Q_UNUSED(ShowFlags)
     const QString path = QString::fromLocal8Bit(FileToLoad);
     qDebug() << "ListLoad:" << path;
-    return loadDocumentIntoViewer(ParentWin, path);
+    return loadDocumentIntoViewer(ParentWin, path, ShowFlags);
 }
 
 // Wide (UTF-16 filename) entry points — preferred by TC/DC when exported.
 #ifdef _WIN32
 DCPCALL HANDLE ListLoadW(HANDLE ParentWin, wchar_t* FileToLoad, int ShowFlags) {
-    Q_UNUSED(ShowFlags)
     const QString path = QString::fromWCharArray(FileToLoad);
     qDebug() << "ListLoadW:" << path;
-    return loadDocumentIntoViewer(ParentWin, path);
+    return loadDocumentIntoViewer(ParentWin, path, ShowFlags);
 }
 #endif
 
 DCPCALL int ListLoadNext(HANDLE ParentWin, HANDLE PluginWin,
                           char* FileToLoad, int ShowFlags) {
     Q_UNUSED(ParentWin)
-    Q_UNUSED(ShowFlags)
+    recordHostTheme(ShowFlags);
 
 #if defined(_WIN32)
     HWND hViewer = static_cast<HWND>(PluginWin);
@@ -118,12 +139,11 @@ DCPCALL int ListLoadNext(HANDLE ParentWin, HANDLE PluginWin,
 DCPCALL int ListLoadNextW(HANDLE ParentWin, HANDLE PluginWin,
                           wchar_t* FileToLoad, int ShowFlags) {
     Q_UNUSED(ParentWin)
-    Q_UNUSED(ShowFlags)
+    recordHostTheme(ShowFlags);
 
     HWND hViewer = static_cast<HWND>(PluginWin);
     if (!hViewer)
         return LISTPLUGIN_ERROR;
-
     auto* viewer = reinterpret_cast<ViewerWin32*>(
         GetWindowLongPtrW(hViewer, GWLP_USERDATA));
     if (!viewer)

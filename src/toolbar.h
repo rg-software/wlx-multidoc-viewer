@@ -70,6 +70,10 @@ public:
     // meaning typed characters must go to the control, never to the viewer.
     virtual bool isEditFocused() const = 0;
 
+    // Focus the search/find edit box so the next keystrokes type a term
+    // (Ctrl+F in the viewer routes here; the box is always visible).
+    virtual void focusFind() = 0;
+
     void setPresenter(ToolbarPresenter* p) { m_presenter = p; }
     ToolbarPresenter* presenter() const { return m_presenter; }
 

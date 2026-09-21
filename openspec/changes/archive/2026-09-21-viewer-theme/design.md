@@ -25,20 +25,20 @@ The chrome is currently a mix of INI-fed constants (`viewer_settings::kBackgroun
 
 *Alternatives rejected:* per-window palette resolution — requires moving Win32 sidebar/toolbar backgrounds off the class brushes onto per-window paint paths, with no user-visible benefit (TC mode is uniform within a process). Static-init resolution — impossible on Windows because the `lcp_darkmode` flag is only known at `ListLoad` time.
 
-### D2 — Palette as a plain struct with explicit light/dark tables + INI override layering
+### D2 — Palette as a plain struct, values sourced from per-theme INI sections
 
 ```cpp
 struct Palette {
     uint32_t pageBg, sidebarBg, toolbarBg;
     uint32_t toolbarCheckedTint, toolbarCheckedRing;
     uint32_t glyph, treeText, editBg, editText;
-    uint32_t selectionFill, searchActiveFill, searchActivePen; // same in both themes
+    uint32_t selectionFill, searchActiveFill, searchActivePen; // alpha in high byte
 };
 ```
 
-Resolution in `activePalette()`: pick base table by theme (light/dark, or `auto` → hostDark), then stack the legacy `[Viewer] BackgroundColor` / `SidebarBackground` keys as per-slot overrides (they keep their current parse rules and defaults disappear behind the theme default). Overrides always win over the theme default for their slot, matching the spec ("overrides always win").
+Resolution in `activePalette()`: pick the theme (light/dark, or `auto` → hostDark), start from that theme's **built-in table** (`kLightPalette`/`kDarkPalette`), then overlay the selected theme's INI section — `[Theme:light]` or `[Theme:dark]` — key by key. Each key falls back to the built-in value when missing or malformed, so an absent/partial INI still yields a complete palette. Slot values accept `#RRGGBB` or `#RRGGBBAA` (alpha, repacked to the `0xAARRGGBB` overlay form). The retired `[Viewer] BackgroundColor`/`SidebarBackground` keys are gone; their surfaces are the theme's `PageBackground`/`SidebarBackground` slots.
 
-*Alternatives rejected:* per-slot-per-theme INI keys (e.g. `BackgroundColor.Dark`) — flat, no code-side palette object, more INI surface; CSS/QSS — cannot reach Win32 owner-drawn code, would fork the styling into two mechanisms.
+*Alternatives rejected:* keeping `BackgroundColor`/`SidebarBackground` as extra overrides on top of the theme (two mechanisms for the same surface, and a flat key that cannot express a light/dark pair); CSS/QSS (cannot reach Win32 owner-drawn code); separate theme files (more files to ship/parse than a section).
 
 ### D3 — Concrete slot values
 
@@ -57,7 +57,9 @@ Resolution in `activePalette()`: pick base table by theme (light/dark, or `auto`
 | searchActiveFill | `{0,220,220,a150}` | same |
 | searchActivePen | `{0,130,130}` | same |
 
-These are design-time values; exact dark hexes are tunable without changing the model.
+These are the built-in defaults (design-time values), and the shipped
+`multidocviewer.ini` carries them verbatim in `[Theme:light]`/`[Theme:dark]` so
+users can tweak any slot. Exact dark hexes are tunable without changing the model.
 
 ### D4 — Shared platform-specific code
 
@@ -76,14 +78,16 @@ The palette lives in platform-agnostic `viewer_settings.h`. Application splits b
 
 Both platforms: shared `naturalSort`/`viewer_settings` unchanged concepts; `kBackgroundColor`/`kSidebarBackground` constants are removed and replaced by `activePalette()` accessors (a small helper preserves any direct callers).
 
-### D5 — Theme key parsing
+### D5 — Theme key and section parsing
 
 `[Viewer] Theme` parsed case-insensitively with the existing `parseBool`-style helper: `light`, `dark`, or `auto` (default `auto`). `auto` resolves dark when `setHostDark` was recorded (Windows) or Qt's `QStyleHints::colorScheme()` is `Dark` (Linux); otherwise light. Malformed/absent → `auto`.
+
+The selected section (`[Theme:light]`/`[Theme:dark]`) is read with the same `PluginConfig` map access; each slot key is passed through `parseHexColor`, which now accepts 6-digit `#RRGGBB` (opaque) and 8-digit `#RRGGBBAA` (repacked to `0xAARRGGBB`), returning the built-in fallback for anything malformed.
 
 ## Risks / Trade-offs
 
 - [Win32 `WM_CTLCOLOR*` is new path] → Brushes created once per process and `DeleteObject` at teardown not required (process-lifetime, like existing sidebar brush); text via `SetBkMode(hDC, TRANSPARENT)` so the static's own background doesn't paint a second color.
-- [Overrides can paper over dark mode] → A user with `BackgroundColor="#E8E8E8"` set gets a light page even in dark theme. Intended ("overrides always win", spec), but the README/INI template should point `Theme` at users who want the mode to follow.
+- [Retired keys silently ignored] → A user who had `BackgroundColor`/`SidebarBackground` set loses that custom color (it is now ignored). Documented as a migration in the `plugin-config` spec and the INI template; the equivalent value now lives in the theme section.
 - [Appearance regression in light mode] → `toolbarBg #F0F0F0` approximates the current `COLOR_BTNFACE`; users on unusual OS themes lose that subtle custom tint. Acceptable within "fully theme-owned" (explicit decision).
 - [Qt checked-state rendering differs from Win32 owner-draw] → Semantic parity (checked emphasis from the palette) rather than pixel parity; documented in the spec scenario wording.
 - [High-contrast/accessibility OS settings ignored by forced colors] → Pre-existing behavior (page/sidebar already forced); unchanged by this design.
@@ -96,3 +100,27 @@ Both platforms: shared `naturalSort`/`viewer_settings` unchanged concepts; `kBac
 ## Open Questions
 
 None — specs, approach, and task breakdown are settled.
+
+## Implementation Notes
+
+- Theme parsing lives in `viewer_settings.h` (`parseTheme`/`activeTheme`), not
+  `pluginconfig.cpp`: the INI reader stays a generic structure and the theme is
+  a `viewer_settings` concern (the task text named the file, the behavior is
+  identical).
+- Linux host mode is recorded through the same `setHostDark()` path as Windows,
+  read from the Qt color-scheme hint (Qt 6.5+; older Qt falls back to the window
+  palette lightness) in `plugin.cpp` right before viewer construction. This keeps
+  `viewer_settings.h` free of Qt and still satisfies the "auto follows the Qt
+  color-scheme hint" scenario.
+- On Win32 the toolbar's STATIC labels blend with the strip (background =
+  `toolbarBg`) while the EDIT boxes use `editBg`, both with `editText` — using
+  `editBg` for the labels would paint a light box on the strip. The palette still
+  owns both surfaces.
+- `assets/multidocviewer.ini` and `dist/release/multidocviewer.ini` ship the full
+  `[Theme:light]`/`[Theme:dark]` palettes (values `#RRGGBB`/`#RRGGBBAA`).
+  `BackgroundColor`/`SidebarBackground` are retired and ignored; their surfaces
+  are the theme's `PageBackground`/`SidebarBackground` slots.
+- Verification: `harness-theme` (15 checks), `harness-refit`, and `harness-scroll`
+  all pass on Windows. `harness-scroll`'s `G` tests post the `B` presentation key
+  (the key remap is unrelated to this change); they were updated from the stale
+  `P`.

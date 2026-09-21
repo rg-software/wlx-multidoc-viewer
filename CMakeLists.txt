@@ -422,4 +422,17 @@ if(WLX_BUILD_HARNESS AND WIN32)
         LibArchive::LibArchive
         chmlib::chmlib
     )
+
+    # Headless theme/palette resolution harness (viewer-theme). Qt Core only —
+    # it exercises viewer_settings.h without touching the viewers.
+    add_executable(harness-theme
+        tests/harness_theme.cpp
+        src/pluginconfig.cpp
+    )
+    target_include_directories(harness-theme PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
+    target_link_libraries(harness-theme
+        Qt6::Core
+    )
 endif()

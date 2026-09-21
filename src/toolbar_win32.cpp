@@ -94,6 +94,31 @@ HBITMAP imageToIconBitmap(const QImage& src, bool grey) {
     return hbm;
 }
 
+// Process-lifetime brushes built from the frozen active palette. The window
+// class is registered once and outlives every ToolbarWin32, so the strip brush
+// must too: create on first use, never delete (reclaimed at process teardown).
+HBRUSH solidBrushFrom(uint32_t rgb) {
+    return CreateSolidBrush(RGB(static_cast<BYTE>((rgb >> 16) & 0xFF),
+                               static_cast<BYTE>((rgb >> 8) & 0xFF),
+                               static_cast<BYTE>(rgb & 0xFF)));
+}
+
+COLORREF colorrefFrom(uint32_t rgb) {
+    return RGB(static_cast<BYTE>((rgb >> 16) & 0xFF),
+               static_cast<BYTE>((rgb >> 8) & 0xFF),
+               static_cast<BYTE>(rgb & 0xFF));
+}
+
+HBRUSH toolbarBackgroundBrush() {
+    static HBRUSH brush = solidBrushFrom(viewer_settings::activePalette().toolbarBg);
+    return brush;
+}
+
+HBRUSH editBackgroundBrush() {
+    static HBRUSH brush = solidBrushFrom(viewer_settings::activePalette().editBg);
+    return brush;
+}
+
 } // namespace
 
 ToolbarWin32::ToolbarWin32(HWND hParent)
@@ -112,7 +137,7 @@ ToolbarWin32::ToolbarWin32(HWND hParent)
     wc.lpfnWndProc = wndProc;
     wc.hInstance = hInst;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
+    wc.hbrBackground = toolbarBackgroundBrush();
     wc.lpszClassName = WLX_TOOLBAR_CLASS;
 
     static bool registered = false;
@@ -415,6 +440,13 @@ bool ToolbarWin32::isEditFocused() const {
     return focus == m_controls.value(ID_PAGE_EDIT) || focus == m_controls.value(ID_FIND_EDIT);
 }
 
+void ToolbarWin32::focusFind() {
+    if (HWND h = m_controls.value(ID_FIND_EDIT, nullptr)) {
+        ::SetFocus(h);
+        SendMessageW(h, EM_SETSEL, 0, -1); // select existing text for a retype
+    }
+}
+
 void ToolbarWin32::restoreViewerFocus() const {
     const HWND focus = ::GetFocus();
     if (focus == m_controls.value(ID_PAGE_EDIT) || focus == m_controls.value(ID_FIND_EDIT))
@@ -559,9 +591,9 @@ void ToolbarWin32::drawButton(HDC hDC, const DRAWITEMSTRUCT& dis) {
     const bool enabled = (dis.itemState & ODS_DISABLED) == 0;
     const bool focused = (dis.itemState & ODS_FOCUS) != 0;
 
-    COLORREF fill = GetSysColor(COLOR_BTNFACE);
+    COLORREF fill = colorrefFrom(viewer_settings::activePalette().toolbarBg);
     if (checked && enabled)
-        fill = RGB(0xE4, 0xEF, 0xFB);   // very light checked tint
+        fill = colorrefFrom(viewer_settings::activePalette().toolbarCheckedTint);
     HBRUSH br = CreateSolidBrush(fill);
     FillRect(hDC, &rc, br);
     DeleteObject(br);
@@ -571,7 +603,7 @@ void ToolbarWin32::drawButton(HDC hDC, const DRAWITEMSTRUCT& dis) {
     else if (checked && enabled) {
         // Checked: a thin 1px highlight ring only — no sunken edge, keeps the
         // button visually light.
-        HPEN pen = CreatePen(PS_SOLID, 1, RGB(0x9A, 0xBE, 0xE0));
+        HPEN pen = CreatePen(PS_SOLID, 1, colorrefFrom(viewer_settings::activePalette().toolbarCheckedRing));
         HGDIOBJ oldPen = SelectObject(hDC, pen);
         HGDIOBJ oldBr = SelectObject(hDC, GetStockObject(NULL_BRUSH));
         Rectangle(hDC, rc.left, rc.top, rc.right, rc.bottom);
@@ -673,7 +705,7 @@ LRESULT ToolbarWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
         // paint our own background
         RECT rc;
         GetClientRect(m_hwnd, &rc);
-        FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+        FillRect(hdc, &rc, toolbarBackgroundBrush());
         EndPaint(m_hwnd, &ps);
         // force children to redraw
         const auto handles = m_controls.values();
@@ -683,10 +715,25 @@ LRESULT ToolbarWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
         }
         return 0;
     }
+    case WM_CTLCOLORSTATIC:
+        // The page-count / find-status labels blend into the strip; the text
+        // color comes from the palette so they stay legible on a dark toolbar.
+        SetBkColor(reinterpret_cast<HDC>(wp),
+                   colorrefFrom(viewer_settings::activePalette().toolbarBg));
+        SetTextColor(reinterpret_cast<HDC>(wp),
+                     colorrefFrom(viewer_settings::activePalette().editText));
+        return reinterpret_cast<LRESULT>(toolbarBackgroundBrush());
+    case WM_CTLCOLOREDIT:
+        // The page/find edit boxes use the palette's edit-field slots.
+        SetBkColor(reinterpret_cast<HDC>(wp),
+                   colorrefFrom(viewer_settings::activePalette().editBg));
+        SetTextColor(reinterpret_cast<HDC>(wp),
+                     colorrefFrom(viewer_settings::activePalette().editText));
+        return reinterpret_cast<LRESULT>(editBackgroundBrush());
     case WM_ERASEBKGND: {
         RECT rc;
         GetClientRect(m_hwnd, &rc);
-        FillRect(reinterpret_cast<HDC>(wp), &rc, GetSysColorBrush(COLOR_BTNFACE));
+        FillRect(reinterpret_cast<HDC>(wp), &rc, toolbarBackgroundBrush());
         return 1;
     }
     case WM_SIZE:

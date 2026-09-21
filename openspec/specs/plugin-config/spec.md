@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define how the plugin discovers, loads, and exposes a user-editable INI configuration file located in the plugin's own directory. The first consumer is the page-area background color.
+Define how the plugin discovers, loads, and exposes a user-editable INI configuration file located in the plugin's own directory. The chrome theme selection and its per-theme palette sections are the primary consumers.
 
 ## Requirements
 
@@ -38,38 +38,38 @@ The plugin SHALL resolve its own directory from the loaded module path, not from
 - **WHEN** the plugin loads on Linux
 - **THEN** the directory of the `.wlx64` shared object (resolved via `dladdr`) is used as the INI base path
 
-### Requirement: Background color configuration
+### Requirement: Theme selection key
 
-The `[Viewer]` section SHALL support a `BackgroundColor` key specifying the page-area background as a hex RGB value (e.g. `#E8E8E8` or `E8E8E8`). The value is case-insensitive and the `#` prefix is optional. When the key is absent or malformed, the default `0xE8E8E8` (light gray) is used.
+The `[Viewer]` section SHALL support a `Theme` key selecting the chrome palette: `light`, `dark`, or `auto`. The value is case-insensitive. When the key is absent or malformed, the viewer SHALL behave as `auto`.
 
-#### Scenario: Valid background color in INI
-- **WHEN** `multidocviewer.ini` contains `[Viewer] BackgroundColor=#FFFFFF`
-- **THEN** the page area renders with a white background on both platforms
+#### Scenario: Valid Theme in INI
+- **WHEN** `multidocviewer.ini` contains `[Viewer] Theme=dark`
+- **THEN** the chrome renders with the dark palette on both platforms
 
-#### Scenario: Missing BackgroundColor key
-- **WHEN** `multidocviewer.ini` is absent or contains no `[Viewer] BackgroundColor`
-- **THEN** the page area renders with the default light-gray background (`0xE8E8E8`)
+#### Scenario: Missing Theme key
+- **WHEN** `multidocviewer.ini` is absent or contains no `[Viewer] Theme`
+- **THEN** the viewer behaves as `auto`
 
-#### Scenario: Malformed BackgroundColor value
-- **WHEN** `[Viewer] BackgroundColor` contains a non-hex string (e.g. `red`)
-- **THEN** the page area falls back to the default `0xE8E8E8`
+#### Scenario: Malformed Theme value
+- **WHEN** `[Viewer] Theme` contains a non-theme string (e.g. `pink`)
+- **THEN** the viewer behaves as `auto`
 
-### Requirement: Sidebar background color configuration
+### Requirement: Theme palette sections
 
-The `[Viewer]` section SHALL support a `SidebarBackground` key specifying the outline sidebar's background as a hex RGB value (e.g. `#F0F0F0` or `F0F0F0`). The value is case-insensitive and the `#` prefix is optional. When the key is absent or malformed, the sidebar SHALL use the default `0xE8E8E8` (light gray). The sidebar setting SHALL NOT affect the page-area background, and the page-area `BackgroundColor` setting SHALL NOT affect the sidebar.
+The INI SHALL carry the chrome palette in `[Theme:light]` and `[Theme:dark]` sections, keyed by slot: `PageBackground`, `SidebarBackground`, `ToolbarBackground`, `ToolbarCheckedTint`, `ToolbarCheckedRing`, `Glyph`, `TreeText`, `EditBackground`, `EditText`, `SelectionFill`, `SearchActiveFill`, `SearchActivePen`. Values are hex `#RRGGBB` or `#RRGGBBAA` (alpha); the `#` prefix is optional and hex is case-insensitive. The active theme's section SHALL supply the palette, and any missing or malformed key SHALL fall back to the built-in default for that slot (so an absent or partial section still yields a complete palette).
 
-#### Scenario: Valid sidebar background color in INI
-- **WHEN** `multidocviewer.ini` contains `[Viewer] SidebarBackground=#F0F0F0`
-- **THEN** the outline sidebar renders with the `#F0F0F0` background on both platforms, and the page area keeps its own configured background
+#### Scenario: Section supplies the active theme
+- **WHEN** `Theme=dark` and `[Theme:dark] PageBackground=#102030`
+- **THEN** the page area renders `#102030`
 
-#### Scenario: Missing SidebarBackground key
-- **WHEN** `multidocviewer.ini` is absent or contains no `[Viewer] SidebarBackground`
-- **THEN** the sidebar renders with the default light-gray background (`0xE8E8E8`)
+#### Scenario: Only the selected theme's section is read
+- **WHEN** `Theme=light` and both `[Theme:light]` and `[Theme:dark]` define `PageBackground`
+- **THEN** the value from `[Theme:light]` is used
 
-#### Scenario: Malformed SidebarBackground value
-- **WHEN** `[Viewer] SidebarBackground` contains a non-hex string (e.g. `sidebar`)
-- **THEN** the sidebar falls back to the default `0xE8E8E8`
+#### Scenario: Missing key falls back to the built-in default
+- **WHEN** the active theme's section omits `ToolbarBackground`
+- **THEN** the toolbar uses the built-in default for that theme
 
-#### Scenario: Sidebar setting leaves page background untouched
-- **WHEN** `multidocviewer.ini` sets `[Viewer] SidebarBackground` to a color different from `BackgroundColor`
-- **THEN** the page area and the sidebar each render with their own configured colors
+#### Scenario: Alpha value
+- **WHEN** a slot is `#11223344`
+- **THEN** it is read as RGB `#112233` with alpha `0x44`

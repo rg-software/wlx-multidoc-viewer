@@ -112,6 +112,18 @@ HBITMAP QImageToBitmap(const QImage& src) {
     }
     return hbm;
 }
+
+// Process-lifetime page-area background brush from the frozen palette; the
+// viewer window class registers once, so the brush must outlive every window.
+HBRUSH viewerBackgroundBrush() {
+    static HBRUSH brush = [] {
+        const uint32_t bg = viewer_settings::activePalette().pageBg;
+        return CreateSolidBrush(RGB(static_cast<BYTE>((bg >> 16) & 0xFF),
+                                    static_cast<BYTE>((bg >> 8) & 0xFF),
+                                    static_cast<BYTE>(bg & 0xFF)));
+    }();
+    return brush;
+}
 } // namespace
 
 ViewerWin32::ViewerWin32(HWND hParent) {
@@ -123,7 +135,7 @@ ViewerWin32::ViewerWin32(HWND hParent) {
     wc.lpfnWndProc = wndProc;
     wc.hInstance = hInst;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    wc.hbrBackground = viewerBackgroundBrush();
     wc.lpszClassName = WLX_VIEWER_CLASS;
 
     static bool registered = false;
@@ -566,7 +578,7 @@ void ViewerWin32::onPaint() {
     HBITMAP hbmMem = CreateCompatibleBitmap(hdc, w, h);
     HGDIOBJ hOldBmp = SelectObject(hdcMem, hbmMem);
 
-    const uint32_t bg = viewer_settings::kBackgroundColor;
+    const uint32_t bg = viewer_settings::activePalette().pageBg;
     HBRUSH bgBrush = CreateSolidBrush(RGB((bg >> 16) & 0xFF,
                                           (bg >> 8) & 0xFF,
                                           bg & 0xFF));
@@ -882,9 +894,9 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         }
         captured = true;
         break;
-    case 'P':
-        // Plain P cycles the page presentation (single / double / double with
-        // cover) without touching the paged/continuous mode. Keep the view on
+    case 'B':
+        // Plain B cycles the page presentation (single / double / double with
+        // cover) without touching the paged/continuous mode. Keeps the view on
         // the same unit: paged keeps a clean origin, continuous re-targets the
         // scroll to the unit's new position.
         if (!shift) {
@@ -895,6 +907,14 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
                 m_scrollY = m_controller->scrollOffsetForPage(page);
             else
                 m_scrollY = 0;
+            captured = true;
+        }
+        break;
+    case 'F':
+        // Ctrl+F focuses the search box so the next keystrokes type a term.
+        if (ctrl) {
+            if (m_toolbar)
+                m_toolbar->focusFind();
             captured = true;
         }
         break;
@@ -1208,9 +1228,17 @@ void ViewerWin32::paintSelectionOverlay(HDC hdc, const RECT& rc, int topChrome) 
     memset(bits, 0, static_cast<size_t>(stride) * hgt);
 
     // Light yellow, ~40% alpha (premultiplied into the DIB); active matches use
-    // semi-transparent cyan below.
-    constexpr BYTE kAr = 255, kAg = 240, kAb = 105, kAa = 105;
-    constexpr BYTE kCr = 0, kCg = 220, kCb = 220, kCa = 150;
+    // semi-transparent cyan below. Both come from the active palette (identical
+    // in light and dark themes).
+    const viewer_settings::Palette& pal = viewer_settings::activePalette();
+    const BYTE kAr = static_cast<BYTE>((pal.selectionFill >> 16) & 0xFF);
+    const BYTE kAg = static_cast<BYTE>((pal.selectionFill >> 8) & 0xFF);
+    const BYTE kAb = static_cast<BYTE>(pal.selectionFill & 0xFF);
+    const BYTE kAa = static_cast<BYTE>((pal.selectionFill >> 24) & 0xFF);
+    const BYTE kCr = static_cast<BYTE>((pal.searchActiveFill >> 16) & 0xFF);
+    const BYTE kCg = static_cast<BYTE>((pal.searchActiveFill >> 8) & 0xFF);
+    const BYTE kCb = static_cast<BYTE>(pal.searchActiveFill & 0xFF);
+    const BYTE kCa = static_cast<BYTE>((pal.searchActiveFill >> 24) & 0xFF);
     auto fillOverlayC = [&](const RECT& r, BYTE rr, BYTE gg, BYTE bb, BYTE aa) {
         const int x = (std::max)(0L, static_cast<long>(r.left));
         const int y = (std::max)(0L, static_cast<long>(r.top));
