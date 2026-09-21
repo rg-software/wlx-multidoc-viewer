@@ -29,6 +29,32 @@ QRectF quadRect(const fz_quad& q) {
     return QRectF(QPointF(q.ul.x, q.ul.y), QPointF(q.lr.x, q.lr.y)).normalized();
 }
 
+// Extract a page's structured text. The ACCURATE_BBOXES flag (MuPDF 1.25+)
+// computes char quads from the individual glyphs instead of the font-metric
+// line boxes; older system libmupdf versions fall back to those looser quads,
+// which are still correct geometry for word grouping and hit testing.
+fz_stext_page* newStextPage(fz_context* ctx, fz_page* page) {
+    fz_stext_options opts;
+#ifdef MUPDF_HAVE_STEXT_ACCURATE_BBOXES
+    opts.flags = FZ_STEXT_ACCURATE_BBOXES;
+#else
+    opts.flags = 0;
+#endif
+    return fz_new_stext_page_from_page(ctx, page, &opts);
+}
+
+// MuPDF 1.24 split fz_error into a richer enum (FZ_ERROR_SYSTEM/LIBRARY/
+// ARGUMENT/LIMIT/UNSUPPORTED/FORMAT/...); older system libs only know the
+// legacy codes. Map to the closest legacy values so the same call sites
+// compile and behave everywhere.
+#ifdef MUPDF_HAVE_FZ_ERROR_FORMAT
+constexpr int kErrorFormat = FZ_ERROR_FORMAT;
+constexpr int kErrorSystem = FZ_ERROR_SYSTEM;
+#else
+constexpr int kErrorFormat = FZ_ERROR_SYNTAX;   // 1.23: format errors use SYNTAX
+constexpr int kErrorSystem = FZ_ERROR_MEMORY;   // 1.23: fatal/OOM uses MEMORY
+#endif
+
 // One page-space rect carrying its reading-order line index (for spacing).
 struct SearchGlyph {
     QChar c;
@@ -104,26 +130,41 @@ bool MuPdfEngine::open(const QString& path) {
         return false;
     }
 
-    fz_try(m_ctx) {
-        m_pageCount = fz_count_pages(m_ctx, m_doc);
-    }
-    fz_catch(m_ctx) {
-        qWarning() << "MuPdfEngine: fz_count_pages failed for" << path;
-        m_pageCount = 0;
-    }
-
     m_isReflowable = (m_doc && fz_is_document_reflowable(m_ctx, m_doc)) != 0;
 
     // Theme reflowable bodies (EPUB/MOBI/HTML) from the active palette via an
     // internal stylesheet, applied per-document before layout. FB2 paints its
     // own opaque page background that the stylesheet cannot override, so it is
     // themed with the per-page duotone instead, as are fixed-layout documents.
+    //
+    // The stylesheet MUST be applied before fz_count_pages() below: counting
+    // triggers the document's first layout/parse, and on MuPDF < 1.28
+    // (fz_set_user_css, the path used by CHM and by older system libmupdf)
+    // the CSS is only consulted at parse time. Applied afterwards, the first
+    // page keeps the default (light) body background until a later re-layout
+    // re-parses it — the "not themed until page change / mode switch" bug.
     const bool isFb2 = (suffix == "fb2");
     m_themePagesByDuotone = !m_isReflowable || isFb2;
     if (m_isReflowable && !isFb2) {
         const std::string css = documenttheme::reflowCss();
+#ifdef MUPDF_HAVE_STYLE_DOCUMENT
         fz_try(m_ctx) { fz_style_document(m_ctx, m_doc, 0, css.c_str()); }
         fz_catch(m_ctx) { /* keep MuPDF's default stylesheet */ }
+#else
+        // MuPDF < 1.28 has no per-document fz_style_document; MuPDF's
+        // context-level user CSS is the equivalent hook (what chmengine still
+        // uses), applied before the document is first laid out.
+        fz_try(m_ctx) { fz_set_user_css(m_ctx, css.c_str()); }
+        fz_catch(m_ctx) { /* keep MuPDF's default stylesheet */ }
+#endif
+    }
+
+    fz_try(m_ctx) {
+        m_pageCount = fz_count_pages(m_ctx, m_doc);
+    }
+    fz_catch(m_ctx) {
+        qWarning() << "MuPdfEngine: fz_count_pages failed for" << path;
+        m_pageCount = 0;
     }
 
     if (m_bodyHasCover && m_pageCount > 0)
@@ -148,12 +189,12 @@ bool MuPdfEngine::tryOpenMobi(fz_stream* file) {
         // 8 (internal) = 76, then uint16 record count, then record info
         // entries of {uint32 data offset, uint32 attrs/uid} each.
         if (len < 78 + 8)
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: file too small");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: file too small");
         if (memcmp(d + 60, "BOOKMOBI", 8) != 0 && memcmp(d + 60, "TEXtREAd", 8) != 0)
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: bad type/creator");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: bad type/creator");
         const uint16_t nrec = beU16(d + 76);
         if (nrec < 1 || 78 + static_cast<size_t>(nrec) * 8 > len)
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: bad record table");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: bad record table");
 
         // Record offsets are strictly increasing and point inside the file
         // (mobi.c's invariants); append file size as a sentinel.
@@ -164,7 +205,7 @@ bool MuPdfEngine::tryOpenMobi(fz_stream* file) {
         for (uint16_t i = 0; i < nrec; ++i) {
             const size_t off = beU32(d + 78 + static_cast<size_t>(i) * 8);
             if (off < dataStart || off >= len || (i > 0 && off <= prevOff))
-                fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: record offset out of range");
+                fz_throw(m_ctx, kErrorFormat, "MOBI: record offset out of range");
             prevOff = off;
             recOff.push_back(off);
         }
@@ -176,12 +217,12 @@ bool MuPdfEngine::tryOpenMobi(fz_stream* file) {
         // after the header (at 16 + headerLength).
         const size_t hdr = recOff[0] + 16;
         if (hdr + 4 > len || memcmp(d + recOff[0] + 16, "MOBI", 4) != 0)
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: no MOBI magic");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: no MOBI magic");
         const uint32_t hdrLen = beU32(d + hdr + 4);
         if (hdrLen < 0x74 || hdr + hdrLen + 12 > len)
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: header too short");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: header too short");
         if (!(beU32(d + hdr + 0x70) & 0x40) || memcmp(d + hdr + hdrLen, "EXTH", 4) != 0)
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: no EXTH block");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: no EXTH block");
         const uint32_t exthCount = beU32(d + hdr + hdrLen + 8);
 
         // Walk EXTH records {uint32 type, uint32 size, data}; type 201 is the
@@ -205,20 +246,20 @@ bool MuPdfEngine::tryOpenMobi(fz_stream* file) {
             p += size;
         }
         if (coverIndex < 0)
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: cover record index missing");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: cover record index missing");
 
         const size_t cover = recOff[static_cast<size_t>(coverIndex)];
         const size_t coverSize = recOff[static_cast<size_t>(coverIndex) + 1] - cover;
         if (coverSize < 8 || cover + coverSize > len)
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: cover record out of range");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: cover record out of range");
         if (fz_recognize_image_format(m_ctx, d + cover) == FZ_IMAGE_UNKNOWN)
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: cover record is not an image");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: cover record is not an image");
 
         // Decode the cover via Qt (same codec path the comic engine uses).
         const QImage coverImg = QImage::fromData(
             reinterpret_cast<const uchar*>(d + cover), static_cast<qsizetype>(coverSize));
         if (coverImg.isNull())
-            fz_throw(m_ctx, FZ_ERROR_FORMAT, "MOBI: cover record undecodable");
+            fz_throw(m_ctx, kErrorFormat, "MOBI: cover record undecodable");
 
         m_coverImage = coverImg;
         m_bodyHasCover = true;
@@ -232,7 +273,7 @@ bool MuPdfEngine::tryOpenMobi(fz_stream* file) {
         // Swallow cover-extraction failures (wrong structure, no cover, bad
         // image): the engine opens the body via the plain MuPDF path unchanged.
         // Only fatal system errors (incl. out-of-memory) propagate.
-        if (fz_caught(m_ctx) == FZ_ERROR_SYSTEM)
+        if (fz_caught(m_ctx) == kErrorSystem)
             fz_rethrow(m_ctx);
         m_bodyHasCover = false;
         m_coverImage = QImage();
@@ -389,9 +430,7 @@ PageText MuPdfEngine::pageText(int page) {
     fz_try(m_ctx) {
         fzpage = fz_load_page(m_ctx, m_doc, bodyPageIndex(page));
 
-        fz_stext_options opts;
-        opts.flags = FZ_STEXT_ACCURATE_BBOXES;
-        stext = fz_new_stext_page_from_page(m_ctx, fzpage, &opts);
+        stext = newStextPage(m_ctx, fzpage);
 
         int lineIndex = 0;
         for (fz_stext_block* block = stext->first_block; block; block = block->next) {
@@ -470,9 +509,7 @@ QString MuPdfEngine::extractText(int page) {
     fz_try(m_ctx) {
         fzpage = fz_load_page(m_ctx, m_doc, bodyPageIndex(page));
 
-        fz_stext_options opts;
-        opts.flags = FZ_STEXT_ACCURATE_BBOXES;
-        stext = fz_new_stext_page_from_page(m_ctx, fzpage, &opts);
+        stext = newStextPage(m_ctx, fzpage);
 
         QByteArray textBuf;
         for (fz_stext_block* block = stext->first_block; block; block = block->next) {
@@ -631,9 +668,7 @@ QVector<TextMatch> MuPdfEngine::searchText(int page, const QString& needle, bool
         if (pageWidth < 1.0f || pageHeight < 1.0f) {
             // Page too small to hold coordinates; no hits are possible.
         } else {
-            fz_stext_options opts;
-            opts.flags = FZ_STEXT_ACCURATE_BBOXES;
-            stext = fz_new_stext_page_from_page(m_ctx, fzpage, &opts);
+            stext = newStextPage(m_ctx, fzpage);
 
             QVector<SearchGlyph> glyphs;
             int lineNo = 0;

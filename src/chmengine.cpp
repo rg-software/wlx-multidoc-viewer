@@ -41,6 +41,20 @@ bool isHtmlPath(const QString& path) {
            path.endsWith(QLatin1String(".html"), Qt::CaseInsensitive);
 }
 
+// Extract a page's structured text. The ACCURATE_BBOXES flag (MuPDF 1.25+)
+// computes char quads from the individual glyphs instead of the font-metric
+// line boxes; older system libmupdf versions fall back to those looser quads,
+// which are still correct geometry for word grouping and hit testing.
+fz_stext_page* newStextPage(fz_context* ctx, fz_page* page) {
+    fz_stext_options opts;
+#ifdef MUPDF_HAVE_STEXT_ACCURATE_BBOXES
+    opts.flags = FZ_STEXT_ACCURATE_BBOXES;
+#else
+    opts.flags = 0;
+#endif
+    return fz_new_stext_page_from_page(ctx, page, &opts);
+}
+
 int enumCallback(struct chmFile*, struct chmUnitInfo* ui, void* context) {
     auto* pages = static_cast<QVector<QString>*>(context);
     if (!(ui->flags & CHM_ENUMERATE_NORMAL) ||
@@ -577,9 +591,7 @@ PageText ChmEngine::pageText(int page) {
     fz_stext_page* stext = nullptr;
 
     fz_try(ctx) {
-        fz_stext_options opts;
-        opts.flags = FZ_STEXT_ACCURATE_BBOXES;
-        stext = fz_new_stext_page_from_page(ctx, h.page, &opts);
+        stext = newStextPage(ctx, h.page);
 
         int lineIndex = 0;
         for (fz_stext_block* block = stext->first_block; block; block = block->next) {
@@ -648,9 +660,7 @@ QString ChmEngine::extractText(int page) {
     fz_stext_page* stext = nullptr;
 
     fz_try(ctx) {
-        fz_stext_options opts;
-        opts.flags = FZ_STEXT_ACCURATE_BBOXES;
-        stext = fz_new_stext_page_from_page(ctx, h.page, &opts);
+        stext = newStextPage(ctx, h.page);
 
         QByteArray textBuf;
         for (fz_stext_block* block = stext->first_block; block; block = block->next) {
@@ -703,9 +713,7 @@ QVector<TextMatch> ChmEngine::searchText(int page, const QString& needle, bool m
         pageWidth = bounds.x1 - bounds.x0;
         pageHeight = bounds.y1 - bounds.y0;
         if (pageWidth >= 1.0f && pageHeight >= 1.0f) {
-            fz_stext_options opts;
-            opts.flags = FZ_STEXT_ACCURATE_BBOXES;
-            stext = fz_new_stext_page_from_page(ctx, h.page, &opts);
+            stext = newStextPage(ctx, h.page);
 
             QVector<SearchGlyph> glyphs;
             int lineNo = 0;

@@ -31,16 +31,118 @@ endif()
 if(WIN32)
     find_package(unofficial-libmupdf CONFIG REQUIRED)
     set(MUPDF_TARGET unofficial::libmupdf::libmupdf)
+    # The Windows tree always links the pinned overlay port (1.28.x), which
+    # provides every capability probed for on Linux below; record them so the
+    # capability flags stay consistent across platforms.
+    set(MUPDF_HAVE_STEXT_ACCURATE_BBOXES ON)
+    set(MUPDF_HAVE_STYLE_DOCUMENT ON)
+    set(MUPDF_HAVE_FZ_ERROR_FORMAT ON)
 else()
-    find_library(MUPDF_LIBRARY NAMES mupdf REQUIRED)
-    find_path(MUPDF_INCLUDE_DIR NAMES mupdf/fitz.h REQUIRED)
-    add_library(unofficial::libmupdf::libmupdf UNKNOWN IMPORTED)
-    set_target_properties(unofficial::libmupdf::libmupdf PROPERTIES
-        IMPORTED_LOCATION "${MUPDF_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${MUPDF_INCLUDE_DIR}"
-    )
+    # Debian/Ubuntu (and derivatives) ship libmupdf as a static archive whose
+    # transitive codec/3rd-party dependencies (libmupdf-third, mujs, gumbo,
+    # openjp2, jbig2dec, jpeg, zlib, freetype, ...) are carried by the
+    # pkg-config --static line. CI instead builds its own shared .so via vcpkg
+    # with no mupdf.pc, so that path falls through to the plain find_library
+    # shared-lib discovery below. Both are exposed as an interface glue target
+    # (like the PkgConfig::* targets), so consumers never see the difference.
+    add_library(unofficial::libmupdf::libmupdf INTERFACE IMPORTED)
     set(MUPDF_TARGET unofficial::libmupdf::libmupdf)
+
+    find_package(PkgConfig)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(MUPDF_PC mupdf)
+    endif()
+
+    if(MUPDF_PC_FOUND)
+        # Link only the library line of `pkg-config --static`: libs and search
+        # paths, never compiler flags (distro .pc files may carry -D/-I items
+        # such as -DWITH_GZFILEOP that must not leak into the plugin build).
+        execute_process(
+            COMMAND ${PKG_CONFIG_EXECUTABLE} --libs-only-L --static mupdf
+            OUTPUT_VARIABLE _MUPDF_PC_LINK_DIRS_RAW
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+        separate_arguments(_MUPDF_PC_LINK_DIRS UNIX_COMMAND "${_MUPDF_PC_LINK_DIRS_RAW}")
+        list(TRANSFORM _MUPDF_PC_LINK_DIRS REPLACE "^-[Ll]" "")
+        execute_process(
+            COMMAND ${PKG_CONFIG_EXECUTABLE} --libs-only-l --static mupdf
+            OUTPUT_VARIABLE _MUPDF_PC_LINK_LIBS_RAW
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+        separate_arguments(_MUPDF_PC_LINK_LIBS UNIX_COMMAND "${_MUPDF_PC_LINK_LIBS_RAW}")
+        set_target_properties(unofficial::libmupdf::libmupdf PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${MUPDF_PC_INCLUDE_DIRS}"
+            INTERFACE_LINK_DIRECTORIES "${_MUPDF_PC_LINK_DIRS}"
+            INTERFACE_LINK_LIBRARIES "${_MUPDF_PC_LINK_LIBS}"
+        )
+    else()
+        find_library(MUPDF_LIBRARY NAMES mupdf REQUIRED)
+        find_path(MUPDF_INCLUDE_DIR NAMES mupdf/fitz.h REQUIRED)
+        set_target_properties(unofficial::libmupdf::libmupdf PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${MUPDF_INCLUDE_DIR}"
+            INTERFACE_LINK_LIBRARIES "${MUPDF_LIBRARY}"
+        )
+    endif()
+
+    # Probe MuPDF capabilities that only exist in newer releases. System
+    # packages span 1.21 (Debian 12) .. 1.28 (sid/CI/vcpkg), so the engines
+    # degrade gracefully at a few points:
+    #   FZ_STEXT_ACCURATE_BBOXES (1.25+) — tight per-glyph selection geometry;
+    #   fz_style_document        (1.28+) — per-document reflowable theming;
+    #   FZ_ERROR_FORMAT/SYSTEM   (1.24+) — richer fz_error codes (engine maps
+    #                                     to legacy codes on older libs).
+    include(CheckCSourceCompiles)
+    if(MUPDF_PC_FOUND)
+        set(_MUPDF_PROBE_LIBS ${_MUPDF_PC_LINK_LIBS})
+    else()
+        set(_MUPDF_PROBE_LIBS "${MUPDF_LIBRARY}")
+    endif()
+    set(CMAKE_REQUIRED_INCLUDES "${MUPDF_PC_INCLUDE_DIRS}" "${MUPDF_INCLUDE_DIR}")
+    set(CMAKE_REQUIRED_LIBRARIES ${_MUPDF_PROBE_LIBS} -lpthread -ldl)
+    check_c_source_compiles([=[
+#include <mupdf/fitz.h>
+int main(void) {
+    fz_stext_options opts;
+    opts.flags = FZ_STEXT_ACCURATE_BBOXES;
+    (void)opts;
+    return 0;
+}
+]=] MUPDF_HAVE_STEXT_ACCURATE_BBOXES)
+    check_c_source_compiles([=[
+#include <mupdf/fitz.h>
+int main(void) {
+    fz_style_document((fz_context*)0, (fz_document*)0, 0, "");
+    return 0;
+}
+]=] MUPDF_HAVE_STYLE_DOCUMENT)
+    check_c_source_compiles([=[
+#include <mupdf/fitz.h>
+int main(void) {
+    int e = FZ_ERROR_FORMAT;
+    (void)e;
+    return 0;
+}
+]=] MUPDF_HAVE_FZ_ERROR_FORMAT)
+    unset(CMAKE_REQUIRED_INCLUDES)
+    unset(CMAKE_REQUIRED_LIBRARIES)
 endif()
+
+# Propagate the probed MuPDF capabilities to every target that links the
+# engine (the plugin plus the Win32 harnesses), so gated code compiles
+# identically everywhere.
+set(_MUPDF_COMPILE_DEFS "")
+if(MUPDF_HAVE_STEXT_ACCURATE_BBOXES)
+    list(APPEND _MUPDF_COMPILE_DEFS MUPDF_HAVE_STEXT_ACCURATE_BBOXES=1)
+endif()
+if(MUPDF_HAVE_STYLE_DOCUMENT)
+    list(APPEND _MUPDF_COMPILE_DEFS MUPDF_HAVE_STYLE_DOCUMENT=1)
+endif()
+if(MUPDF_HAVE_FZ_ERROR_FORMAT)
+    list(APPEND _MUPDF_COMPILE_DEFS MUPDF_HAVE_FZ_ERROR_FORMAT=1)
+endif()
+if(_MUPDF_COMPILE_DEFS)
+    set_property(TARGET unofficial::libmupdf::libmupdf APPEND PROPERTY
+        INTERFACE_COMPILE_DEFINITIONS ${_MUPDF_COMPILE_DEFS})
+endif()
+unset(_MUPDF_COMPILE_DEFS)
 
 # --- DjVuLibre ------------------------------------------------------
 if(WIN32)
