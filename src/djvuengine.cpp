@@ -1,4 +1,5 @@
 #include "djvuengine.h"
+#include "documenttheme.h"
 
 #include <QImage>
 #include <QDebug>
@@ -166,6 +167,10 @@ QImage DjVuEngine::renderPage(int page, float zoom, float dpiScale, int rotation
 
     delete[] buffer;
     ddjvu_page_release(djpage);
+
+    // DjVu is fixed-layout: recolor background-neutral pages with the theme's
+    // document colors, leaving colored pages untouched.
+    documenttheme::applyToRenderedPage(result);
 
     return result;
 }

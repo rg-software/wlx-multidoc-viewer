@@ -125,6 +125,8 @@ struct Palette {
     uint32_t selectionFill;
     uint32_t searchActiveFill;
     uint32_t searchActivePen;
+    uint32_t documentBg;
+    uint32_t documentText;
 };
 
 // Light table matches the plugin's pre-theme appearance; the overlay slots are
@@ -142,6 +144,8 @@ inline const Palette kLightPalette = {
     0x69FFF069, // selectionFill  (a=105, #FFF069)
     0x9600DCDC, // searchActiveFill (a=150, #00DCDC)
     0xFF008282, // searchActivePen  (#008282)
+    0xFFFFFF, // documentBg (paper)
+    0x000000, // documentText
 };
 
 inline const Palette kDarkPalette = {
@@ -157,6 +161,8 @@ inline const Palette kDarkPalette = {
     0x69FFF069, // selectionFill
     0x9600DCDC, // searchActiveFill
     0xFF008282, // searchActivePen
+    0x262626, // documentBg (a touch lighter than the chrome pageBg)
+    0xE0E0E0, // documentText
 };
 
 // Resolved once per process at first viewer construction and frozen for the
@@ -183,6 +189,8 @@ inline const Palette& activePalette() {
         p.selectionFill = parseHexColor(section.get("SelectionFill"), p.selectionFill);
         p.searchActiveFill = parseHexColor(section.get("SearchActiveFill"), p.searchActiveFill);
         p.searchActivePen = parseHexColor(section.get("SearchActivePen"), p.searchActivePen);
+        p.documentBg = parseHexColor(section.get("DocumentBackground"), p.documentBg);
+        p.documentText = parseHexColor(section.get("DocumentText"), p.documentText);
         return p;
     }();
     return palette;

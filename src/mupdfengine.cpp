@@ -1,4 +1,5 @@
 #include "mupdfengine.h"
+#include "documenttheme.h"
 
 #include <mupdf/pdf.h>
 #include <QImage>
@@ -109,6 +110,20 @@ bool MuPdfEngine::open(const QString& path) {
     fz_catch(m_ctx) {
         qWarning() << "MuPdfEngine: fz_count_pages failed for" << path;
         m_pageCount = 0;
+    }
+
+    m_isReflowable = (m_doc && fz_is_document_reflowable(m_ctx, m_doc)) != 0;
+
+    // Theme reflowable bodies (EPUB/MOBI/HTML) from the active palette via an
+    // internal stylesheet, applied per-document before layout. FB2 paints its
+    // own opaque page background that the stylesheet cannot override, so it is
+    // themed with the per-page duotone instead, as are fixed-layout documents.
+    const bool isFb2 = (suffix == "fb2");
+    m_themePagesByDuotone = !m_isReflowable || isFb2;
+    if (m_isReflowable && !isFb2) {
+        const std::string css = documenttheme::reflowCss();
+        fz_try(m_ctx) { fz_style_document(m_ctx, m_doc, 0, css.c_str()); }
+        fz_catch(m_ctx) { /* keep MuPDF's default stylesheet */ }
     }
 
     if (m_bodyHasCover && m_pageCount > 0)
@@ -349,6 +364,11 @@ QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale, int rotatio
     fz_catch(m_ctx) {
         return {};
     }
+
+    // Fixed-layout pages, and reflowable formats whose background the stylesheet
+    // cannot reach (FB2), are recolored per page when background-neutral.
+    if (m_themePagesByDuotone)
+        documenttheme::applyToRenderedPage(result);
 
     return result;
 }

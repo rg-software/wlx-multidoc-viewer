@@ -401,6 +401,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/comicengine.cpp
         src/naturalsort.cpp
         src/imageengine.cpp
+        src/pluginconfig.cpp
     )
     target_include_directories(harness-mobi PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(harness-mobi
@@ -416,8 +417,10 @@ if(WLX_BUILD_HARNESS AND WIN32)
     add_executable(harness-icc
         tests/harness_icc.cpp
         src/mupdfengine.cpp
+        src/pluginconfig.cpp
     )
-    target_include_directories(harness-icc PRIVATE src)
+    target_include_directories(harness-icc PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
     target_link_libraries(harness-icc
         Qt6::Core
         Qt6::Gui
@@ -438,6 +441,34 @@ if(WLX_BUILD_HARNESS AND WIN32)
         "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
     target_link_libraries(harness-theme
         Qt6::Core
+    )
+
+    # Headless document-body transform harness (theme-document-body).
+    add_executable(harness-document-theme
+        tests/harness_document_theme.cpp
+        src/pluginconfig.cpp
+    )
+    target_include_directories(harness-document-theme PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
+    target_link_libraries(harness-document-theme
+        Qt6::Core
+        Qt6::Gui
+    )
+
+    # Headless reflowable-document theming check (theme-document-body, D2).
+    add_executable(harness-reflow
+        tests/harness_reflow.cpp
+        src/mupdfengine.cpp
+        src/pluginconfig.cpp
+    )
+    target_include_directories(harness-reflow PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
+    target_link_libraries(harness-reflow
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
     )
 
     # Headless favorites-store harness (add-favorites): toggle semantics,

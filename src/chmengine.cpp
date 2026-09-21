@@ -1,4 +1,5 @@
 #include "chmengine.h"
+#include "documenttheme.h"
 
 #include <mupdf/fitz.h>
 
@@ -395,10 +396,15 @@ bool ChmEngine::open(const QString& path) {
     ::chm_enumerate(m_chm, CHM_ENUMERATE_ALL, enumCallback, &m_htmlPages);
 
     m_fzCtx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
-    if (m_fzCtx)
+    if (m_fzCtx) {
         fz_register_document_handlers(m_fzCtx);
-    else
+        // CHM bodies are reflowable HTML: theme them from the active palette.
+        const std::string css = documenttheme::reflowCss();
+        fz_try(m_fzCtx) { fz_set_user_css(m_fzCtx, css.c_str()); }
+        fz_catch(m_fzCtx) { /* keep MuPDF's default stylesheet */ }
+    } else {
         qWarning() << "ChmEngine: failed to create MuPDF context for" << path;
+    }
 
     parseSystemData();
     composeDocument();

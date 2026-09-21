@@ -49,6 +49,15 @@ private:
     fz_document* m_doc = nullptr;
     int m_pageCount = 0;
 
+    // True for reflowable documents (EPUB/MOBI/FB2/HTML): their bodies are
+    // themed through the user stylesheet, not the per-page duotone.
+    bool m_isReflowable = false;
+
+    // Some reflowable formats paint an opaque page background that the user
+    // stylesheet cannot override (MuPDF's FB2 handler does); those are themed
+    // with the per-page duotone instead, like fixed-layout pages.
+    bool m_themePagesByDuotone = false;
+
     // Synthetic cover page: when true, public page 1 is m_coverImage and all
     // body pages shift by +1 (body page n is MuPDF page n-1). Set while the
     // caller holds m_mutex.
