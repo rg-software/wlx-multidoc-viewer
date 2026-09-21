@@ -39,6 +39,15 @@ public:
     void clear() { m_active = false; }
 
     bool isActive() const { return m_active; }
+
+    // A selection whose anchor and focus coincide highlights nothing and
+    // carries no text; a lone click must not count as a copyable selection.
+    bool hasExtent() const {
+        return m_active &&
+               !(anchor.page == focus.page &&
+                 anchor.wordIndex == focus.wordIndex &&
+                 anchor.charIndex == focus.charIndex);
+    }
     SelectionPoint anchorPoint() const { return anchor; }
     SelectionPoint focusPoint() const { return focus; }
 

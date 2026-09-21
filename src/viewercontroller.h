@@ -183,7 +183,7 @@ public:
     void updateSelection(int page, int wordIndex, int charIndex = 0);
     void endSelection();
     void clearSelection();
-    bool hasSelection() const { return m_textSelection.isActive(); }
+    bool hasSelection() const { return m_textSelection.hasExtent(); }
     QVector<QRectF> highlightRects(int page) const;
     QString selectedText() const;
 
