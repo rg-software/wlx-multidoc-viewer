@@ -46,23 +46,27 @@ QString textOfEdit(HWND h) {
 }
 
 // QImage -> 32bpp premultiplied-ARGB top-down DIB, for AlphaBlend icon paint.
+// The disabled (grey) variant is transformed on an UNpremultiplied copy: grey +
+// alpha is applied to real color values and the result re-premultiplied for
+// AlphaBlend. Doing it on premultiplied data left RGB > alpha, which AlphaBlend
+// renders brighter than the enabled icon (the dark-mode "disabled looks paler"
+// bug).
 HBITMAP imageToIconBitmap(const QImage& src, bool grey) {
     if (src.isNull())
         return nullptr;
-    QImage img = src.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    QImage img = src.convertToFormat(grey ? QImage::Format_ARGB32
+                                          : QImage::Format_ARGB32_Premultiplied);
     if (grey) {
         for (int y = 0; y < img.height(); ++y) {
             QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
             for (int x = 0; x < img.width(); ++x) {
-                const int r = qRed(line[x]);
-                const int g = qGreen(line[x]);
-                const int b = qBlue(line[x]);
-                const int gray = (r + g + b) / 3;
+                const int gray = (qRed(line[x]) + qGreen(line[x]) + qBlue(line[x])) / 3;
                 // Distinct but readable disabled state: ~50% alpha, grey tones.
                 const int a = qAlpha(line[x]) * 5 / 10;
                 line[x] = qRgba(gray, gray, gray, a);
             }
         }
+        img = img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
     }
     const int w = img.width();
     const int h = img.height();
