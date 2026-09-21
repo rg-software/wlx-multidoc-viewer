@@ -104,14 +104,6 @@ bool MuPdfEngine::open(const QString& path) {
         return false;
     }
 
-    fz_try(m_ctx) {
-        m_pageCount = fz_count_pages(m_ctx, m_doc);
-    }
-    fz_catch(m_ctx) {
-        qWarning() << "MuPdfEngine: fz_count_pages failed for" << path;
-        m_pageCount = 0;
-    }
-
     m_isReflowable = (m_doc && fz_is_document_reflowable(m_ctx, m_doc)) != 0;
 
     // Theme reflowable bodies (EPUB/MOBI/HTML) from the active palette via an
@@ -124,6 +116,21 @@ bool MuPdfEngine::open(const QString& path) {
         const std::string css = documenttheme::reflowCss();
         fz_try(m_ctx) { fz_style_document(m_ctx, m_doc, 0, css.c_str()); }
         fz_catch(m_ctx) { /* keep MuPDF's default stylesheet */ }
+    }
+
+    // Count AFTER styling. fz_style_document(publisher_css=0, css) switches the
+    // document off the publisher CSS and marks the layout stale, so the next
+    // fz_ensure_layout re-flows reflowable EPUB/MOBI/HTML — a different
+    // pagination than MuPDF's pre-style (publisher-CSS) layout. Counting before
+    // the style cached the pre-style count (e.g. 239 pages) while rendering and
+    // the outline used the re-styled layout (e.g. 412), so the viewer stopped at
+    // a non-final page. Counting here forces that final layout once, up front.
+    fz_try(m_ctx) {
+        m_pageCount = fz_count_pages(m_ctx, m_doc);
+    }
+    fz_catch(m_ctx) {
+        qWarning() << "MuPdfEngine: fz_count_pages failed for" << path;
+        m_pageCount = 0;
     }
 
     if (m_bodyHasCover && m_pageCount > 0)
