@@ -23,14 +23,17 @@ typedef int BOOL;
 #define LISTPLUGIN_OK 0
 #define LISTPLUGIN_ERROR -1
 
-#define lcp_forceshow 0x100
-#define lcp_wraptext 0x200
-#define lcp_ansi 0x400
-#define lcp_fittowindow 0x800
-#define lcp_center 0x1000
-#define lcp_fitlargeonly 0x2000
-#define lcp_hidewindowtitle 0x4000
-#define lcp_darkmode 0x8000
+// ShowFlags bits, per the official WLX SDK (ghisler/WLX-SDK src/listplug.h).
+#define lcp_wraptext 1
+#define lcp_fittowindow 2
+#define lcp_ansi 4
+#define lcp_ascii 8
+#define lcp_variable 12
+#define lcp_forceshow 16
+#define lcp_fitlargeronly 32
+#define lcp_center 64
+#define lcp_darkmode 128
+#define lcp_darkmodenative 256
 
 #define lc_copy 8
 #define lc_newparams 9
