@@ -106,6 +106,19 @@ bool MuPdfEngine::open(const QString& path) {
 
     m_isReflowable = (m_doc && fz_is_document_reflowable(m_ctx, m_doc)) != 0;
 
+    // Lay out at the configured font size (em). The default (11) reproduces
+    // muPDF's built-in layout, so an absent INI key is a no-op. The em sets
+    // characters per line within the fixed A5 box, so it re-flows the document
+    // and changes the page count — applied before the theme stylesheet and the
+    // count below so all three agree on this layout.
+    if (m_isReflowable) {
+        fz_try(m_ctx) {
+            fz_layout_document(m_ctx, m_doc, kReflowPageWidthPt, kReflowPageHeightPt,
+                               static_cast<float>(viewer_settings::kReflowFontSize));
+        }
+        fz_catch(m_ctx) { /* keep muPDF's default layout */ }
+    }
+
     // Theme reflowable bodies (EPUB/MOBI/HTML) from the active palette via an
     // internal stylesheet, applied per-document before layout. FB2 paints its
     // own opaque page background that the stylesheet cannot override, so it is

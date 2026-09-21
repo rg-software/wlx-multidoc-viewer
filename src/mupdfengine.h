@@ -8,6 +8,13 @@
 #include <QString>
 #include <mutex>
 
+// Page box in points (A5) used to lay out reflowable documents (EPUB/MOBI/HTML/
+// FB2), matching muPDF's built-in default. The font size inside the box comes
+// from [Viewer] FontSize (viewer_settings::kReflowFontSize). Shared with
+// tests/harness_epub_count.cpp so its layout reference stays in sync.
+inline constexpr float kReflowPageWidthPt = 420.0f;
+inline constexpr float kReflowPageHeightPt = 595.0f;
+
 class MuPdfEngine : public DocumentEngine {
 public:
     MuPdfEngine();

@@ -228,6 +228,18 @@ inline int kSidebarInitialWidth = [] {
 inline bool kSidebarVisibleByDefault = parseBool(
     PluginConfig::get().get("Viewer").get("SidebarVisible"), false);
 
+// Reflowable-document font size (em, in points) read from [Viewer] FontSize.
+// This is the text layout size, not a raster zoom: it sets characters per line
+// (page width / em), so changing it re-flows the document and changes the page
+// count. Clamped to a readable range; the default (11) matches muPDF's built-in
+// layout, so an absent key changes nothing. Requires a host restart.
+inline constexpr int kReflowFontSizeMin = 8;
+inline constexpr int kReflowFontSizeMax = 32;
+inline int kReflowFontSize = [] {
+    const int parsed = parseInt(PluginConfig::get().get("Viewer").get("FontSize"), 11);
+    return (std::max)(kReflowFontSizeMin, (std::min)(kReflowFontSizeMax, parsed));
+}();
+
 } // namespace viewer_settings
 
 #endif // VIEWER_SETTINGS_H

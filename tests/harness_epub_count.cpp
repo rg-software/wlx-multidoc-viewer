@@ -68,6 +68,11 @@ static int runRawWorker(const QString& path) {
         stm = fz_open_file(ctx, path.toUtf8().constData());
 #endif
         doc = fz_open_document_with_stream(ctx, magic.constData(), stm);
+        // Mirror the engine: lay reflowables out at the configured font size
+        // before counting, so the reference matches the engine's final layout.
+        if (fz_is_document_reflowable(ctx, doc))
+            fz_layout_document(ctx, doc, kReflowPageWidthPt, kReflowPageHeightPt,
+                               static_cast<float>(viewer_settings::kReflowFontSize));
         pre = fz_count_pages(ctx, doc);
         fz_style_document(ctx, doc, 0, css.c_str());
         post = fz_count_pages(ctx, doc);
