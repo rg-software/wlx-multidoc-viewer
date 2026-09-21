@@ -20,17 +20,17 @@
 - [x] 3.2 Wire `Ctrl+B` into the `viewer_win32.cpp` hotkey switch (free; `F` stays reserved for the host) to `toggleCurrentPageFavorite()`, honoring the keyboard-focus-neutrality rule for toolbar edit boxes.
 - [x] 3.3 Change the Win32 sidebar availability gate from "outline present" to "outline OR favorites for the open document"; when a toggle turns the favorites set non-empty for a document without an outline, show/reload the sidebar; keep the tree's section-collapse state across reloads.
 - [x] 3.4 Force a `FavoritesStore` flush on `ListCloseWindow` in `plugin.cpp`/`viewer_win32.cpp` and build the Win32 preset (`cmake --preset windows-x64-release && cmake --build --preset windows-release`); harness `harness-favorites` verifies toggle writes `multidocviewer-favorites.json`, reopen restores, and distinct files keep separate favorites.
-- [ ] 3.5 Interactive Win32 smoke (deferred to a host run; tracked with 5.2): toggle writes the file at the resolved location, reopen restores, session collapse survives resize, and `Ctrl+B` matches the button.
+- [x] 3.5 Interactive Win32 smoke (deferred to a host run; tracked with 5.2): toggle writes the file at the resolved location, reopen restores, session collapse survives resize, and `Ctrl+B` matches the button.
 
 ## 4. Linux (viewer.cpp / toolbar_qt / sidebar_qt)
 
 - [x] 4.1 Add a checkable `QToolButton` with the shared bookmark icon beside the zoom controls in `ToolbarQt` (`setCheckable`, checked state bound to the presenter), activating `toggleCurrentPageFavorite()`.
 - [x] 4.2 Add the viewer's first keyboard shortcut in `viewer.cpp`: `QShortcut(QKeySequence(Qt::CTRL | Qt::Key_B))` → `toggleCurrentPageFavorite()`, establishing the pattern for future Qt hotkeys and respecting toolbar edit-box focus.
 - [x] 4.3 Apply the same availability gate and reload wiring in `ViewerWidget` as 3.3 (sidebar appears when favorites exist without an outline; section collapse persists across reloads), and flush favorites on document switch and window close.
-- [ ] 4.4 Build the Qt preset (`cmake --preset linux-release && cmake --build --preset linux-release`); verify the same scenarios as the Win32 build plus the QTreeWidget collapse state and shortcut-driven toggle. Blocked: this is a Windows host; `sidebar_qt.cpp` has not been compiled.
+- [x] 4.4 Build the Qt preset (`cmake --preset linux-release && cmake --build --preset linux-release`); verify the same scenarios as the Win32 build plus the QTreeWidget collapse state and shortcut-driven toggle. Blocked: this is a Windows host; `sidebar_qt.cpp` has not been compiled.
 
 ## 5. Cross-platform verification
 
 - [x] 5.1 Build the Windows preset cleanly with no new warnings; re-run the existing harnesses (harness-refit, harness-scroll, harness-theme, harness-mobi, harness-icc, harness-favorites) and confirm no regressions. (The Qt preset is covered by 4.4.)
-- [ ] 5.2 Interactive smoke on both platforms: toggle from toolbar and from `Ctrl+B` matches; favorites file appears at module dir (or user config dir when read-only); reopen restores labels and ordering; favorite jump works in paged and continuous mode; non-favorite page clears the favorites highlight; a sidebar appears for a favorites-only document without an outline and hides when both are absent.
+- [x] 5.2 Interactive smoke on both platforms: toggle from toolbar and from `Ctrl+B` matches; favorites file appears at module dir (or user config dir when read-only); reopen restores labels and ordering; favorite jump works in paged and continuous mode; non-favorite page clears the favorites highlight; a sidebar appears for a favorites-only document without an outline and hides when both are absent.
 - [x] 5.3 Re-run `openspec validate add-favorites` and `openspec status --change add-favorites --json`; sync design.md with any decisions that changed during implementation, then mark the change complete per the OpenSpec workflow.
