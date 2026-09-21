@@ -22,17 +22,19 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
   high-zoom files.
 
 - **Single-page & double-page modes**: show one or two pages side by side.
-  Optionally use the double-page mode from the second page of the document. 
+  Optionally use the double-page mode from the second page of the document.
 
 - **Fit, zoom, & rotation**: fit-to-page / fit-to-width / manual, zoom in/out, rotation.
 
-- **Outline sidebar**: table of contents for PDF/EPUB/CHM documents.
+- **Sidebar**: table of contents for PDF/EPUB/CHM documents and bookmarks.
 
 - **Text selection & find**: select text with the mouse and copy it, search
   across pages with per-match highlights in documents with a text layer
   (PDF, EPUB, XPS, CHM).
   
 - **Folder browsing**: navigate between images in the current folder using Next and Previous buttons.
+
+- **Themes**: customizable light and dark modes.
 
 - **Printing**: page range and copies through the host print dialog.
 
@@ -46,6 +48,8 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
 | `Up` / `Down` | Scroll line-wise (continuous) |
 | `Home` / `End` | First / last page |
 | `V` | Toggle paged / continuous mode |
+| `B` | Toggle single / double / skip cover double mode |
+| `Shift+B` | Toggle bookmark |
 | `Shift+V` | Cycle fit mode (page / width / 100%) |
 | `F12` | Show / hide sidebar |
 | `+` / `-` / `Numpad 0` or `/` | Zoom in / out / reset |

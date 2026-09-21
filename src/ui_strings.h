@@ -25,7 +25,7 @@ inline QString tooltipFindPrev()         { return QStringLiteral("Previous match
 inline QString tooltipFindNext()         { return QStringLiteral("Next match"); }
 inline QString tooltipMatchCase()        { return QStringLiteral("Match case"); }
 inline QString tooltipCopy()             { return QStringLiteral("Copy selection"); }
-inline QString tooltipToggleFavorite()   { return QStringLiteral("Favorite (Ctrl+B)"); }
+inline QString tooltipToggleFavorite()   { return QStringLiteral("Favorite"); }
 
 // --- Sidebar ------------------------------------------------------------------
 inline QString sidebarFavoritesHeader()       { return QStringLiteral("Favorites"); }
