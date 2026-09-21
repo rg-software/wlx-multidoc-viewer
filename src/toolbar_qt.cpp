@@ -29,6 +29,7 @@ toolbar::Icon defaultIconFor(toolbar::Control c) {
     case Control::RotateRight:   return Icon::RotateRight;
     case Control::ZoomOut:       return Icon::ZoomOut;
     case Control::ZoomIn:        return Icon::ZoomIn;
+    case Control::ToggleFavorite: return Icon::Favorites;
     case Control::FindPrev:      return Icon::FindPrev;
     case Control::FindNext:      return Icon::FindNext;
     case Control::MatchCase:     return Icon::MatchCase;
@@ -122,6 +123,7 @@ ToolbarQt::ToolbarQt(QWidget* parent)
     addButton(toolbar::Control::RotateRight, false, ui_strings::tooltipRotateRight(), [this] { presenter()->onRotateRight(); });
     addButton(toolbar::Control::ZoomOut, false, ui_strings::tooltipZoomOut(), [this] { presenter()->onZoomOut(); });
     addButton(toolbar::Control::ZoomIn, false, ui_strings::tooltipZoomIn(), [this] { presenter()->onZoomIn(); });
+    addButton(toolbar::Control::ToggleFavorite, true, ui_strings::tooltipToggleFavorite(), [this] { presenter()->onToggleFavorite(); });
     addSeparator();
 
     addEdit(toolbar::Control::FindBox, 110);

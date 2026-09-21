@@ -1,5 +1,6 @@
 #include "viewer_win32.h"
 #include "viewer_settings.h"
+#include "favorites.h"
 #include "toolbar_win32.h"
 #include "sidebar_win32.h"
 #include "print_win32.h"
@@ -190,13 +191,15 @@ ViewerWin32::ViewerWin32(HWND hParent) {
     });
     m_sidebarPresenter.attach(m_controller.get(), m_sidebar.get());
     m_sidebarPresenter.setScrollApplier([this](int scrollY) { applyScroll(scrollY); });
-    m_toolbarPresenter.sidebarAvailable = [this]() { return m_sidebarPresenter.hasOutline(); };
+    FavoritesStore::get().setChangeNotifier([this]() { onFavoritesChanged(); });
+    m_toolbarPresenter.sidebarAvailable = [this]() { return m_sidebarPresenter.hasSidebarContent(); };
     m_toolbarPresenter.copyHandler = [this](const QString& text) { setClipboardText(text); };
     m_toolbarPresenter.sidebarVisible = [this]() { return m_sidebarVisible; };
     m_toolbarPresenter.refreshState();
 }
 
 ViewerWin32::~ViewerWin32() {
+    FavoritesStore::get().setChangeNotifier({});
     closeDocument();
     if (m_overlayBitmap) {
         DeleteObject(m_overlayBitmap);
@@ -221,7 +224,7 @@ bool ViewerWin32::loadDocument(const QString& path) {
     // An outlined document starts with the sidebar shown only when the INI
     // [Viewer] SidebarVisible key is enabled; manual toggling is never overridden.
     const bool startVisible =
-        m_sidebarPresenter.hasOutline() && viewer_settings::kSidebarVisibleByDefault;
+        m_sidebarPresenter.hasSidebarContent() && viewer_settings::kSidebarVisibleByDefault;
     showHideSidebar(startVisible);
     m_toolbar->setChecked(toolbar::Control::SidebarToggle, startVisible);
     onControllerChanged();
@@ -234,6 +237,7 @@ bool ViewerWin32::loadDocument(const QString& path) {
 void ViewerWin32::closeDocument() {
     stopAnimationTimer();
     invalidatePageBitmaps();
+    FavoritesStore::get().flush();
     if (m_controller)
         m_controller->closeDocument();
     m_scrollX = 0;
@@ -242,6 +246,20 @@ void ViewerWin32::closeDocument() {
     showHideSidebar(false);
     if (m_sidebar)
         m_sidebar->setVisible(false);
+}
+
+void ViewerWin32::onFavoritesChanged() {
+    if (!m_controller)
+        return;
+    // Rebuild the sidebar so the favorites section appears/disappears. A
+    // favorites-only document (no outline) must reveal the panel or the new
+    // section would be unreachable; outlined documents leave the user's
+    // sidebar visibility choice alone.
+    m_sidebarPresenter.reload();
+    if (m_sidebarPresenter.hasFavoritesSection() && !m_sidebarPresenter.hasOutlineEntries() &&
+        !m_sidebarVisible)
+        showHideSidebar(true);
+    onControllerChanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -389,7 +407,7 @@ void ViewerWin32::showHideSidebar(bool visible) {
 }
 
 void ViewerWin32::onSidebarToggle() {
-    if (!m_sidebarPresenter.hasOutline() || !m_controller || !m_controller->hasDocument())
+    if (!m_sidebarPresenter.hasSidebarContent() || !m_controller || !m_controller->hasDocument())
         return;
     const bool now = !m_sidebarVisible;
     showHideSidebar(now);
@@ -895,10 +913,16 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         captured = true;
         break;
     case 'B':
-        // Plain B cycles the page presentation (single / double / double with
-        // cover) without touching the paged/continuous mode. Keeps the view on
-        // the same unit: paged keeps a clean origin, continuous re-targets the
+        // Ctrl+B toggles the current page in the favorites store. Plain B
+        // cycles the page presentation (single / double / double with cover)
+        // without touching the paged/continuous mode. Keeps the view on the
+        // same unit: paged keeps a clean origin, continuous re-targets the
         // scroll to the unit's new position.
+        if (ctrl) {
+            m_controller->toggleCurrentPageFavorite();
+            captured = true;
+            break;
+        }
         if (!shift) {
             const int page = m_controller->currentPage();
             m_controller->cyclePagePresentation();

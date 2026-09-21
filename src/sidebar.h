@@ -2,6 +2,8 @@
 #define SIDEBAR_H
 
 #include "document.h"
+#include "favorites.h"
+#include "ui_strings.h"
 #include "viewercontroller.h"
 
 #include <QString>
@@ -49,6 +51,13 @@ public:
     virtual void selectEntry(int id) = 0; // highlight + auto-expand the path
     virtual void setVisible(bool on) = 0;
 
+    // Collapse-state preservation across a reload() rebuild: capture which
+    // entry ids are currently expanded before clearEntries(), re-apply them
+    // after the new entries are added. Ids that are absent keep the backend's
+    // default (collapsed), so a user-collapsed Favorites section stays closed.
+    virtual QVector<int> expandedEntryIds() const { return {}; }
+    virtual void restoreExpandedEntries(const QVector<int>&) {}
+
 protected:
     void notifyWidthChanged(int logicalPx) {
         if (m_widthChanged)
@@ -73,18 +82,55 @@ public:
     void setScrollApplier(std::function<void(int)> fn) { m_applyScroll = std::move(fn); }
 
     void reload() {
+        // Capture the expanded set first so a reload triggered by (e.g.) a
+        // favorites toggle keeps the Favorites section and any expanded outline
+        // branches open. Ids are only meaningful within one document, so the
+        // capture is discarded when the open document changed.
+        const QString docPath = m_controller ? m_controller->currentPath() : QString();
+        QVector<int> expanded;
+        if (m_backend && !docPath.isEmpty() && docPath == m_expandDocPath)
+            expanded = m_backend->expandedEntryIds();
         m_entries.clear();
         m_activeEntry = -1;
+        m_favoritesHeaderId = -1;
+        m_hasOutlineEntries = false;
         if (m_backend)
             m_backend->clearEntries();
-        if (!m_controller || !m_controller->hasDocument())
+        if (!m_controller || !m_controller->hasDocument()) {
+            m_expandDocPath.clear();
             return;
+        }
         const QVector<OutlineItem> items = m_controller->engine()->outline();
         flatten(items, -1, 0);
+        m_hasOutlineEntries = !m_entries.isEmpty();
+        // Favorites: a synthetic collapsible section below the outline when the
+        // current document has any marked pages. The section header is a
+        // destination-less container (resolved=false) so it can never be
+        // highlighted or activated; the rows are real resolved entries.
+        const QString path = m_controller->currentPath();
+        const QVector<FavoriteEntry> favs =
+            path.isEmpty() ? QVector<FavoriteEntry>()
+                           : FavoritesStore::get().favoritesFor(path);
+        if (!favs.isEmpty()) {
+            m_favoritesHeaderId = m_entries.size();
+            m_entries.append(SidebarEntry{m_favoritesHeaderId, -1, 0, 1, false,
+                                          ui_strings::sidebarFavoritesHeader()});
+            for (const FavoriteEntry& f : favs) {
+                const int id = m_entries.size();
+                const QString title = f.label.isEmpty()
+                    ? ui_strings::sidebarFavoritePageFallback().arg(f.page)
+                    : f.label;
+                m_entries.append(SidebarEntry{id, m_favoritesHeaderId, 1, f.page,
+                                              true, title});
+            }
+        }
         if (m_backend) {
             for (const SidebarEntry& e : m_entries)
                 m_backend->addEntry(e.id, e.parentId, e.title);
+            if (!expanded.isEmpty())
+                m_backend->restoreExpandedEntries(expanded);
         }
+        m_expandDocPath = path;
         onPageChanged(m_controller->currentPage());
     }
 
@@ -95,11 +141,26 @@ public:
         // candidates and steal the highlight from the actual section.
         int best = -1;
         int bestLevel = -1;
-        for (int i = 0; i < m_entries.size(); ++i) {
+        // The scan is limited to real outline rows; the favorites section (when
+        // present) sits past m_favoritesHeaderId and has its own exact-match rule.
+        const int outlineEnd = (m_favoritesHeaderId < 0) ? m_entries.size()
+                                                         : m_favoritesHeaderId;
+        for (int i = 0; i < outlineEnd; ++i) {
             const SidebarEntry& e = m_entries[i];
             if (e.resolved && e.pageNo <= page && e.level >= bestLevel) {
                 bestLevel = e.level;
                 best = i;
+            }
+        }
+        // A favorite row whose page equals the reading position overrides the
+        // outline highlight: pages are unique per favorite, so at most one match.
+        if (m_favoritesHeaderId >= 0) {
+            for (int i = m_favoritesHeaderId + 1; i < m_entries.size(); ++i) {
+                const SidebarEntry& e = m_entries[i];
+                if (e.resolved && e.pageNo == page) {
+                    best = i;
+                    break;
+                }
             }
         }
         m_activeEntry = best;
@@ -109,6 +170,9 @@ public:
 
     void onEntryActivated(int id) {
         if (!m_controller || !m_controller->hasDocument())
+            return;
+        // The favorites header is a destination-less container.
+        if (id == m_favoritesHeaderId)
             return;
         const SidebarEntry* e = entry(id);
         if (!e)
@@ -132,7 +196,14 @@ public:
     }
 
     int activeEntry() const { return m_activeEntry; }
+    // Sidebar availability: the panel has content if the document has an
+    // outline AND/OR favorites.
     bool hasOutline() const { return !m_entries.isEmpty(); }
+    bool hasSidebarContent() const { return !m_entries.isEmpty(); }
+    // The document's own outline rows (excludes the synthetic Favorites
+    // section) and whether that section was appended.
+    bool hasOutlineEntries() const { return m_hasOutlineEntries; }
+    bool hasFavoritesSection() const { return m_favoritesHeaderId >= 0; }
 
 private:
     void flatten(const QVector<OutlineItem>& items, int parentId, int level) {
@@ -149,6 +220,15 @@ private:
     std::function<void(int)> m_applyScroll;
     QVector<SidebarEntry> m_entries;
     int m_activeEntry = -1;
+    // Flat id of the synthetic "Favorites" section header, or -1 when the
+    // current document has no favorites (no section appended).
+    int m_favoritesHeaderId = -1;
+    // Whether the flattened document outline contributed any rows (before the
+    // synthetic Favorites section is appended).
+    bool m_hasOutlineEntries = false;
+    // Document whose expanded-entry ids the backend currently holds; a reload
+    // only restores the captured collapse state while this still matches.
+    QString m_expandDocPath;
 };
 
 #endif // SIDEBAR_H

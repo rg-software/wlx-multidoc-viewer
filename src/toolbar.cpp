@@ -116,6 +116,10 @@ void ToolbarPresenter::refreshState() {
 // selection works.)
     m_backend->setEnabled(Control::Copy, hasDoc && m_controller->hasSelection());
 
+    m_backend->setEnabled(Control::ToggleFavorite, hasDoc);
+    m_backend->setChecked(Control::ToggleFavorite,
+                          hasDoc && m_controller->isCurrentPageFavorite());
+
     m_backend->setEnabled(Control::Print, hasDoc);
     m_backend->setEnabled(Control::SidebarToggle, hasDoc && (!sidebarAvailable || sidebarAvailable()));
     m_backend->setChecked(Control::SidebarToggle, sidebarVisible && sidebarVisible());
@@ -233,6 +237,11 @@ void ToolbarPresenter::onZoomIn() {
 
 void ToolbarPresenter::onZoomOut() {
     applyAnchored([this](int s) { return m_controller->zoomOut(s); });
+}
+
+void ToolbarPresenter::onToggleFavorite() {
+    if (m_controller)
+        m_controller->toggleCurrentPageFavorite();
 }
 
 void ToolbarPresenter::onFindCommitted(const QString& text) {

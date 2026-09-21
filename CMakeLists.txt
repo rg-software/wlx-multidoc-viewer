@@ -196,6 +196,7 @@ add_library(wlx-multidoc-viewer SHARED
         src/imageengine.cpp
         src/imagefolder.cpp
     src/viewercontroller.cpp
+    src/favorites.cpp
     src/textselection.cpp
     src/searchcontroller.cpp
     src/toolbar.cpp
@@ -293,6 +294,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/toolbar_win32.cpp
         src/sidebar_win32.cpp
         src/viewercontroller.cpp
+        src/favorites.cpp
         src/textselection.cpp
         src/formatdispatcher.cpp
         src/mupdfengine.cpp
@@ -326,6 +328,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/toolbar_win32.cpp
         src/sidebar_win32.cpp
         src/viewercontroller.cpp
+        src/favorites.cpp
         src/textselection.cpp
         src/formatdispatcher.cpp
         src/mupdfengine.cpp
@@ -361,6 +364,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/toolbar_win32.cpp
         src/sidebar_win32.cpp
         src/viewercontroller.cpp
+        src/favorites.cpp
         src/textselection.cpp
         src/formatdispatcher.cpp
         src/mupdfengine.cpp
@@ -433,6 +437,20 @@ if(WLX_BUILD_HARNESS AND WIN32)
         "${CMAKE_CURRENT_BINARY_DIR}"
         "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
     target_link_libraries(harness-theme
+        Qt6::Core
+    )
+
+    # Headless favorites-store harness (add-favorites): toggle semantics,
+    # per-document independence, disk round-trip, write debouncing.
+    add_executable(harness-favorites
+        tests/harness_favorites.cpp
+        src/favorites.cpp
+        src/pluginconfig.cpp
+    )
+    target_include_directories(harness-favorites PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
+    target_link_libraries(harness-favorites
         Qt6::Core
     )
 endif()

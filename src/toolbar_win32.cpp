@@ -26,7 +26,7 @@ enum : int {
     ID_PREV = 1, ID_NEXT,
     ID_PAGE_EDIT, ID_PAGE_STATIC,
     ID_MODE, ID_PRESENTATION, ID_FIT,
-    ID_ROT_L, ID_ROT_R, ID_ZOOM_IN, ID_ZOOM_OUT,
+    ID_ROT_L, ID_ROT_R, ID_ZOOM_IN, ID_ZOOM_OUT, ID_FAVORITE,
     ID_FIND_PREV, ID_FIND_EDIT, ID_FIND_NEXT, ID_MATCH_CASE, ID_FIND_STATIC,
     ID_PRINT, ID_COPY, ID_SIDEBAR,
 };
@@ -199,6 +199,7 @@ struct Def { int id; toolbar::Control ctrl; toolbar::Icon icon; bool checkable; 
         {ID_ROT_R,     toolbar::Control::RotateRight,    toolbar::Icon::RotateRight,   false},
         {ID_ZOOM_OUT,  toolbar::Control::ZoomOut,        toolbar::Icon::ZoomOut,       false},
         {ID_ZOOM_IN,   toolbar::Control::ZoomIn,         toolbar::Icon::ZoomIn,        false},
+        {ID_FAVORITE,  toolbar::Control::ToggleFavorite, toolbar::Icon::Favorites,     true},
         {ID_FIND_PREV, toolbar::Control::FindPrev,       toolbar::Icon::FindPrev,      false},
         {ID_FIND_NEXT, toolbar::Control::FindNext,       toolbar::Icon::FindNext,      false},
         {ID_MATCH_CASE, toolbar::Control::MatchCase,     toolbar::Icon::MatchCase,     true},
@@ -277,6 +278,7 @@ const wchar_t* ToolbarWin32::tipFor(toolbar::Control c) {
     case toolbar::Control::RotateRight:    text = ui_strings::tooltipRotateRight();    break;
     case toolbar::Control::ZoomOut:        text = ui_strings::tooltipZoomOut();        break;
     case toolbar::Control::ZoomIn:         text = ui_strings::tooltipZoomIn();         break;
+    case toolbar::Control::ToggleFavorite: text = ui_strings::tooltipToggleFavorite(); break;
     case toolbar::Control::FindPrev:       text = ui_strings::tooltipFindPrev();       break;
     case toolbar::Control::FindNext:       text = ui_strings::tooltipFindNext();       break;
     case toolbar::Control::MatchCase:      text = ui_strings::tooltipMatchCase();      break;
@@ -561,6 +563,7 @@ void ToolbarWin32::onCommand(int id) {
     case ID_ROT_R:      p->onRotateRight(); break;
     case ID_ZOOM_OUT:   p->onZoomOut(); break;
     case ID_ZOOM_IN:    p->onZoomIn(); break;
+    case ID_FAVORITE:   p->onToggleFavorite(); break;
     case ID_FIND_PREV:  p->onFindPrev(); break;
     case ID_FIND_NEXT:  p->onFindNext(); break;
     case ID_MATCH_CASE: {

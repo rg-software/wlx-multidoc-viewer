@@ -29,6 +29,7 @@ enum class Control {
     RotateRight,
     ZoomIn,
     ZoomOut,
+    ToggleFavorite,
     FindBox,       // editable search term
     FindPrev,
     FindNext,
@@ -45,6 +46,7 @@ enum class Icon {
     RotateLeft, RotateRight, ZoomIn, ZoomOut,
     Find, FindPrev, FindNext, MatchCase, MatchCaseOff,
     Print, Copy, SidebarToggle,
+    Favorites,
     PresentationSingle, PresentationDouble, PresentationDoubleWithCover,
 };
 
@@ -122,6 +124,7 @@ public:
     void onRotateRight();
     void onZoomIn();
     void onZoomOut();
+    void onToggleFavorite();
     void onFindCommitted(const QString& text);
     void onFindPrev();
     void onFindNext();

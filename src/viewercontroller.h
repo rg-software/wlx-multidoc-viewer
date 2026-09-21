@@ -226,6 +226,12 @@ public:
     FitMode fitMode() const { return m_fitMode; }
     int rotation() const { return m_rotation; }
     bool hasDocument() const { return m_engine && m_engine->isOpen(); }
+    QString currentPath() const { return m_openPath; }
+
+    // Favorites (per-document page marks). Toggle adds/removes the current page
+    // and reported is-current reflects the store singleton.
+    void toggleCurrentPageFavorite();
+    bool isCurrentPageFavorite() const;
 
     void setStateChangedCallback(StateChangedCallback cb) { m_onChanged = std::move(cb); }
 
@@ -283,6 +289,9 @@ private:
     void computeLayout();
     int clampScroll(int scrollY) const;
     void notifyChanged();
+    // Deepest resolved outline heading whose pageNo <= page, used as the
+    // favorite's initial label when toggling the current page on.
+    QString outlineTitleForPage(int page) const;
 
     // Search helpers (all UI-thread entries).
     void stopSearchThread();

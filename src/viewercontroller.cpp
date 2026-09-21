@@ -26,6 +26,7 @@
 // ---------------------------------------------------
 
 #include "viewercontroller.h"
+#include "favorites.h"
 #include "viewer_settings.h"
 
 #include <algorithm>
@@ -101,6 +102,42 @@ void ViewerController::closeDocument() {
     m_folderIndex = -1;
     stopAnimation();
     notifyChanged();
+}
+
+void ViewerController::toggleCurrentPageFavorite() {
+    if (!hasDocument() || m_openPath.isEmpty())
+        return;
+    FavoritesStore::get().toggle(m_openPath, currentPage(),
+                                 outlineTitleForPage(currentPage()));
+    notifyChanged();
+}
+
+bool ViewerController::isCurrentPageFavorite() const {
+    if (!hasDocument() || m_openPath.isEmpty())
+        return false;
+    return FavoritesStore::get().isFavorite(m_openPath, currentPage());
+}
+
+QString ViewerController::outlineTitleForPage(int page) const {
+    QString fallback;
+    const QVector<OutlineItem> items = m_engine->outline();
+    std::function<void(const QVector<OutlineItem>&)> walk =
+        [&](const QVector<OutlineItem>& list) {
+            for (const OutlineItem& it : list) {
+                if (!it.resolved || it.pageNo < 1) {
+                    walk(it.children);
+                    continue;
+                }
+                if (it.pageNo <= page) {
+                    fallback = it.title;
+                    walk(it.children);
+                } else {
+                    walk(it.children);
+                }
+            }
+        };
+    walk(items);
+    return fallback;
 }
 
 bool ViewerController::nextPage() {

@@ -46,6 +46,7 @@ private:
     void updateScrollBars();
     void updateVisiblePage();
     void onControllerChanged();
+    void onFavoritesChanged();
     void syncAnimationTimer();
     void stopAnimationTimer();
     void onAnimationTick();

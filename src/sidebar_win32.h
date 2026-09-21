@@ -36,6 +36,8 @@ public:
     void addEntry(int id, int parentId, const QString& title) override;
     void selectEntry(int id) override;
     void setVisible(bool on) override;
+    QVector<int> expandedEntryIds() const override;
+    void restoreExpandedEntries(const QVector<int>& ids) override;
 
 private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);

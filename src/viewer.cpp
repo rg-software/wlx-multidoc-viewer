@@ -1,5 +1,6 @@
 #include "viewer.h"
 #include "viewer_settings.h"
+#include "favorites.h"
 #include "toolbar_qt.h"
 #include "sidebar_qt.h"
 #include "print_qt.h"
@@ -317,7 +318,8 @@ ViewerWidget::ViewerWidget(QWidget* parent)
         m_controller->setScrollAnchor(scrollY);
         m_scrollArea->verticalScrollBar()->setValue(scrollY);
     });
-    m_toolbarPresenter.sidebarAvailable = [this]() { return m_sidebarPresenter.hasOutline(); };
+    FavoritesStore::get().setChangeNotifier([this]() { onFavoritesChanged(); });
+    m_toolbarPresenter.sidebarAvailable = [this]() { return m_sidebarPresenter.hasSidebarContent(); };
     m_toolbarPresenter.copyHandler = [this](const QString& text) {
         QGuiApplication::clipboard()->setText(text);
         m_canvas->update(); // drop the active selection highlight after copy
@@ -336,6 +338,7 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     connect(new QShortcut(QKeySequence("Shift+V"), this), &QShortcut::activated, this, &ViewerWidget::onCycleFit);
     connect(new QShortcut(QKeySequence(Qt::Key_B), this), &QShortcut::activated, this, &ViewerWidget::onTogglePresentation);
     connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F), this), &QShortcut::activated, this, &ViewerWidget::onFocusFind);
+    connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_B), this), &QShortcut::activated, this, &ViewerWidget::onToggleFavorite);
     connect(new QShortcut(QKeySequence(Qt::Key_Plus), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
     connect(new QShortcut(QKeySequence(Qt::Key_Equal), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
     connect(new QShortcut(QKeySequence(Qt::Key_Minus), this), &QShortcut::activated, this, &ViewerWidget::onZoomOut);
@@ -351,6 +354,7 @@ ViewerWidget::ViewerWidget(QWidget* parent)
 }
 
 ViewerWidget::~ViewerWidget() {
+    FavoritesStore::get().setChangeNotifier({});
     closeDocument();
 }
 
@@ -361,7 +365,7 @@ bool ViewerWidget::loadDocument(const QString& path) {
     if (!m_controller->openDocument(path))
         return false;
     m_sidebarPresenter.reload();
-    m_sidebarVisible = m_sidebarPresenter.hasOutline() && viewer_settings::kSidebarVisibleByDefault;
+    m_sidebarVisible = m_sidebarPresenter.hasSidebarContent() && viewer_settings::kSidebarVisibleByDefault;
     m_sidebar->setVisible(m_sidebarVisible);
     refreshChrome();
     resizeCanvas();
@@ -374,6 +378,7 @@ bool ViewerWidget::loadDocument(const QString& path) {
 void ViewerWidget::closeDocument() {
     if (m_animTimer)
         m_animTimer->stop();
+    FavoritesStore::get().flush();
     if (m_controller)
         m_controller->closeDocument();
     m_sidebarPresenter.reload();
@@ -392,7 +397,7 @@ void ViewerWidget::refreshChrome() {
 }
 
 void ViewerWidget::onSidebarToggle() {
-    if (!m_sidebarPresenter.hasOutline() || !m_controller || !m_controller->hasDocument())
+    if (!m_sidebarPresenter.hasSidebarContent() || !m_controller || !m_controller->hasDocument())
         return;
     m_sidebarVisible = !m_sidebarVisible;
     m_sidebar->setVisible(m_sidebarVisible);
@@ -401,6 +406,31 @@ void ViewerWidget::onSidebarToggle() {
     m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(y));
     m_toolbar->setChecked(toolbar::Control::SidebarToggle, m_sidebarVisible);
     resizeCanvas();
+}
+
+void ViewerWidget::onToggleFavorite() {
+    m_toolbarPresenter.onToggleFavorite();
+}
+
+void ViewerWidget::onFavoritesChanged() {
+    if (!m_controller)
+        return;
+    // Rebuild the sidebar so the favorites section appears/disappears. A
+    // favorites-only document (no outline) must reveal the panel or the new
+    // section would be unreachable; outlined documents leave the user's
+    // sidebar visibility choice alone.
+    m_sidebarPresenter.reload();
+    if (m_sidebarPresenter.hasFavoritesSection() && !m_sidebarPresenter.hasOutlineEntries() &&
+        !m_sidebarVisible && m_sidebar) {
+        m_sidebarVisible = true;
+        m_sidebar->setVisible(true);
+        refreshChrome();
+        const int y = scrollYValue();
+        m_scrollArea->verticalScrollBar()->setValue(m_controller->relayout(y));
+        if (m_toolbar)
+            m_toolbar->setChecked(toolbar::Control::SidebarToggle, true);
+    }
+    onControllerChanged();
 }
 
 void ViewerWidget::onControllerChanged() {

@@ -36,6 +36,7 @@ src/
   imagefolder.*         Sibling raster discovery/ordering in a directory (natural order, shared with comics)
   naturalsort.h/cpp     Shared natural (numeric-aware) filename comparator used by comic + image engines
   viewercontroller.*    Shared state + commands + virtual-canvas layout + render cache + selection + text search state
+  favorites.*           Per-document page-favorites store (singleton, JSON, QSaveFile atomic writes, debounced, change notification)
   textselection.*       Platform-agnostic text-selection model (anchor/focus, ranges)
   searchcontroller.*    Whole-document search worker thread (progressive per-page results, atomic cancel)
   toolbar.*             Shared toolbar interface + ToolbarPresenter (controller state <-> backend)

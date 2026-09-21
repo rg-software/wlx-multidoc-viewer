@@ -7,6 +7,8 @@
 #include <QScrollBar>
 #include <QSet>
 
+#include <algorithm>
+
 // Right-edge drag handle. Mouse drags mirror the Win32 grip: candidate widths are
 // pushed through the shared notifyWidthChanged path so the viewer clamps and
 // re-runs its chrome chain, keeping keyboard and mouse state in lockstep.
@@ -139,6 +141,31 @@ void SidebarQt::clearEntries() {
     m_items.clear();
     m_materialized.clear();
     m_tree->horizontalScrollBar()->setValue(0);
+}
+
+QVector<int> SidebarQt::expandedEntryIds() const {
+    QVector<int> out;
+    for (auto it = m_items.constBegin(); it != m_items.constEnd(); ++it) {
+        if (it.value() && it.value()->isExpanded())
+            out.append(it.key());
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+void SidebarQt::restoreExpandedEntries(const QVector<int>& ids) {
+    if (!presenter())
+        return;
+    // Captured ids are ascending, so an expanded node's ancestors (which must
+    // also have been expanded) are materialized before it is reached.
+    for (int id : ids) {
+        QTreeWidgetItem* it = m_items.value(id, nullptr);
+        if (!it)
+            continue;
+        if (!m_materialized.contains(id))
+            materialize(it, id);
+        it->setExpanded(true);
+    }
 }
 
 void SidebarQt::addEntry(int id, int parentId, const QString& title) {

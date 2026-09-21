@@ -7,6 +7,8 @@
 #include <commctrl.h>
 #include <windowsx.h>
 
+#include <algorithm>
+
 #define WLX_SIDEBAR_CLASS L"WLXDocSidebar"
 #define WLX_SIDEBAR_GRIP_CLASS L"WLXDocSidebarGrip"
 
@@ -362,6 +364,38 @@ void SidebarWin32::selectEntry(int id) {
     // after load and after page-driven selection changes.
     TreeView_EnsureVisible(m_tree, it.value());
     SendMessageW(m_tree, WM_HSCROLL, SB_LEFT, 0);
+    SendMessageW(m_tree, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(m_tree, nullptr, FALSE);
+}
+
+QVector<int> SidebarWin32::expandedEntryIds() const {
+    QVector<int> out;
+    if (!m_tree)
+        return out;
+    for (auto it = m_items.constBegin(); it != m_items.constEnd(); ++it) {
+        if (SendMessageW(m_tree, TVM_GETITEMSTATE, reinterpret_cast<WPARAM>(it.value()),
+                         TVIS_EXPANDED) & TVIS_EXPANDED)
+            out.append(it.key());
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+void SidebarWin32::restoreExpandedEntries(const QVector<int>& ids) {
+    if (!m_tree || !presenter())
+        return;
+    // Captured ids are ascending, so an expanded node's ancestors (which must
+    // also have been expanded) are materialized before it is reached.
+    SendMessageW(m_tree, WM_SETREDRAW, FALSE, 0);
+    m_internalMutation = true;
+    for (int id : ids) {
+        const QHash<int, HTREEITEM>::const_iterator it = m_items.find(id);
+        if (it == m_items.constEnd())
+            continue;
+        materializeChildren(id, it.value());
+        TreeView_Expand(m_tree, it.value(), TVE_EXPAND);
+    }
+    m_internalMutation = false;
     SendMessageW(m_tree, WM_SETREDRAW, TRUE, 0);
     InvalidateRect(m_tree, nullptr, FALSE);
 }

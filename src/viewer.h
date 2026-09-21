@@ -51,6 +51,7 @@ private slots:
     void onCycleFit();
     void onToggleMode();
     void onTogglePresentation();
+    void onToggleFavorite();
     void onFocusFind();
     void onRotateCw();
     void onRotateCcw();
@@ -61,6 +62,7 @@ private slots:
 
 private:
     void onControllerChanged();
+    void onFavoritesChanged();
     void syncAnimationTimer();
     void onAnimationTick();
     void resizeCanvas();

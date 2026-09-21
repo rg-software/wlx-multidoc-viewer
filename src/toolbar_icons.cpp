@@ -39,6 +39,7 @@ char32_t laCodepoint(toolbar::Icon icon) {
     case Icon::MatchCase:     return 0xf6f1; // match_case
     case Icon::MatchCaseOff:  return 0xf36f; // match_case_off
     case Icon::Copy:          return 0xe14d; // content_copy
+    case Icon::Favorites:     return 0xe866; // bookmark
     // The display-mode/fit/presentation glyphs below use codepoints re-carved
     // into the embedded asset (MaterialSymbolsOutlined.ttf): check_box_outline_blank
     // 0xe835, pinch 0xeb38, fit_page 0xf77a, fit_width 0xf779, article 0xef42,
@@ -294,6 +295,13 @@ case Icon::MatchCase:
         g.line(0.20f, 0.56f, 0.34f, 0.56f);
         break;
     }
+    case Icon::Favorites:
+        // bookmark: outline page marker with a center-bottom notch, so the
+        // filled (checked) state is implied by the same shape at small sizes.
+        g.poly({QPointF(g.pt(0.26f, 0.16f)), QPointF(g.pt(0.74f, 0.16f)),
+                QPointF(g.pt(0.74f, 0.86f)), QPointF(g.pt(0.50f, 0.70f)),
+                QPointF(g.pt(0.26f, 0.86f))});
+        break;
     case Icon::SidebarToggle:
         g.line(0.18f, 0.24f, 0.18f, 0.76f);
         g.bar(0.22f, 0.30f, 0.66f, 0.38f);
