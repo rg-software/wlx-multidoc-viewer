@@ -599,9 +599,13 @@ void ViewerWidget::onTogglePresentation() {
     });
 }
 
-void ViewerWidget::onFocusFind() {
+void ViewerWidget::focusFind() {
     if (m_toolbar)
         m_toolbar->focusFind();
+}
+
+void ViewerWidget::onFocusFind() {
+    focusFind();
 }
 
 void ViewerWidget::onRotateCw() {

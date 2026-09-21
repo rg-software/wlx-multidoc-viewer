@@ -52,6 +52,24 @@ static void recordHostTheme(int showFlags) {
 static_assert(sizeof(SUPPORTED_EXTENSIONS) <= 260,
     "Detect string exceeds WLX buffer limit of 260 chars");
 
+// The host (Total Commander / Double Commander) owns Ctrl+F in the Lister and
+// routes it to ListSearchDialog instead of delivering a key to the plugin
+// window. Focusing the built-in toolbar search box is our "search dialog".
+static bool focusFindForListWin(HANDLE ListWin) {
+#if defined(_WIN32)
+    HWND hViewer = static_cast<HWND>(ListWin);
+    auto* viewer = hViewer
+        ? reinterpret_cast<ViewerWin32*>(GetWindowLongPtrW(hViewer, GWLP_USERDATA))
+        : nullptr;
+#else
+    auto* viewer = static_cast<ViewerWidget*>(ListWin);
+#endif
+    if (!viewer)
+        return false;
+    viewer->focusFind();
+    return true;
+}
+
 // Shared document-open core used by both the ANSI and wide (W) entry points.
 // The WLX interface hands plugins a narrow char* file name in the ANSI code
 // page, which cannot represent CJK/Cyrillic filenames on a mismatched system
@@ -158,10 +176,9 @@ DCPCALL int ListLoadNextW(HANDLE ParentWin, HANDLE PluginWin,
 DCPCALL void ListCloseWindowW(HANDLE ListWin); // defined below after ListCloseWindow
 
 DCPCALL int ListSearchDialogW(HWND ListWin, int FindNext, wchar_t* FindText) {
-    Q_UNUSED(ListWin)
     Q_UNUSED(FindNext)
     Q_UNUSED(FindText)
-    return LISTPLUGIN_OK;
+    return focusFindForListWin(ListWin) ? LISTPLUGIN_OK : LISTPLUGIN_ERROR;
 }
 #endif // _WIN32
 
@@ -196,9 +213,8 @@ DCPCALL void ListGetDetectString(char* DetectString, int maxlen) {
 }
 
 DCPCALL int ListSearchDialog(HWND ListWin, int FindNext) {
-    Q_UNUSED(ListWin)
     Q_UNUSED(FindNext)
-    return LISTPLUGIN_OK;
+    return focusFindForListWin(ListWin) ? LISTPLUGIN_OK : LISTPLUGIN_ERROR;
 }
 
 DCPCALL int ListSendCommand(HWND ListWin, int Command, int Parameter) {

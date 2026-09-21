@@ -29,6 +29,9 @@ public:
 
     ViewerController* controller() { return m_controller.get(); }
 
+    // Focus the toolbar search box (host Find command / Ctrl+F).
+    void focusFind();
+
 private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     LRESULT handleMsg(UINT msg, WPARAM wp, LPARAM lp);

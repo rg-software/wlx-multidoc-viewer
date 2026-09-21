@@ -31,6 +31,9 @@ public:
 
     ViewerController* controller() { return m_controller.get(); }
 
+    // Focus the toolbar search box (host Find command / Ctrl+F).
+    void focusFind();
+
 protected:
     bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
     void keyPressEvent(QKeyEvent* event) override;

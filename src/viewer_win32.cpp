@@ -248,6 +248,11 @@ void ViewerWin32::closeDocument() {
         m_sidebar->setVisible(false);
 }
 
+void ViewerWin32::focusFind() {
+    if (m_toolbar)
+        m_toolbar->focusFind();
+}
+
 void ViewerWin32::onFavoritesChanged() {
     if (!m_controller)
         return;
