@@ -918,17 +918,17 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
         captured = true;
         break;
     case 'B':
-        // Ctrl+B toggles the current page in the favorites store. Plain B
+        // Shift+B toggles the current page in the favorites store. Plain B
         // cycles the page presentation (single / double / double with cover)
         // without touching the paged/continuous mode. Keeps the view on the
         // same unit: paged keeps a clean origin, continuous re-targets the
         // scroll to the unit's new position.
-        if (ctrl) {
+        if (shift) {
             m_controller->toggleCurrentPageFavorite();
             captured = true;
             break;
         }
-        if (!shift) {
+        if (!ctrl) {
             const int page = m_controller->currentPage();
             m_controller->cyclePagePresentation();
             m_scrollX = 0;

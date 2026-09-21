@@ -78,6 +78,7 @@ private:
     void extendSelection(const QPoint& pos);
     void endSelectionGesture();
     void clearSelectionUi();
+    bool onControlKey(QKeyEvent* event);
     void paintSearch(QPainter& p, const QRect& vis);
 
     std::unique_ptr<ViewerController> m_controller;
@@ -98,7 +99,7 @@ private:
     QTimer* m_animTimer = nullptr;
 
     bool m_dragging = false;
-    QPoint m_lastMousePos;
+    QPointF m_lastMousePos;
     bool m_suppressScrollTracking = false;
     bool m_selecting = false;
 };

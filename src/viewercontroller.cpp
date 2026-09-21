@@ -427,6 +427,16 @@ int ViewerController::pageAreaHeight() const {
 // at the edge so the last line is not lost (design D12 "vertical block").
 static constexpr int kPageBlockOverlap = 32;
 
+// Horizontal overflow smaller than the block-overlap band is fit-width layout
+// noise, not real panning range: a fitted spread can exceed the viewport by up
+// to the unscaled inter-page gap (float rounding), so a fit-width view must not
+// acquire a draggable horizontal range. Mirrors the vertical D3 rule that a
+// unit within the band counts as "fits" (unitRequiresVerticalScroll).
+static int bandedOverflow(int raw) {
+    const int overflow = std::max(0, raw);
+    return overflow > kPageBlockOverlap ? overflow : 0;
+}
+
 int ViewerController::pageBlockStep() const {
     return std::max(1, pageAreaHeight() - kPageBlockOverlap);
 }
@@ -687,7 +697,7 @@ int ViewerController::maxScrollOffset() const {
 }
 
 int ViewerController::maxScrollOffsetX() const {
-    return std::max(0, m_contentSize.width() - pageAreaWidth());
+    return bandedOverflow(m_contentSize.width() - pageAreaWidth());
 }
 
 int ViewerController::maxScrollOffsetXForPage(int page) const {
@@ -715,7 +725,7 @@ int ViewerController::maxScrollOffsetXForUnit(int unitFirstPage) const {
         if (r2.isValid())
             unitW = r2.right() - r1.left() + 1;
     }
-    return std::max(0, unitW - pageAreaWidth());
+    return bandedOverflow(unitW - pageAreaWidth());
 }
 
 int ViewerController::maxScrollOffsetYForUnit(int unitFirstPage) const {
