@@ -714,16 +714,19 @@ QVector<TextMatch> ChmEngine::searchText(int page, const QString& needle, bool m
                     continue;
                 for (fz_stext_line* line = block->u.t.first_line; line; line = line->next) {
                     for (fz_stext_char* ch = line->first_char; ch; ch = ch->next) {
-                        const QChar c(ch->c);
-                        if (c.isSpace())
-                            continue;
-                        glyphs.append(SearchGlyph{c, quadRect(ch->quad), lineNo});
+                        glyphs.append(SearchGlyph{QChar(ch->c), quadRect(ch->quad), lineNo});
                     }
                     ++lineNo;
                 }
             }
 
             if (!glyphs.isEmpty()) {
+                // Flatten glyphs to a string. Whitespace glyphs are kept so a
+                // multi-word phrase on one visual line matches ("Competitive
+                // Forces"), and a space is inserted at line boundaries so a
+                // phrase that wraps still matches ("Competitive\nForces").
+                // Consecutive whitespace collapses to one separator; separators
+                // carry no geometry (index -1).
                 QString run;
                 QVector<int> runGlyph;
                 run.reserve(glyphs.size());
@@ -731,12 +734,20 @@ QVector<TextMatch> ChmEngine::searchText(int page, const QString& needle, bool m
                 int lastLine = glyphs.first().line;
                 for (int i = 0; i < glyphs.size(); ++i) {
                     const SearchGlyph& g = glyphs[i];
-                    if (i > 0 && g.line != lastLine) {
+                    if (i > 0 && g.line != lastLine && !run.isEmpty() &&
+                        !run.endsWith(QLatin1Char(' '))) {
                         run.append(QLatin1Char(' '));
                         runGlyph.append(-1);
                     }
-                    run.append(g.c);
-                    runGlyph.append(i);
+                    if (g.c.isSpace()) {
+                        if (!run.isEmpty() && !run.endsWith(QLatin1Char(' '))) {
+                            run.append(QLatin1Char(' '));
+                            runGlyph.append(-1);
+                        }
+                    } else {
+                        run.append(g.c);
+                        runGlyph.append(i);
+                    }
                     lastLine = g.line;
                 }
                 const QString runNorm = matchCase ? run : run.toLower();

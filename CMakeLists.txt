@@ -487,6 +487,22 @@ if(WLX_BUILD_HARNESS AND WIN32)
         ${MUPDF_TARGET}
     )
 
+    # Headless phrase-search harness (fix-reflow-phrase-search): multi-word
+    # search over reflowable text must match within a single visual line.
+    add_executable(harness-search
+        tests/harness_search.cpp
+        src/mupdfengine.cpp
+        src/pluginconfig.cpp
+    )
+    target_include_directories(harness-search PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
+    target_link_libraries(harness-search
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
+    )
+
     # Headless favorites-store harness (add-favorites): toggle semantics,
     # per-document independence, disk round-trip, write debouncing.
     add_executable(harness-favorites
