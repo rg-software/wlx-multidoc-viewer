@@ -10,7 +10,7 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
 - **Document formats**:
 
   - fixed-layout (PDF, XPS/OXPS, DJVU/DJV);
-  - eBooks (EPUB, FB2, MOBI, CHM);
+  - eBooks (EPUB, FB2/FB2.ZIP, MOBI, CHM);
   - comic books (CBR, CBZ) and multi-page TIFF;
   - images (JPEG, PNG, GIF, BMP).
 
