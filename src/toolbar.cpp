@@ -256,6 +256,13 @@ void ToolbarPresenter::onFindCommitted(const QString& text) {
         m_controller->clearSearch();
         return;
     }
+    // Pressing Enter again on the already-active term should cycle through the
+    // matches, not restart the scan: a completed search keeps its query and
+    // highlights, so re-committing the same text is a "next match" request.
+    if (trimmed == m_controller->searchQuery() && m_controller->searchActive()) {
+        applyAnchored([this](int s) { return m_controller->nextMatch(s); });
+        return;
+    }
     m_controller->startSearch(trimmed, m_matchCase);
 }
 

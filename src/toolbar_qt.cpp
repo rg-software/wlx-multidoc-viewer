@@ -17,6 +17,18 @@ QColor opaqueColor(uint32_t rgb) {
                   static_cast<int>(rgb & 0xFF));
 }
 
+// Linear blend toward a target slot. The default QToolButton pressed/checked
+// shading on most host themes is nearly invisible against our own palette, so
+// the pressed and checked fills are derived here: a clearly-darker (light
+// theme) or clearly-lighter (dark theme) band on the toolbar background.
+QColor blendColor(const QColor& base, const QColor& target, int weight) {
+    QColor out(base);
+    out.setRed((base.red() * (100 - weight) + target.red() * weight) / 100);
+    out.setGreen((base.green() * (100 - weight) + target.green() * weight) / 100);
+    out.setBlue((base.blue() * (100 - weight) + target.blue() * weight) / 100);
+    return out;
+}
+
 toolbar::Icon defaultIconFor(toolbar::Control c) {
     using namespace toolbar;
     switch (c) {
@@ -89,6 +101,30 @@ ToolbarQt::ToolbarQt(QWidget* parent)
         b->setCheckable(checkable);
         b->setToolTip(tooltip);
         b->setFixedHeight(viewer_settings::kToolbarBaseHeight - 6);
+        // The stock pressed shading is nearly invisible on most host themes, so
+        // style the press explicitly: darken (light theme) or lighten (dark
+        // theme) the toolbar background and show a checked ring while pressed.
+        // Checked (latitude) buttons additionally tint the background, matching
+        // the Win32 toolbar's checked-tint look.
+        {
+            const QColor bg = opaqueColor(pal.toolbarBg);
+            const QColor tint = opaqueColor(pal.toolbarCheckedTint);
+            const QColor ring = opaqueColor(pal.toolbarCheckedRing);
+            const bool light = (bg.red() + bg.green() + bg.blue()) > 384;
+            const QColor pressShade =
+                blendColor(bg, light ? QColor(0x00, 0x00, 0x00) : QColor(0xFF, 0xFF, 0xFF), 28);
+            QString qss = QStringLiteral(
+                "QToolButton:pressed { background-color: %1; border: 1px solid %2; }")
+                .arg(pressShade.name())
+                .arg(light ? ring.name() : QStringLiteral("white"));
+            if (checkable) {
+                qss += QStringLiteral(
+                    "QToolButton:checked:!pressed { background-color: %1; border: 1px solid %2; }")
+                    .arg(tint.name())
+                    .arg(ring.name());
+            }
+            b->setStyleSheet(qss);
+        }
         connect(b, &QToolButton::clicked, this, [click](bool) { if (click) click(); });
         layout->addWidget(b);
         m_ctl.insert(c, b);
@@ -146,7 +182,11 @@ ToolbarQt::ToolbarQt(QWidget* parent)
 
     connect(as<QLineEdit>(m_ctl.value(toolbar::Control::PageBox)), &QLineEdit::editingFinished,
             this, [this] { presenter()->onGoToPageCommitted(editText(toolbar::Control::PageBox)); });
-    connect(as<QLineEdit>(m_ctl.value(toolbar::Control::FindBox)), &QLineEdit::editingFinished,
+    // returnPressed (Enter only), not editingFinished: the latter also fires on
+    // focus-out, which would re-trigger the search/repeat a next-match cycle
+    // when the user merely clicks away (Win32's find edit commits on VK_RETURN
+    // too, so the two platforms behave identically).
+    connect(as<QLineEdit>(m_ctl.value(toolbar::Control::FindBox)), &QLineEdit::returnPressed,
             this, [this] { presenter()->onFindCommitted(editText(toolbar::Control::FindBox)); });
     connect(as<QToolButton>(m_ctl.value(toolbar::Control::MatchCase)), &QToolButton::toggled,
             this, [this](bool on) { presenter()->onMatchCaseToggled(on); });

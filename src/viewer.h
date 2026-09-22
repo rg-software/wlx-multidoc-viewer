@@ -19,6 +19,7 @@
 class ToolbarQt;
 class SidebarQt;
 class ViewerCanvas;
+class QMouseEvent;
 
 class ViewerWidget : public QFrame {
     Q_OBJECT
@@ -73,6 +74,7 @@ private:
     void refreshChrome();
     int scrollYValue() const;
     QPointF widgetToCanvas(const QPoint& pos) const;
+    QPoint eventPosForCanvas(const QMouseEvent* event, const QObject* obj) const;
     int pageAtCanvas(const QPointF& canvasPt) const;
     bool startSelection(const QPoint& pos);
     void extendSelection(const QPoint& pos);
@@ -112,6 +114,12 @@ private:
     // event-derived position instead.
     QPoint m_lastHoverPos;
     bool m_hoverPosValid = false;
+    // Ctrl is tracked from the raw key events (KeyPress/KeyRelease of
+    // Qt::Key_Control) instead of QGuiApplication::keyboardModifiers(): the
+    // global query can lag or miss state on Wayland/embedded hosts, and the
+    // release event may still carry ControlModifier. The hand cursor must come
+    // and go deterministically on the modifier transitions themselves.
+    bool m_ctrlDown = false;
 };
 
 // Pure-paint canvas that draws each page from the controller's render cache at

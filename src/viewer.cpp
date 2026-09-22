@@ -8,6 +8,9 @@
 
 #include <QClipboard>
 #include <QApplication>
+#include <QAbstractItemView>
+#include <QAbstractSpinBox>
+#include <QComboBox>
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QCursor>
@@ -631,7 +634,6 @@ void ViewerWidget::focusFind() {
     setFocus(Qt::ShortcutFocusReason);
     if (m_toolbar)
         m_toolbar->focusFind();
-    setFocus(Qt::ShortcutFocusReason);
 }
 
 void ViewerWidget::onFocusFind() {
@@ -707,6 +709,24 @@ void ViewerWidget::clearSelectionUi() {
         m_canvas->update();
 }
 
+// Mouse events are delivered to the widget under the pointer, which inside the
+// scroll area is usually the canvas, but the app-level event filter can also
+// see them targeted at the scroll-area viewport (and the host's own widgets).
+// QMouseEvent::position() is relative to the receiving widget, so convert to
+// CANVAS coordinates up front: a viewport-relative point that ignores the
+// canvas's scroll/centering placement would shift every hit test by the
+// current scroll offset (selection lands higher/lower the deeper you scroll).
+QPoint ViewerWidget::eventPosForCanvas(const QMouseEvent* event, const QObject* obj) const {
+    if (!event || !m_canvas)
+        return QPoint();
+    const QPoint local = event->position().toPoint();
+    if (obj == m_canvas)
+        return local;                       // already canvas coordinates
+    if (obj == m_scrollArea->viewport())
+        return m_canvas->mapFrom(m_scrollArea->viewport(), local);
+    return m_canvas->mapFromGlobal(event->globalPosition().toPoint());
+}
+
 QPointF ViewerWidget::widgetToCanvas(const QPoint& pos) const {
     if (m_controller->isPagedMode()) {
         // The unit is centered as one group, so the page-specific term cancels
@@ -719,8 +739,13 @@ QPointF ViewerWidget::widgetToCanvas(const QPoint& pos) const {
             const QSize canvasSize = m_canvas->size();
             const QSize unit = pagedUnitLayoutSize(m_controller.get());
             if (!unit.isEmpty()) {
+                // pagedUnitCanvasOffset returns the paint translation used by
+                // the canvas (unit centered against the CANVAS size, page-local
+                // rects already carry the r1 term). The inverse mapping is the
+                // raw offset: pos - org. Adding r1 back here would double-count
+                // the first page's centering offset.
                 const QPointF org = pagedUnitCanvasOffset(m_controller.get(), canvasSize);
-                return QPointF(pos.x() - org.x() + r1.x(), pos.y() - org.y() + r1.y());
+                return QPointF(pos.x() - org.x(), pos.y() - org.y());
             }
         }
         const QRect pr = m_controller->pageRect(m_controller->currentPage());
@@ -832,7 +857,7 @@ void ViewerWidget::refreshHoverCursor() {
         return;
     const QPointF canvasPt = widgetToCanvas(pos);
     const int page = pageAtCanvas(canvasPt);
-    const bool ctrl = (QGuiApplication::keyboardModifiers() & Qt::ControlModifier) != 0;
+    const bool ctrl = m_ctrlDown;
     if (page >= 1 && ctrl &&
         m_controller->linkAt(page, canvasPt, viewer_settings::kLinkHitTolerancePx) >= 0) {
         setCursor(Qt::PointingHandCursor);
@@ -935,18 +960,30 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
             // Holding/releasing Ctrl changes the link cursor even without a
             // mouse move or a canvas-focus event, so refresh for ANY Ctrl
             // key event (refreshHoverCursor already no-ops unless the pointer
-            // is over our document canvas).
+            // is over our document canvas). Track the state from the raw event
+            // (press vs release) rather than QGuiApplication::keyboardModifiers,
+            // which on Wayland/embedded hosts may still report the released
+            // modifier or lag behind the actual hardware state.
+            m_ctrlDown = (event->type() == QEvent::KeyPress);
             refreshHoverCursor();
             return false; // pass the bare modifier through to the host
         }
 
         QWidget* target = qobject_cast<QWidget*>(obj);
         const bool inOurWindow = target && target->window() == window();
-        const bool textInput = target &&
+        // Widgets that own their own keys keep them: text fields, the sidebar
+        // outline (QTreeWidget is a QAbstractItemView), page/search spin-boxes,
+        // dropdowns. Only the neutral page area (canvas/scroll-area/frame) is a
+        // candidate for document navigation keys, otherwise the sidebar tree's
+        // arrow navigation and the edit boxes' caret movement would be hijacked.
+        const bool consumesKeys = target &&
             (qobject_cast<QLineEdit*>(target) != nullptr ||
              qobject_cast<QTextEdit*>(target) != nullptr ||
-             qobject_cast<QPlainTextEdit*>(target) != nullptr);
-        if (inOurWindow && !textInput &&
+             qobject_cast<QPlainTextEdit*>(target) != nullptr ||
+             qobject_cast<QAbstractItemView*>(target) != nullptr ||
+             qobject_cast<QAbstractSpinBox*>(target) != nullptr ||
+             qobject_cast<QComboBox*>(target) != nullptr);
+        if (inOurWindow && !consumesKeys &&
             m_controller && m_controller->hasDocument() && isVisible()) {
             if (event->type() == QEvent::KeyRelease)
                 return false;
@@ -998,9 +1035,11 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
             case Qt::Key_Equal: onZoomIn(); return true;
             case Qt::Key_Minus: onZoomOut(); return true;
             case Qt::Key_0:
-                if (ke->modifiers().testFlag(Qt::KeypadModifier))
+                if (ke->modifiers().testFlag(Qt::KeypadModifier)) {
                     onZoomOriginal();
-                return true;
+                    return true;
+                }
+                break; // top-row '0' is not a shortcut; leave it to the host
             case Qt::Key_Slash: onZoomOriginal(); return true;
             default: break;
             }
@@ -1020,23 +1059,29 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
         auto* ke = static_cast<QKeyEvent*>(event);
         // Holding/releasing Ctrl changes the link cursor even without a mouse
         // move, which would otherwise not re-run the hover branch.
-        if (ke->key() == Qt::Key_Control)
+        if (ke->key() == Qt::Key_Control) {
+            m_ctrlDown = true;
             refreshHoverCursor();
+        }
         if (onControlKey(ke))
             return true;
         break;
     }
     case QEvent::KeyRelease: {
         auto* ke = static_cast<QKeyEvent*>(event);
-        if (ke->key() == Qt::Key_Control)
+        if (ke->key() == Qt::Key_Control) {
+            m_ctrlDown = false;
             refreshHoverCursor();
+        }
         break;
     }
     case QEvent::MouseButtonPress: {
+        if (obj != m_canvas && obj != m_scrollArea->viewport())
+            break; // a foreign host widget; not a document hit
         auto* me = static_cast<QMouseEvent*>(event);
         if (me->button() != Qt::LeftButton)
             break;
-        const QPoint pos = me->position().toPoint();
+        const QPoint pos = eventPosForCanvas(me, obj);
         // First pointer contact must claim keyboard focus for the viewer
         // subtree or the host keeps directing every keystroke at itself.
         m_canvas->setFocus(Qt::MouseFocusReason);
@@ -1071,16 +1116,15 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
         return true;
     }
     case QEvent::MouseMove: {
+        if (obj != m_canvas && obj != m_scrollArea->viewport())
+            break; // hover/selection only tracks our document surface
         auto* me = static_cast<QMouseEvent*>(event);
-        const QPoint pos = me->position().toPoint();
+        const QPoint pos = eventPosForCanvas(me, obj);
         // Cache the local pointer position for refreshHoverCursor (Ctrl
         // transitions happen without a mouse move). Only trust positions
         // targeted at our document area.
-        if (obj == m_canvas) {
+        if (obj == m_canvas || obj == m_scrollArea->viewport()) {
             m_lastHoverPos = pos;
-            m_hoverPosValid = true;
-        } else if (obj == m_scrollArea->viewport()) {
-            m_lastHoverPos = m_canvas->mapFrom(m_scrollArea->viewport(), pos);
             m_hoverPosValid = true;
         }
         if (m_selecting) {
@@ -1133,6 +1177,8 @@ if (!m_dragging) {
         return true;
     }
     case QEvent::MouseButtonRelease: {
+        if (obj != m_canvas && obj != m_scrollArea->viewport())
+            break;
         auto* me = static_cast<QMouseEvent*>(event);
         if (me->button() != Qt::LeftButton)
             break;
@@ -1147,7 +1193,7 @@ if (!m_dragging) {
         return true;
     }
     case QEvent::Leave:
-        if (obj == m_canvas)
+        if (obj == m_canvas || obj == m_scrollArea->viewport())
             m_hoverPosValid = false;
         break;
     default:
