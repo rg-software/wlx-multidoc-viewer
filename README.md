@@ -55,6 +55,7 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
 | `+` / `-` / `Numpad 0` or `/` | Zoom in / out / reset |
 | `R` / `Shift+R` | Rotate clockwise / counter-clockwise |
 | Mouse wheel | Smooth scroll (continuous) / page turn (paged) |
+| `Ctrl`+click | Navigate a link |
 | Left-drag | Pan, or select text when starting on selectable text |
 
 ## Requirements
