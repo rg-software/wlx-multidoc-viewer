@@ -81,13 +81,8 @@ bool MuPdfEngine::open(const QString& path) {
         return false;
     }
 
-    m_ctx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
-    if (!m_ctx) {
-        qWarning() << "MuPdfEngine: failed to create MuPDF context for" << path;
+    if (!makeContext(path))
         return false;
-    }
-
-    fz_register_document_handlers(m_ctx);
 
     // Open via a FILE stream so names with CJK/Cyrillic work regardless of the
     // ANSI code page: on Windows use the wide-char API; elsewhere UTF-8.
@@ -96,7 +91,6 @@ bool MuPdfEngine::open(const QString& path) {
     const bool isMobi = (suffix == "mobi" || suffix == "prc");
 
     fz_stream* stm = nullptr;
-    bool opened = false;
     fz_try(m_ctx) {
 #ifdef _WIN32
         stm = fz_open_file_w(m_ctx, reinterpret_cast<const wchar_t*>(path.utf16()));
@@ -114,7 +108,6 @@ bool MuPdfEngine::open(const QString& path) {
         // Pass the path as the "magic" hint so format detection uses the
         // file extension (like fz_open_document did) instead of sniffing.
         m_doc = fz_open_document_with_stream(m_ctx, magic.constData(), stm);
-        opened = (m_doc != nullptr);
     }
     fz_always(m_ctx) {
         // The document keeps its own stream reference; drop ours either way.
@@ -123,14 +116,69 @@ bool MuPdfEngine::open(const QString& path) {
     }
     fz_catch(m_ctx) {
         qWarning() << "MuPdfEngine: fz_open_document failed for" << path;
-        fz_drop_context(m_ctx);
-        m_ctx = nullptr;
-        m_doc = nullptr;
-        m_bodyHasCover = false;
-        m_coverImage = QImage();
+        dropDocument();
         return false;
     }
 
+    return finishOpen(path, suffix);
+}
+
+bool MuPdfEngine::openBuffer(const QByteArray& data, const QString& magic) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    dropDocument();
+
+    if (data.isEmpty()) {
+        qWarning() << "MuPdfEngine: empty document buffer for" << magic;
+        return false;
+    }
+
+    if (!makeContext(magic))
+        return false;
+
+    // The magic is a virtual filename: its extension selects the MuPDF
+    // handler (content sniffing still runs inside the handler), so it must
+    // name the real content type — "book.fb2" picks the FictionBook handler
+    // deterministically where "book.fb2.zip" would fall to the zip/CBZ one.
+    const QByteArray magicUtf8 = magic.toUtf8();
+    const QString suffix = QFileInfo(magic).suffix().toLower();
+
+    fz_buffer* buf = nullptr;
+    fz_stream* stm = nullptr;
+    fz_try(m_ctx) {
+        buf = fz_new_buffer_from_copied_data(
+            m_ctx, reinterpret_cast<const unsigned char*>(data.constData()),
+            static_cast<size_t>(data.size()));
+        stm = fz_open_buffer(m_ctx, buf);
+        m_doc = fz_open_document_with_stream(m_ctx, magicUtf8.constData(), stm);
+    }
+    fz_always(m_ctx) {
+        // The document/stream keep their own references; drop ours either way.
+        if (stm)
+            fz_drop_stream(m_ctx, stm);
+        if (buf)
+            fz_drop_buffer(m_ctx, buf);
+    }
+    fz_catch(m_ctx) {
+        qWarning() << "MuPdfEngine: fz_open_document failed for buffer" << magic;
+        dropDocument();
+        return false;
+    }
+
+    return finishOpen(magic, suffix);
+}
+
+bool MuPdfEngine::makeContext(const QString& source) {
+    m_ctx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
+    if (!m_ctx) {
+        qWarning() << "MuPdfEngine: failed to create MuPDF context for" << source;
+        return false;
+    }
+    fz_register_document_handlers(m_ctx);
+    return true;
+}
+
+bool MuPdfEngine::finishOpen(const QString& source, const QString& suffix) {
     m_isReflowable = (m_doc && fz_is_document_reflowable(m_ctx, m_doc)) != 0;
 
     // Lay out at the configured font size (em). The default (11) reproduces
@@ -177,7 +225,7 @@ bool MuPdfEngine::open(const QString& path) {
         m_pageCount = fz_count_pages(m_ctx, m_doc);
     }
     fz_catch(m_ctx) {
-        qWarning() << "MuPdfEngine: fz_count_pages failed for" << path;
+        qWarning() << "MuPdfEngine: fz_count_pages failed for" << source;
         m_pageCount = 0;
     }
 
@@ -192,7 +240,7 @@ bool MuPdfEngine::open(const QString& path) {
         m_pageCount = fz_count_pages(m_ctx, m_doc);
     }
     fz_catch(m_ctx) {
-        qWarning() << "MuPdfEngine: fz_count_pages failed for" << path;
+        qWarning() << "MuPdfEngine: fz_count_pages failed for" << source;
         m_pageCount = 0;
     }
 

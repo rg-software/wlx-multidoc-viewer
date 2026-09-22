@@ -308,6 +308,7 @@ add_library(wlx-multidoc-viewer SHARED
     src/djvuengine.cpp
     src/chmengine.cpp
         src/comicengine.cpp
+        src/fb2zipengine.cpp
         src/naturalsort.cpp
         src/imageengine.cpp
         src/imagefolder.cpp
@@ -421,6 +422,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/djvuengine.cpp
         src/chmengine.cpp
         src/comicengine.cpp
+        src/fb2zipengine.cpp
         src/naturalsort.cpp
         src/imageengine.cpp
         src/imagefolder.cpp
@@ -455,6 +457,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/djvuengine.cpp
         src/chmengine.cpp
         src/comicengine.cpp
+        src/fb2zipengine.cpp
         src/naturalsort.cpp
         src/imageengine.cpp
         src/imagefolder.cpp
@@ -491,6 +494,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/djvuengine.cpp
         src/chmengine.cpp
         src/comicengine.cpp
+        src/fb2zipengine.cpp
         src/naturalsort.cpp
         src/imageengine.cpp
         src/imagefolder.cpp
@@ -519,6 +523,7 @@ if(WLX_BUILD_HARNESS AND WIN32)
         src/djvuengine.cpp
         src/chmengine.cpp
         src/comicengine.cpp
+        src/fb2zipengine.cpp
         src/naturalsort.cpp
         src/imageengine.cpp
         src/pluginconfig.cpp
@@ -543,6 +548,31 @@ if(WLX_BUILD_HARNESS AND WIN32)
     )
     target_include_directories(harness-links PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(harness-links
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
+        ${DJVU_TARGET}
+        LibArchive::LibArchive
+        chmlib::chmlib
+    )
+
+    # Headless FB2-in-zip harness (issue #18): verifies that a .fb2.zip opens
+    # (via the dispatcher) with the FB2 text/pages intact and that every other
+    # zip is skipped cleanly (open() returns false so ListLoad can return 0).
+    add_executable(harness-fb2zip
+        tests/harness_fb2zip.cpp
+        src/formatdispatcher.cpp
+        src/fb2zipengine.cpp
+        src/mupdfengine.cpp
+        src/djvuengine.cpp
+        src/chmengine.cpp
+        src/comicengine.cpp
+        src/naturalsort.cpp
+        src/imageengine.cpp
+        src/pluginconfig.cpp
+    )
+    target_include_directories(harness-fb2zip PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(harness-fb2zip
         Qt6::Core
         Qt6::Gui
         ${MUPDF_TARGET}

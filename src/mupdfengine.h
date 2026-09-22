@@ -21,6 +21,13 @@ public:
     ~MuPdfEngine() override;
 
     bool open(const QString& path) override;
+
+    // Opens an in-memory document image (e.g. the FB2 entry extracted from a
+    // .fb2.zip). magic is a virtual filename whose extension selects the
+    // MuPDF handler, so callers must pass a name ending in the real content
+    // type ("book.fb2", never the outer container name "book.fb2.zip").
+    bool openBuffer(const QByteArray& data, const QString& magic);
+
     void close() override;
     bool isOpen() const override;
 
@@ -39,6 +46,16 @@ public:
 private:
     // Drops all MuPDF state; caller must hold m_mutex.
     void dropDocument();
+
+    // Creates m_ctx and registers the document handlers. source is used only
+    // for diagnostics. Caller must hold m_mutex with m_ctx == nullptr.
+    bool makeContext(const QString& source);
+
+    // Shared post-open tail: reflow layout, theming, and the final page
+    // count. suffix is the lower-cased extension of the source name (drives
+    // the FB2 duotone-vs-stylesheet theming split); source is diagnostic only.
+    // Caller must hold m_mutex with m_doc already opened.
+    bool finishOpen(const QString& source, const QString& suffix);
 
     // Parses a MOBI/PRC stream and, if an EXTH cover record is present and
     // decodable, stores it into m_coverImage and returns true. Does NOT open

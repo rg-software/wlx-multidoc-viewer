@@ -44,7 +44,7 @@ static void recordHostTheme(int showFlags) {
 #define SUPPORTED_EXTENSIONS \
     "EXT=\"PDF\"|EXT=\"XPS\"|EXT=\"OXPS\"|" \
     "EXT=\"EPUB\"|EXT=\"MOBI\"|EXT=\"FB2\"|" \
-    "EXT=\"CBZ\"|EXT=\"CBR\"|EXT=\"CB7\"|" \
+    "EXT=\"CBZ\"|EXT=\"CBR\"|EXT=\"CB7\"|EXT=\"ZIP\"|" \
     "EXT=\"JPEG\"|EXT=\"JPG\"|EXT=\"PNG\"|EXT=\"TIFF\"|" \
     "EXT=\"GIF\"|EXT=\"BMP\"|EXT=\"WEBP\"|" \
     "EXT=\"DJVU\"|EXT=\"DJV\"|EXT=\"CHM\""
