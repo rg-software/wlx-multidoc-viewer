@@ -1,5 +1,6 @@
 #include "viewer_win32.h"
 #include "viewer_settings.h"
+#include "win32_theme.h"
 #include "favorites.h"
 #include "toolbar_win32.h"
 #include "sidebar_win32.h"
@@ -148,6 +149,9 @@ ViewerWin32::ViewerWin32(HWND hParent) {
         hParent, nullptr, hInst, this);
 
     SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+
+    // Dark-mode scrollbars/frame on the document window follow the theme.
+    win32_theme::applyChromeTheme(m_hwnd);
 
     m_controller = std::make_unique<ViewerController>();
     m_controller->setStateChangedCallback([this]() { onControllerChanged(); });

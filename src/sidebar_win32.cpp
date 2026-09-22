@@ -1,4 +1,5 @@
 #include "sidebar_win32.h"
+#include "win32_theme.h"
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -95,6 +96,8 @@ SidebarWin32::SidebarWin32(HWND hParent)
         TreeView_SetTextColor(m_tree, RGB(static_cast<BYTE>((stc >> 16) & 0xFF),
                                           static_cast<BYTE>((stc >> 8) & 0xFF),
                                           static_cast<BYTE>(stc & 0xFF)));
+        // Match the tree's scrollbar to the chrome theme (issue #14).
+        win32_theme::applyChromeTheme(m_tree);
     }
 
     // Right-edge drag handle. Non-focusable so it never participates in tab
