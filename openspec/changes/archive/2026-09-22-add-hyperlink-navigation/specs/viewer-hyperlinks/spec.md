@@ -22,15 +22,19 @@ The viewer SHALL determine, for each page that carries hyperlinks, the set of li
 
 ### Requirement: Pointing-hand cursor over links
 
-The viewer SHALL show the system pointing-hand cursor while the pointer is over a link hot zone, and SHALL restore the previously applicable cursor (for example the I-beam over selectable text, or the arrow/hand otherwise) once the pointer leaves all link hot zones.
+The viewer SHALL show the system pointing-hand cursor while the pointer is over a link hot zone AND the link-activation modifier (Ctrl) is held, and SHALL restore the previously applicable cursor (the I-beam over selectable text, or the arrow otherwise) when the modifier is not held or the pointer leaves all link hot zones. The cursor SHALL update when the modifier is pressed or released, without requiring pointer movement.
 
-#### Scenario: Hover a link that overlies text
-- **WHEN** the pointer moves over a link whose hot zone also contains selectable text
+#### Scenario: Modifier held over a link that overlies text
+- **WHEN** the pointer is over a link whose hot zone also contains selectable text and the activation modifier is held
 - **THEN** the cursor is the pointing hand, not the I-beam
 
-#### Scenario: Leave a link
-- **WHEN** the pointer moves off a link hot zone onto ordinary selectable text
-- **THEN** the cursor returns to the I-beam
+#### Scenario: Modifier not held over a link
+- **WHEN** the pointer is over a link hot zone but the activation modifier is not held
+- **THEN** the cursor follows the ordinary hover rules (I-beam over selectable text, arrow elsewhere), not the pointing hand
+
+#### Scenario: Modifier toggled without moving the pointer
+- **WHEN** the pointer rests over a link and the user presses or releases the activation modifier
+- **THEN** the cursor changes immediately without moving the pointer
 
 ### Requirement: Activate links with Ctrl+click
 

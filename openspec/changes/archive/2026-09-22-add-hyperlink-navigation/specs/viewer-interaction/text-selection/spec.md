@@ -2,18 +2,22 @@
 
 ### Requirement: Cursor feedback over selectable text
 
-The viewer SHALL show the standard I-beam cursor while the pointer hovers over selectable text within a page, the pointing-hand cursor while the pointer is over a hyperlink hot zone (see `viewer-hyperlinks`), and the usual arrow/hand cursors everywhere else.
+The viewer SHALL show the standard I-beam cursor while the pointer hovers over selectable text within a page, the pointing-hand cursor while the pointer is over a hyperlink hot zone with the link-activation modifier (Ctrl) held (see `viewer-hyperlinks`), and the usual arrow cursor everywhere else.
 
 #### Scenario: Hovering over a word
 - **WHEN** the pointer moves over glyphs of a selectable page that are not part of a hyperlink
 - **THEN** the cursor becomes I-beam
 
-#### Scenario: Hovering over a hyperlink
-- **WHEN** the pointer moves over a hyperlink hot zone, even where selectable text underlies it
+#### Scenario: Hovering over a hyperlink with the modifier held
+- **WHEN** the pointer moves over a hyperlink hot zone, even where selectable text underlies it, and the activation modifier is held
 - **THEN** the cursor becomes the pointing hand rather than the I-beam
 
+#### Scenario: Hovering over a hyperlink without the modifier
+- **WHEN** the pointer moves over a hyperlink hot zone without the activation modifier held
+- **THEN** the cursor follows the text rule (I-beam when selectable text underlies it)
+
 #### Scenario: Hovering outside text
-- **WHEN** the pointer sits over a page margin, background, or a non-selectable page, and not over a hyperlink
+- **WHEN** the pointer sits over a page margin, background, or a non-selectable page, and not over a hyperlink with the modifier held
 - **THEN** the cursor returns to the default viewer cursor
 
 ### Requirement: Selection versus drag-pan precedence

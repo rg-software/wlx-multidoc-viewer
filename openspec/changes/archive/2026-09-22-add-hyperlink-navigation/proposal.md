@@ -7,7 +7,7 @@ Documents that carry hyperlinks — PDF/EPUB/XPS/MOBI cross-references and CHM t
 - Add a per-page link model to `DocumentEngine` (hot-zone rectangle plus internal destination page/anchor or external URI) with a no-op default.
 - Extract and resolve links in the MuPDF engine for PDF, EPUB, XPS, MOBI, FB2, and CHM topics, honoring the synthetic MOBI cover shift.
 - Make CHM internal links live: resolve relative topic hrefs (including `#fragment`) against the archive page list, dropping the v1 "relative links need not be live" limitation.
-- Follow links with Ctrl+click so plain drag still selects text; show a pointing-hand cursor over links, taking precedence over the text I-beam.
+- Follow links with Ctrl+click so plain drag still selects text; show a pointing-hand cursor only while Ctrl is held over a link, updating on the modifier change even without pointer movement.
 - Hand external links to the system handler (`ShellExecuteW` on Windows, `QDesktopServices::openUrl` on Linux).
 - Add a headless link harness and a linked sample.
 
