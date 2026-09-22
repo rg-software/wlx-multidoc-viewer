@@ -636,4 +636,17 @@ if(WLX_BUILD_HARNESS AND WIN32)
     target_link_libraries(harness-favorites
         Qt6::Core
     )
+
+    # Headless startup view-state harness (issue #11 ini settings). Qt Core
+    # only — exercises the [Viewer] PagedMode/FitMode keys via viewer_settings.h.
+    add_executable(harness-startup
+        tests/harness_startup.cpp
+        src/pluginconfig.cpp
+    )
+    target_include_directories(harness-startup PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
+    target_link_libraries(harness-startup
+        Qt6::Core
+    )
 endif()

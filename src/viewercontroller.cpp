@@ -42,9 +42,30 @@
 namespace {
 using viewer_settings::kPageGap;
 using viewer_settings::kCacheWindowPages;
+
+// Maps the INI-configured startup fit choice onto the controller's fit-mode
+// enum (issue #11). Malformed values already resolved to FitToPage in
+// viewer_settings, so only the three well-formed values reach this point.
+ViewerController::FitMode startupFitMode() {
+    switch (viewer_settings::kStartFitMode) {
+    case viewer_settings::StartFitMode::FitToWidth:
+        return ViewerController::FitMode::FitToWidth;
+    case viewer_settings::StartFitMode::Manual:
+        return ViewerController::FitMode::Manual;
+    case viewer_settings::StartFitMode::FitToPage:
+    default:
+        return ViewerController::FitMode::FitToPage;
+    }
+}
 }
 
-ViewerController::ViewerController() = default;
+ViewerController::ViewerController() {
+    // Startup view mode from [Viewer] PagedMode (issue #11): a fresh lister
+    // window opens in the persisted Paged/Continuous state instead of the
+    // hard-coded continuous default. Set once here so a controller reused by
+    // ListLoadNext keeps the user's current choice across files.
+    m_state.setPagedMode(viewer_settings::kStartPagedMode);
+}
 
 void ViewerController::setEngine(std::unique_ptr<DocumentEngine> engine) {
     m_engine = std::move(engine);
@@ -65,7 +86,7 @@ bool ViewerController::openDocument(const QString& path) {
     m_openPath = path;
     m_state.setPageCount(m_engine->pageCount());
     m_state.resetPage();
-    m_fitMode = FitMode::FitToPage;
+    m_fitMode = startupFitMode();
     m_rotation = 0;
     m_pageCache.clear();
     m_cacheRecency.clear();
