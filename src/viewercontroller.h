@@ -187,6 +187,24 @@ public:
     QVector<QRectF> highlightRects(int page) const;
     QString selectedText() const;
 
+    // ---- Hyperlinks ----
+    // Per-page link hot zones (engine-provided, cached in page space). Empty
+    // when the document or page carries no links.
+    QVector<LinkItem> pageLinks(int page) const;
+    // Index of the link whose hot zone contains (or is nearest to) canvasPt, or
+    // -1. tolerancePx >= 0 restricts the hit to that canvas distance so empty
+    // page areas keep their existing selection/pan behavior.
+    int linkAt(int page, const QPointF& canvasPt, double tolerancePx) const;
+    // Follows the link at linkIndex on page. Internal links navigate (goToPage
+    // plus any anchor) and the method returns the scroll offset the caller
+    // should apply; external links are handed to the installed handler and the
+    // current scrollY is returned unchanged, as are unresolvable links.
+    int followLink(int page, int linkIndex, int scrollY);
+    // Platform-injected external-URL launcher (ShellExecuteW on Win32,
+    // QDesktopServices::openUrl on Qt). Keeps shared code free of OS types.
+    using ExternalLinkHandler = std::function<void(const QString& uri)>;
+    void setExternalLinkHandler(ExternalLinkHandler fn) { m_openExternal = std::move(fn); }
+
     // Relays a fit/zoom mode change that the caller already applied (fit mode,
     // viewport size, rotation angle) into a fresh layout, anchoring scrollY.
     int relayout(int scrollY);
@@ -289,6 +307,9 @@ private:
     void computeLayout();
     int clampScroll(int scrollY) const;
     void notifyChanged();
+    // Scroll offset that puts an anchor at the top of the page area for `page`
+    // (paged mode: in-page overflow; continuous mode: absolute canvas offset).
+    int anchorScrollOffset(int page, float anchorY) const;
     // Deepest resolved outline heading whose pageNo <= page, used as the
     // favorite's initial label when toggling the current page on.
     QString outlineTitleForPage(int page) const;
@@ -355,6 +376,11 @@ private:
     mutable QHash<int, PageText> m_textCache;
     TextSelection m_textSelection;
     bool m_selecting = false;
+
+    // Hyperlink state: per-page link cache (page space, layout-independent) and
+    // the platform-injected external-URL launcher.
+    mutable QHash<int, QVector<LinkItem>> m_linkCache;
+    ExternalLinkHandler m_openExternal;
 };
 
 #endif // VIEWERCONTROLLER_H

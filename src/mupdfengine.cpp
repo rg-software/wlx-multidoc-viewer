@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDebug>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -557,6 +558,67 @@ QString MuPdfEngine::extractText(int page) {
     fz_always(m_ctx) {
         if (stext)
             fz_drop_stext_page(m_ctx, stext);
+        if (fzpage)
+            fz_drop_page(m_ctx, fzpage);
+    }
+    fz_catch(m_ctx) {
+        return {};
+    }
+
+    return result;
+}
+
+QVector<LinkItem> MuPdfEngine::pageLinks(int page) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
+        return {};
+
+    // The synthetic cover page is an engine-side image with no links.
+    if (m_bodyHasCover && page == 1)
+        return {};
+
+    QVector<LinkItem> result;
+    fz_page* fzpage = nullptr;
+    fz_link* links = nullptr;
+
+    fz_try(m_ctx) {
+        fzpage = fz_load_page(m_ctx, m_doc, bodyPageIndex(page));
+        links = fz_load_links(m_ctx, fzpage);
+
+        for (fz_link* l = links; l; l = l->next) {
+            if (!l->uri)
+                continue;
+            LinkItem item;
+            item.bbox = QRectF(QPointF(l->rect.x0, l->rect.y0),
+                               QPointF(l->rect.x1, l->rect.y1)).normalized();
+
+            if (fz_is_external_link(m_ctx, l->uri)) {
+                // External target: keep the raw URI for the OS handler.
+                item.uri = QString::fromUtf8(l->uri);
+            } else {
+                const fz_link_dest dest = fz_resolve_link_dest(m_ctx, m_doc, l->uri);
+                const int bodyPage = fz_page_number_from_location(m_ctx, m_doc, dest.loc);
+                if (bodyPage >= 0) {
+                    // bodyPage is 0-based within the body; shift to the public
+                    // 1-based page numbering (with the synthetic cover if any).
+                    item.destPage = bodyPage + 1 + (m_bodyHasCover ? 1 : 0);
+                    // XYZ destinations carry the viewport-top coordinate; the
+                    // other fit modes have no meaningful anchor (use page top).
+                    if (dest.type == FZ_LINK_DEST_XYZ && dest.y > 0.0f) {
+                        const PageInfo target = pageDimensionsRaw(bodyPage + 1);
+                        if (target.height > 0) {
+                            const float frac = dest.y / static_cast<float>(target.height);
+                            item.anchorY = (std::clamp)(frac, 0.0f, 1.0f);
+                        }
+                    }
+                }
+            }
+            result.append(item);
+        }
+    }
+    fz_always(m_ctx) {
+        if (links)
+            fz_drop_link(m_ctx, links);
         if (fzpage)
             fz_drop_page(m_ctx, fzpage);
     }

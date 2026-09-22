@@ -7,7 +7,10 @@
 #include "ui_strings.h"
 
 #include <QClipboard>
+#include <QApplication>
 #include <QCoreApplication>
+#include <QDesktopServices>
+#include <QCursor>
 #include <QGuiApplication>
 #include <QMetaObject>
 #include <QMouseEvent>
@@ -16,6 +19,7 @@
 #include <QScrollBar>
 #include <QShortcut>
 #include <QTimer>
+#include <QUrl>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -295,6 +299,10 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     m_controller->setUiMarshal([this](std::function<void()> task) {
         if (task)
             QMetaObject::invokeMethod(this, std::move(task), Qt::QueuedConnection);
+    });
+    m_controller->setExternalLinkHandler([](const QString& uri) {
+        // Hand external URIs to the desktop's default handler; no document change.
+        QDesktopServices::openUrl(QUrl(uri));
     });
     m_canvas->setController(m_controller.get());
     m_controller->setRenderScale(static_cast<float>(devicePixelRatioF()));
@@ -734,6 +742,31 @@ void ViewerWidget::endSelectionGesture() {
     setCursor(Qt::ArrowCursor);
 }
 
+// Re-applies the hover cursor for the current pointer position. Called when the
+// Ctrl state changes so the link hand appears/disappears without a mouse move.
+// No-op when the pointer is not over the document canvas.
+void ViewerWidget::refreshHoverCursor() {
+    if (!m_controller || !m_controller->hasDocument() || m_dragging || m_selecting)
+        return;
+    const QPoint global = QCursor::pos();
+    QWidget* under = QApplication::widgetAt(global);
+    if (under != m_canvas && under != m_scrollArea->viewport())
+        return;
+    const QPoint pos = under->mapFromGlobal(global);
+    const QPointF canvasPt = widgetToCanvas(pos);
+    const int page = pageAtCanvas(canvasPt);
+    const bool ctrl = (QGuiApplication::keyboardModifiers() & Qt::ControlModifier) != 0;
+    if (page >= 1 && ctrl &&
+        m_controller->linkAt(page, canvasPt, viewer_settings::kLinkHitTolerancePx) >= 0) {
+        setCursor(Qt::PointingHandCursor);
+        return;
+    }
+    const bool overText = page >= 1 && m_controller->pageHasText(page) &&
+                          m_controller->wordAtCanvas(page, canvasPt,
+                              viewer_settings::kSelectionHitTolerancePx) >= 0;
+    setCursor(overText ? Qt::IBeamCursor : Qt::ArrowCursor);
+}
+
 void ViewerWidget::keyPressEvent(QKeyEvent* event) {
     if (onControlKey(event))
         return;
@@ -804,8 +837,18 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
     switch (event->type()) {
     case QEvent::KeyPress: {
         auto* ke = static_cast<QKeyEvent*>(event);
+        // Holding/releasing Ctrl changes the link cursor even without a mouse
+        // move, which would otherwise not re-run the hover branch.
+        if (ke->key() == Qt::Key_Control)
+            refreshHoverCursor();
         if (onControlKey(ke))
             return true;
+        break;
+    }
+    case QEvent::KeyRelease: {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (ke->key() == Qt::Key_Control)
+            refreshHoverCursor();
         break;
     }
     case QEvent::MouseButtonPress: {
@@ -813,6 +856,21 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
         if (me->button() != Qt::LeftButton)
             break;
         const QPoint pos = me->position().toPoint();
+        // Ctrl+click follows a hyperlink, taking precedence over text selection
+        // and drag-pan (see viewer-hyperlinks).
+        if (me->modifiers().testFlag(Qt::ControlModifier)) {
+            const QPointF canvasPt = widgetToCanvas(pos);
+            const int page = pageAtCanvas(canvasPt);
+            if (page >= 1) {
+                const int link =
+                    m_controller->linkAt(page, canvasPt, viewer_settings::kLinkHitTolerancePx);
+                if (link >= 0) {
+                    m_scrollArea->verticalScrollBar()->setValue(
+                        m_controller->followLink(page, link, scrollYValue()));
+                    return true;
+                }
+            }
+        }
         if (startSelection(pos))
             return true;
         if (m_controller->isPagedMode()) {
@@ -839,10 +897,21 @@ if (!m_dragging) {
             if (m_controller && m_controller->hasDocument()) {
                 const QPointF canvasPt = widgetToCanvas(pos);
                 const int page = pageAtCanvas(canvasPt);
-                const bool overText = page >= 1 && m_controller->pageHasText(page) &&
-                                      m_controller->wordAtCanvas(page, canvasPt,
-                                          viewer_settings::kSelectionHitTolerancePx) >= 0;
-                setCursor(overText ? Qt::IBeamCursor : Qt::ArrowCursor);
+                // Pointing hand over a link only while the activation modifier
+                // (Ctrl) is held; otherwise a link lies over text, so the
+                // I-beam wins (viewer-hyperlinks).
+                const bool overLink =
+                    page >= 1 && me->modifiers().testFlag(Qt::ControlModifier) &&
+                    m_controller->linkAt(page, canvasPt,
+                                         viewer_settings::kLinkHitTolerancePx) >= 0;
+                if (overLink) {
+                    setCursor(Qt::PointingHandCursor);
+                } else {
+                    const bool overText = page >= 1 && m_controller->pageHasText(page) &&
+                                          m_controller->wordAtCanvas(page, canvasPt,
+                                              viewer_settings::kSelectionHitTolerancePx) >= 0;
+                    setCursor(overText ? Qt::IBeamCursor : Qt::ArrowCursor);
+                }
             }
             break;
         }

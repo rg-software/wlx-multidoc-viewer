@@ -6,9 +6,11 @@
 #include <QDir>
 #include <QFile>
 #include <QSet>
+#include <QStringList>
 #include <QTemporaryFile>
 #include <QDebug>
 #include <QtEndian>
+#include <algorithm>
 #include <functional>
 
 #include <chm_lib.h>
@@ -39,6 +41,65 @@ QString normalizePath(const QString& path) {
 bool isHtmlPath(const QString& path) {
     return path.endsWith(QLatin1String(".htm"), Qt::CaseInsensitive) ||
            path.endsWith(QLatin1String(".html"), Qt::CaseInsensitive);
+}
+
+int hexVal(char c) {
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+// Percent-decode a URL path/component (UTF-8); invalid escapes pass through.
+QString percentDecode(const QString& s) {
+    if (!s.contains(QLatin1Char('%')))
+        return s;
+    const QByteArray in = s.toUtf8();
+    QByteArray out;
+    out.reserve(in.size());
+    for (int i = 0; i < in.size(); ++i) {
+        if (in[i] == '%' && i + 2 < in.size()) {
+            const int hi = hexVal(in[i + 1]);
+            const int lo = hexVal(in[i + 2]);
+            if (hi >= 0 && lo >= 0) {
+                out.append(static_cast<char>((hi << 4) | lo));
+                i += 2;
+                continue;
+            }
+        }
+        out.append(in[i]);
+    }
+    return QString::fromUtf8(out);
+}
+
+// Resolve a topic link (already stripped of its #fragment) relative to the
+// current topic's archive path. Handles `./`, `../`, leading `/`, and
+// backslashes; the result is an archive-relative path (no leading slash).
+QString resolveTopicPath(const QString& currentPath, const QString& href) {
+    QString ref = href;
+    ref.replace(QLatin1Char('\\'), QLatin1Char('/'));
+
+    QStringList base;
+    if (!ref.startsWith(QLatin1Char('/'))) {
+        base = normalizePath(currentPath).split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        if (!base.isEmpty())
+            base.removeLast(); // drop the current topic's file component
+    }
+    const QStringList parts = ref.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    for (const QString& part : parts) {
+        if (part == QLatin1String("..")) {
+            if (!base.isEmpty())
+                base.removeLast();
+        } else if (part == QLatin1String(".")) {
+            continue;
+        } else {
+            base.append(part);
+        }
+    }
+    return base.join(QLatin1Char('/'));
 }
 
 // Extract a page's structured text. The ACCURATE_BBOXES flag (MuPDF 1.25+)
@@ -689,6 +750,80 @@ QString ChmEngine::extractText(int page) {
     return result;
 }
 
+QVector<LinkItem> ChmEngine::pageLinks(int page) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    QVector<LinkItem> result;
+    if (!m_chm || !m_fzCtx || page < 1 || page > m_htmlPages.size())
+        return result;
+
+    OpenedHtmlPage h = openHtmlPage(page);
+    if (!h.doc || !h.page)
+        return result;
+
+    fz_context* ctx = m_fzCtx;
+    fz_link* links = nullptr;
+    const QString currentPath = m_htmlPages.at(page - 1);
+
+    fz_try(ctx) {
+        links = fz_load_links(ctx, h.page);
+        for (fz_link* l = links; l; l = l->next) {
+            if (!l->uri)
+                continue;
+            const QString raw = QString::fromUtf8(l->uri);
+            LinkItem item;
+            item.bbox = QRectF(QPointF(l->rect.x0, l->rect.y0),
+                               QPointF(l->rect.x1, l->rect.y1)).normalized();
+
+            if (fz_is_external_link(ctx, l->uri)) {
+                // Only hand navigable schemes to the OS; scripting/data URIs
+                // are not openable targets.
+                const QString lower = raw.trimmed().toLower();
+                if (lower.startsWith(QLatin1String("javascript:")) ||
+                    lower.startsWith(QLatin1String("vbscript:")) ||
+                    lower.startsWith(QLatin1String("data:")))
+                    continue;
+                item.uri = raw;
+            } else {
+                QString target = raw;
+                QString fragment;
+                const int hash = target.indexOf(QLatin1Char('#'));
+                if (hash >= 0) {
+                    fragment = target.mid(hash + 1);
+                    target.truncate(hash);
+                }
+
+                if (target.isEmpty()) {
+                    // Anchor within the current topic.
+                    item.destPage = page;
+                } else {
+                    const QString resolved =
+                        resolveTopicPath(currentPath, percentDecode(target));
+                    if (!isHtmlPath(resolved))
+                        continue; // only HTML entries are pages
+                    const int idx = pageIndexOf(resolved);
+                    if (idx < 0)
+                        continue; // unresolved destination -> drop the link
+                    item.destPage = idx + 1;
+                }
+
+                if (!fragment.isEmpty())
+                    item.anchorY = fragmentAnchorY(item.destPage, percentDecode(fragment));
+            }
+            result.append(item);
+        }
+    }
+    fz_always(ctx) {
+        if (links)
+            fz_drop_link(ctx, links);
+        h.drop(ctx);
+    }
+    fz_catch(ctx) {
+        return {};
+    }
+
+    return result;
+}
+
 QVector<TextMatch> ChmEngine::searchText(int page, const QString& needle, bool matchCase) {
     std::lock_guard<std::mutex> lock(m_mutex);
     QVector<TextMatch> results;
@@ -1036,6 +1171,35 @@ int ChmEngine::pageIndexOf(const QString& path) const {
 int ChmEngine::pageIndexFor(const QString& path) const {
     const int idx = pageIndexOf(path);
     return idx >= 0 ? idx + 1 : 1;
+}
+
+float ChmEngine::fragmentAnchorY(int page, const QString& fragment) const {
+    if (fragment.isEmpty() || page < 1)
+        return 0.0f;
+
+    OpenedHtmlPage h = openHtmlPage(page);
+    if (!h.doc || !h.page)
+        return 0.0f;
+
+    fz_context* ctx = m_fzCtx;
+    float anchor = 0.0f;
+    const QByteArray uri = ('#' + fragment).toUtf8();
+
+    fz_try(ctx) {
+        const fz_link_dest dest = fz_resolve_link_dest(ctx, h.doc, uri.constData());
+        const fz_rect bounds = fz_bound_page(ctx, h.page);
+        const float height = bounds.y1 - bounds.y0;
+        if (dest.type == FZ_LINK_DEST_XYZ && height > 0.0f && dest.y > 0.0f)
+            anchor = (std::clamp)(dest.y / height, 0.0f, 1.0f);
+    }
+    fz_always(ctx) {
+        h.drop(ctx);
+    }
+    fz_catch(ctx) {
+        anchor = 0.0f;
+    }
+
+    return anchor;
 }
 
 QString ChmEngine::decodeText(const QByteArray& bytes) const {

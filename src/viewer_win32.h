@@ -62,6 +62,8 @@ private:
     void onSelectionEnd();
     int pageUnderPoint(int x, int y) const;
     QPointF clientToCanvas(int x, int y) const;
+    void setHoverCursor(int x, int y);
+    void refreshHoverCursor();
     void paintSelectionOverlay(HDC hdc, const RECT& rc, int panelH);
     void paintSearchOverlay(HDC hdc, const RECT& rc, int panelH);
 

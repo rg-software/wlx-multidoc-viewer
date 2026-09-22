@@ -515,6 +515,24 @@ if(WLX_BUILD_HARNESS AND WIN32)
         chmlib::chmlib
     )
 
+    # Headless hyperlink-extraction harness (add-hyperlink-navigation): verifies
+    # internal/external/anchor links from a linked PDF and a linked CHM.
+    add_executable(harness-links
+        tests/harness_links.cpp
+        src/mupdfengine.cpp
+        src/chmengine.cpp
+        src/pluginconfig.cpp
+    )
+    target_include_directories(harness-links PRIVATE src "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(harness-links
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
+        ${DJVU_TARGET}
+        LibArchive::LibArchive
+        chmlib::chmlib
+    )
+
     # Headless ICC color-management smoke harness (add-icc-color-management).
     add_executable(harness-icc
         tests/harness_icc.cpp

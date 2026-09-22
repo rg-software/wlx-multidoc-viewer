@@ -20,6 +20,7 @@
 #include <QVector>
 
 #include <windowsx.h>
+#include <shellapi.h>
 
 #define WLX_VIEWER_CLASS L"WLXDocViewer"
 
@@ -159,6 +160,11 @@ ViewerWin32::ViewerWin32(HWND hParent) {
     m_controller->setRenderScale(static_cast<float>(GetDpiForWindow(m_hwnd)) / kDefaultDpi);
     m_controller->setUiMarshal([this](std::function<void()> task) {
         marshalToWnd(m_hwnd, std::move(task));
+    });
+    m_controller->setExternalLinkHandler([](const QString& uri) {
+        // Hand external URIs to the OS default handler; no document change.
+        const std::wstring wide = uri.toStdWString();
+        ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     });
 
     m_toolbar = std::make_unique<ToolbarWin32>(m_hwnd);
@@ -470,8 +476,18 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
         onHScroll(LOWORD(wp), HIWORD(wp));
         return 0;
     case WM_KEYDOWN:
+        // Holding/releasing Ctrl changes the link cursor even without a mouse
+        // move, which would otherwise not trigger WM_SETCURSOR.
+        if (wp == VK_CONTROL)
+            refreshHoverCursor();
         onKeyDown(wp, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
         return 0;
+    case WM_KEYUP:
+        if (wp == VK_CONTROL) {
+            refreshHoverCursor();
+            return 0;
+        }
+        break;
     case WM_PLUGIN_MARSHAL: {
         // Run every task posted by a background worker on this UI thread.
         std::deque<std::function<void()>> tasks;
@@ -523,6 +539,16 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
         if (m_controller && m_controller->hasDocument()) {
             const int page = pageUnderPoint(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
             const QPointF canvasPt = clientToCanvas(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            // Ctrl+click follows a hyperlink, taking precedence over both text
+            // selection and drag-pan (see viewer-hyperlinks).
+            if (page >= 1 && (GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+                const int link =
+                    m_controller->linkAt(page, canvasPt, viewer_settings::kLinkHitTolerancePx);
+                if (link >= 0) {
+                    applyScroll(m_controller->followLink(page, link, m_scrollY));
+                    return 0;
+                }
+            }
             const int word = (page >= 1)
                 ? m_controller->wordAtCanvas(page, canvasPt, viewer_settings::kSelectionHitTolerancePx)
                 : -1;
@@ -565,20 +591,13 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
             SetCursor(LoadCursor(nullptr, IDC_IBEAM));
             return TRUE;
         }
-        // Hover: I-beam only when the pointer is actually over selectable text
-        // (hit tolerance); empty page areas keep the arrow so users know they
-        // can drag.
+        // Hover: a pointing hand over a link hot zone only while the activation
+        // modifier (Ctrl) is held, the I-beam over selectable text, and the
+        // arrow elsewhere (empty page areas keep the arrow so users know they
+        // can drag).
         if (!m_dragging && !m_selecting && LOWORD(lp) == HTCLIENT &&
             m_controller && m_controller->hasDocument()) {
-            const int page = (std::max)(1, pageUnderPoint(m_hoverX, m_hoverY));
-            if (m_controller->pageHasText(page)) {
-                const QPointF canvasPt = clientToCanvas(m_hoverX, m_hoverY);
-                if (m_controller->wordAtCanvas(page, canvasPt, viewer_settings::kSelectionHitTolerancePx) >= 0) {
-                    SetCursor(LoadCursor(nullptr, IDC_IBEAM));
-                    return TRUE;
-                }
-            }
-            SetCursor(LoadCursor(nullptr, IDC_ARROW));
+            setHoverCursor(m_hoverX, m_hoverY);
             return TRUE;
         }
         break;
@@ -1145,6 +1164,49 @@ QPointF ViewerWin32::clientToCanvas(int x, int y) const {
     const double cx = std::max(0, (int)((viewW - cs.width()) / 2));
     const double cy = std::max(0, (int)((viewH - cs.height()) / 2));
     return QPointF(x - left - cx + m_scrollX, (y - top) - cy + m_scrollY);
+}
+
+// Selects and applies the hover cursor for a client-space pointer position:
+// pointing hand over a link while Ctrl is held (the activation modifier),
+// I-beam over selectable text, arrow otherwise.
+void ViewerWin32::setHoverCursor(int x, int y) {
+    const int rawPage = pageUnderPoint(x, y);
+    const QPointF canvasPt = clientToCanvas(x, y);
+    if (rawPage >= 1 && (GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
+        m_controller->linkAt(rawPage, canvasPt, viewer_settings::kLinkHitTolerancePx) >= 0) {
+        SetCursor(LoadCursor(nullptr, IDC_HAND));
+        return;
+    }
+    const int page = (std::max)(1, rawPage);
+    if (m_controller->pageHasText(page) &&
+        m_controller->wordAtCanvas(page, canvasPt, viewer_settings::kSelectionHitTolerancePx) >= 0) {
+        SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+        return;
+    }
+    SetCursor(LoadCursor(nullptr, IDC_ARROW));
+}
+
+// Re-applies the hover cursor for the current pointer position. Called when the
+// Ctrl state changes: Windows does not re-send WM_SETCURSOR on a key press, so
+// the cursor would otherwise stay stale until the next mouse move. No-op when
+// the pointer is over the toolbar/sidebar chrome or outside the page area.
+void ViewerWin32::refreshHoverCursor() {
+    if (!m_hwnd || m_dragging || m_selecting ||
+        !m_controller || !m_controller->hasDocument())
+        return;
+    POINT p;
+    if (!GetCursorPos(&p))
+        return;
+    POINT cp = p;
+    ScreenToClient(m_hwnd, &cp);
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    if (cp.x < sidebarLeft() || cp.y < pageAreaTop() ||
+        cp.x >= rc.right || cp.y >= rc.bottom)
+        return;
+    m_hoverX = cp.x;
+    m_hoverY = cp.y;
+    setHoverCursor(m_hoverX, m_hoverY);
 }
 
 void ViewerWin32::onMouseIdleMove(LPARAM lp) {

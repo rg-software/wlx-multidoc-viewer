@@ -78,6 +78,7 @@ private:
     void extendSelection(const QPoint& pos);
     void endSelectionGesture();
     void clearSelectionUi();
+    void refreshHoverCursor();
     bool onControlKey(QKeyEvent* event);
     void paintSearch(QPainter& p, const QRect& vis);
 

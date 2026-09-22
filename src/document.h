@@ -47,6 +47,21 @@ struct PageText {
     QVector<TextWord> words;
 };
 
+// A hyperlink hot zone on a page. bbox is in page space (y-down, page
+// dimensions from pageDimensions(), unrotated, pre-zoom) — the same convention
+// as TextWord.bbox. Exactly one destination form is used:
+//   - internal: destPage is the 1-based public page number; anchorY is the
+//     normalized (0..1) vertical position of the destination within that page,
+//     or 0 for the page top.
+//   - external: destPage == 0 and uri carries the raw target (e.g. http/https/
+//     mailto); the viewer hands it to the operating system.
+struct LinkItem {
+    QRectF bbox;
+    int destPage = 0;
+    float anchorY = 0.0f;
+    QString uri;
+};
+
 class DocumentEngine {
 public:
     virtual ~DocumentEngine() = default;
@@ -67,6 +82,16 @@ public:
     // without extraction, etc.) are correct without override.
     virtual bool hasSelectableText(int page) { return !pageText(page).words.isEmpty(); }
     virtual PageText pageText(int page) { return {}; }
+
+    // Per-page hyperlink hot zones. Default reports no links so engines without
+    // link support (comics, standalone images, DjVu without a text layer) are
+    // correct without override. bbox uses the same page-space convention as
+    // TextWord; see LinkItem for the destination forms.
+    virtual QVector<LinkItem> pageLinks(int page)
+    {
+        Q_UNUSED(page)
+        return {};
+    }
 
     // Optional in-place animation (currently GIF). Defaults implement a static
     // single-frame document so engines that do not animate (PDF, comics, ...)

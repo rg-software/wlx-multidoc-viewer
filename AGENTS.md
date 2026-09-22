@@ -26,11 +26,11 @@ Release sizes (after the `trim-binary-size` change that drops MuPDF's embedded C
 src/
   plugin.cpp            WLX entry points (ListLoad, ListCloseWindow, etc.)
   wlxplugin.h           WLX API types and DCPCALL macro
-  document.h            DocumentEngine interface (open/render/text/outline + pageText/PageText + animation virtuals)
+  document.h            DocumentEngine interface (open/render/text/outline + pageText/PageText + pageLinks/LinkItem + animation virtuals)
   formatdispatcher.cpp  Routes file extensions to the right engine
-  mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML); pageText from fz_stext; searchText from fz_search_page_cb
+  mupdfengine.*         MuPDF backend (PDF, XPS, EPUB, images, HTML); pageText from fz_stext; searchText from fz_search_page_cb; pageLinks from fz_load_links/fz_resolve_link_dest
   djvuengine.*          DjVuLibre backend (DJVU, DJV); pageText/search unavailable (see AGENTS gaps)
-  chmengine.*           CHM backend via libchm (archive access) + MuPDF HTML pipeline (render/text/search); reading order + nested .hhc outline
+  chmengine.*           CHM backend via libchm (archive access) + MuPDF HTML pipeline (render/text/search); reading order + nested .hhc outline; topic links resolved to archive pages (relative hrefs + #fragment anchors)
   comicengine.*         Comic archive backend via libarchive (CBR/CB7); Qt image decode, natural page order
   imageengine.*         Standalone raster engine (jpg/png/gif/bmp/ico) via QImageReader; one page per file, in-place GIF animation
   imagefolder.*         Sibling raster discovery/ordering in a directory (natural order, shared with comics)
@@ -82,6 +82,7 @@ Standalone raster images (`.jpg/.jpeg/.png/.gif/.bmp/.ico`) route to `ImageEngin
 - Detect string must fit in 260 chars (WLX buffer limit)
 - The viewer hosts its own toolbar: one shared `ToolbarPresenter`/`SidebarPresenter` pair drives thin per-platform backends (`toolbar_win32.*`/`toolbar_qt.*`, `sidebar_win32.*`/`sidebar_qt.*`). State flows controller -> presenter -> backend and backend events -> presenter -> controller, so keyboard and toolbar never diverge.
 - The toolbar copy button copies the current selection (`ToolbarPresenter::onCopy`); it is enabled only while a selection exists.
+- Hyperlinks flow through the engine-level `pageLinks()`/`LinkItem` model (page-space hot zones + internal page/anchor or external URI). The controller caches them and owns hit-testing (`linkAt`) and activation (`followLink`); each platform viewer only supplies the pointing-hand cursor, the Ctrl+click modifier check, and an external-URL launcher installed via `setExternalLinkHandler` (Win32 `ShellExecuteW`, Qt `QDesktopServices::openUrl`). Ctrl+click follows a link; a plain press still selects/pans. The pointing-hand cursor appears over a link only while Ctrl is held and updates on the Ctrl key transition (no pointer move needed), so it never implies that a plain click navigates.
 - `ListLoad` returns an HWND (Windows) or widget pointer (Linux)
 
 ### Git / Commit conventions
@@ -116,13 +117,16 @@ Write conventional, structured commit messages so the release pipeline can group
 ### Fixed (in fix-refit-fit-zoom-on-navigation)
 - ~~Two-tap PgUp/PgDn on mixed-size documents in paged mode (page 1, 2, 2, 3, 3, …)~~ — the fit zoom was computed once against the unit that was current at open/relayout time and frozen across navigation, so a non-anchor page whose aspect was taller than that unit overflowed the viewport and PgDn scrolled *within* it on the first press. Fix: paged mode now re-fits the active fit mode to the current view unit on every navigation (`ViewerController::refitAfterNavigation`), fit-to-width in paged mode targets the current unit's width (continuous mode keeps the doc-wide widest row), and PgUp/PgDn treat a unit whose overflow is within the 32 px block-overlap band as fully visible (`unitRequiresVerticalScroll`). Manual zoom never refits; continuous mode is untouched. Uniform documents see no relayout (zoom-epsilon no-op). Regression harness: `tests/harness_refit.cpp`.
 
+### Fixed (in add-hyperlink-navigation)
+- ~~Hyperlinks in linked documents (PDF/EPUB/XPS/MOBI/CHM) were not navigable: link text rendered but Ctrl+click did nothing and external URLs were unreachable.~~ — added the engine-level `pageLinks()`/`LinkItem` model (`src/document.h`). `MuPdfEngine::pageLinks` extracts hot zones with `fz_load_links` and resolves internal targets with `fz_resolve_link_dest`/`fz_page_number_from_location` (applying the synthetic MOBI cover shift and reading the `XYZ` anchor y); external URIs are classified with `fz_is_external_link`. `ChmEngine::pageLinks` reuses the topic's MuPDF HTML links and resolves relative hrefs (with `./`, `../`, leading `/`, percent-decoding, backslashes) plus `#fragment` anchors against the archive page list via the existing `normalizePath`/`pageIndexOf`. `ViewerController` caches links per page, hit-tests with `linkAt` (via `pageTransform`, so zoom/rotation/continuous all work), and follows them with `followLink` (page jump + clamped anchor scroll, or the injected external launcher). Viewers show a pointing-hand cursor over a link only while Ctrl is held (refreshed on the Ctrl key transition) and follow on Ctrl+click so plain press still selects/pans. Regression harness: `tests/harness_links.cpp` with fixtures `examples/sample-links.pdf` / `examples/sample-links.chm` (generated by `tools/generate_sample_links.py`).
+
 ### Open gaps
 
 | Gap | Severity | Note |
 |---|---|---|
 | **Synchronous first-render of a new page** | Low | Rendering happens on the UI thread only the first time a page enters the viewport; the per-page LRU cache (`kCacheWindowPages`) makes revisits instant. A background render worker was tried and reverted — thread-safety + FIFO-order complexity did not justify the latency gain for a single lister (see `async-render-worker` change, abandoned). |
 | **DjVu text-layer selection & search** | Low | The vcpkg djvulibre static build does not export the core miniexp accessors (`miniexp_car/cdr/consp/symbolp/to_int`), so `ddjvu_document_get_pagetext` trees cannot be walked. DjVu pages report no text layer and `supportsSearch() == false` (selection and find work only for MuPDF-backed formats). Revisit if a djvulibre build with the miniexp public API is available, or add a local miniexp.h overlay. |
-| **Qt in-host verification** | Medium | The toolbar/sidebar/print rework changed `viewer.*`, `toolbar_qt.*`, `sidebar_qt.*`, `print_qt.cpp`; Linux must re-verify `cmake --preset linux-release` (new `Qt6::PrintSupport` dependency) and scroll + selection + toolbar behavior in Total/Double Commander. Windows interactive smoke tests (task 4.4) are likewise pending. |
+| **Qt in-host verification** | Medium | The toolbar/sidebar/print rework changed `viewer.*`, `toolbar_qt.*`, `sidebar_qt.*`, `print_qt.cpp`; Linux must re-verify `cmake --preset linux-release` (new `Qt6::PrintSupport` dependency) and scroll + selection + toolbar behavior in Total/Double Commander. Windows interactive smoke tests (task 4.4) are likewise pending. The add-hyperlink-navigation change adds a Qt cursor/`KeyPress` branch in `viewer.cpp` (modifier-gated link hand + Ctrl+click) that likewise needs the Linux build and smoke test. |
 | **Print worker on Qt** | Low | QPrinter must be used on the main thread, so the Qt print path renders synchronously instead of on a `PrintCoordinator` worker; the Win32 path uses the worker. Page/copy resolution and fit math are still shared. |
 | **CHM engine Linux build** | Low | `chmengine.*` now compiles and links in `cmake --preset linux-release` (verified in-host against MuPDF 1.28 and against the 1.23 Ubuntu headers via the capability probes). Still pending: interactive verification of CHM rendering + Qt sidebar ESC-forwarding parity in a file manager on Linux. |
 | **Comic engine real-RAR verification** | Low | `ComicEngine` is verified against a genuine RAR5 CBR (`examples/sample.cbr`) in the host; 7-Zip-based CB7 still awaits a real sample (libarchive handles the format). |

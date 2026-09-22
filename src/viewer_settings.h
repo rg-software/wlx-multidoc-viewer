@@ -204,6 +204,7 @@ inline constexpr int kPageMargin = 8;           // margin around page area
 inline constexpr int kBufferPages = 3;          // extra pages rendered above/below viewport
 inline constexpr int kCacheWindowPages = 20;    // max pages kept in the render cache (LRU)
 inline constexpr double kSelectionHitTolerancePx = 3.0; // px radius for text hit-testing
+inline constexpr double kLinkHitTolerancePx = 4.0;      // px radius for hyperlink hit-testing
 
 // Toolbar chrome: logical (DPI-independent) base sizes, scaled by dpiScale to
 // device pixels by the viewers.

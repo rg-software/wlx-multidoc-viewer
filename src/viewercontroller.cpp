@@ -100,6 +100,7 @@ void ViewerController::closeDocument() {
     m_cacheRecency.clear();
     m_openPath.clear();
     m_folderIndex = -1;
+    m_linkCache.clear();
     stopAnimation();
     notifyChanged();
 }
@@ -582,6 +583,9 @@ void ViewerController::computeLayout() {
     // produced under the old zoom/rotation/dpi.
     m_pageCache.fill(QImage(), m_state.pageCount());
     m_cacheRecency.clear();
+    // Link hot zones are page space, but drop them too so a reflowable engine
+    // that re-lays out a document cannot leave stale geometry behind.
+    m_linkCache.clear();
     ++m_layoutEpoch;
     if (!m_engine || !m_engine->isOpen() || m_state.pageCount() <= 0)
         return;
@@ -893,6 +897,85 @@ PageText ViewerController::pageText(int page) const {
     PageText pt = m_engine ? m_engine->pageText(page) : PageText();
     m_textCache.insert(page, pt);
     return pt;
+}
+
+// ---------------------------------------------------------------------------
+// Hyperlinks
+// ---------------------------------------------------------------------------
+
+QVector<LinkItem> ViewerController::pageLinks(int page) const {
+    if (page < 1 || page > m_state.pageCount())
+        return {};
+    auto it = m_linkCache.find(page);
+    if (it != m_linkCache.end())
+        return it.value();
+    QVector<LinkItem> links = m_engine ? m_engine->pageLinks(page) : QVector<LinkItem>();
+    m_linkCache.insert(page, links);
+    return links;
+}
+
+// Nearest hot zone measured in CANVAS pixels (same convention as wordAtCanvas),
+// so the tolerance compares directly with the pointer position.
+int ViewerController::linkAt(int page, const QPointF& canvasPt, double tolerancePx) const {
+    const QVector<LinkItem> links = pageLinks(page);
+    if (links.isEmpty())
+        return -1;
+    const QTransform t = pageTransform(page);
+    if (!t.isInvertible())
+        return -1;
+
+    double best = std::numeric_limits<double>::max();
+    int bestIdx = -1;
+    for (int i = 0; i < links.size(); ++i) {
+        const QRectF cr = t.mapRect(links[i].bbox);
+        const double dx = std::max({cr.left() - canvasPt.x(), 0.0, canvasPt.x() - cr.right()});
+        const double dy = std::max({cr.top() - canvasPt.y(), 0.0, canvasPt.y() - cr.bottom()});
+        const double d = std::sqrt(dx * dx + dy * dy);
+        if (d < best) {
+            best = d;
+            bestIdx = i;
+        }
+    }
+    if (tolerancePx >= 0.0 && best > tolerancePx)
+        return -1;
+    return bestIdx;
+}
+
+// Scroll offset that places an anchor (normalized 0..1 of the page height) at
+// the top of the page area. Paged mode returns the in-page overflow relative
+// offset (0 when the page fits); continuous mode returns an absolute canvas
+// offset. Mirrors scrollToActiveMatch's split so both behave alike.
+int ViewerController::anchorScrollOffset(int page, float anchorY) const {
+    const QRect pr = pageRect(page);
+    if (!pr.isValid())
+        return scrollOffsetForPage(page);
+    const int anchorPx = pr.y() + static_cast<int>(std::lround(anchorY * pr.height()));
+    if (m_state.isPagedMode()) {
+        const int maxRel = std::max(0, pr.height() - pageAreaHeight());
+        return (std::clamp)(anchorPx - pr.y(), 0, maxRel);
+    }
+    return clampScroll(anchorPx);
+}
+
+int ViewerController::followLink(int page, int linkIndex, int scrollY) {
+    if (!hasDocument())
+        return scrollY;
+    const QVector<LinkItem> links = pageLinks(page);
+    if (linkIndex < 0 || linkIndex >= links.size())
+        return scrollY;
+    const LinkItem& link = links[linkIndex];
+
+    if (link.destPage <= 0) {
+        // External link: hand the raw URI to the platform launcher.
+        if (!link.uri.isEmpty() && m_openExternal)
+            m_openExternal(link.uri);
+        return scrollY;
+    }
+    if (link.destPage < 1 || link.destPage > m_state.pageCount())
+        return scrollY; // unresolved destination -> no-op
+    if (!goToPage(link.destPage))
+        return scrollY;
+    return anchorScrollOffset(link.destPage, link.anchorY);
 }
 
 // Map a page-space point (y-down, page dimensions before zoom) to the content

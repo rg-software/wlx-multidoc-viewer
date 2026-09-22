@@ -33,6 +33,7 @@ public:
     int pageCount() const override;
     QImage renderPage(int page, float zoom, float dpiScale = 1.0f, int rotation = 0) override;
     PageText pageText(int page) override;
+    QVector<LinkItem> pageLinks(int page) override;
     QString extractText(int page) override;
     QString metadata(const QString& key) const override;
     QVector<OutlineItem> outline() const override;
@@ -64,6 +65,9 @@ private:
     QString stringAt(const QByteArray& blob, unsigned offset) const;
     int pageIndexOf(const QString& path) const;
     int pageIndexFor(const QString& path) const;
+    // Resolves a `#fragment` anchor within the topic at `page` to a normalized
+    // (0..1) vertical position; 0 when it cannot be resolved (page top).
+    float fragmentAnchorY(int page, const QString& fragment) const;
     QString decodeText(const QByteArray& bytes) const;
 
     chmFile* m_chm = nullptr;
