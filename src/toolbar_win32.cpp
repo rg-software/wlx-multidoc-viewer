@@ -86,14 +86,14 @@ HBITMAP imageToIconBitmap(const QImage& src, bool grey) {
 
     const int stride = ((w * 4 + 3) / 4) * 4;
     for (int y = 0; y < h; ++y) {
-        const uchar* srcRow = img.constScanLine(y);
-        auto* dst = static_cast<uchar*>(bits) + y * stride;
-        for (int x = 0; x < w; ++x) {
-            dst[x * 4 + 0] = srcRow[x * 4 + 2]; // B
-            dst[x * 4 + 1] = srcRow[x * 4 + 1]; // G
-            dst[x * 4 + 2] = srcRow[x * 4 + 0]; // R
-            dst[x * 4 + 3] = srcRow[x * 4 + 3]; // A
-        }
+        // QImage ARGB32 and a 32bpp BI_RGB DIB store each pixel as a 0xAARRGGBB
+        // DWORD with the same in-memory byte order (B,G,R,A on little-endian),
+        // so the pixels copy straight through. Swapping R/B here turns colored
+        // glyph ink into its complement (e.g. #FF0000 red rendered blue).
+        const QRgb* srcRow = reinterpret_cast<const QRgb*>(img.constScanLine(y));
+        auto* dst = reinterpret_cast<QRgb*>(static_cast<uchar*>(bits) + y * stride);
+        for (int x = 0; x < w; ++x)
+            dst[x] = srcRow[x];
     }
     return hbm;
 }
