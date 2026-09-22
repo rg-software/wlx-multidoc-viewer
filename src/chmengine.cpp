@@ -20,6 +20,9 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <cerrno>
+#include <iconv.h>
 #endif
 
 namespace {
@@ -200,6 +203,221 @@ int lcidToCodepage(quint32 lcid) {
         case 0x43: return 1251;    // Uzbek
         default:   return 1252;
     }
+}
+
+// --- per-entry text encoding -------------------------------------------------
+//
+// MuPDF's HTML pipeline expects UTF-8 input, but a CHM can mix encodings in
+// one archive: each page may carry its own BOM or <meta charset> declaration,
+// while the LCID-derived codepage is at best a per-archive default. Resolve
+// per entry, BOM/metadata first, codepage last.
+
+QByteArray metaCharset(const QByteArray& head);
+int charsetCodepage(const QByteArray& name);
+
+// Windows codepage the entry's bytes are stored in. 65001 = UTF-8
+// passthrough, 1200/1201 = UTF-16 LE/BE, anything else a code page/single-
+// byte charset.
+int pageCodepage(const QByteArray& bytes, int fallback) {
+    if (bytes.size() >= 3 && static_cast<unsigned char>(bytes[0]) == 0xEF &&
+        static_cast<unsigned char>(bytes[1]) == 0xBB &&
+        static_cast<unsigned char>(bytes[2]) == 0xBF)
+        return 65001;
+    if (bytes.size() >= 2 && static_cast<unsigned char>(bytes[0]) == 0xFF &&
+        static_cast<unsigned char>(bytes[1]) == 0xFE)
+        return 1200;
+    if (bytes.size() >= 2 && static_cast<unsigned char>(bytes[0]) == 0xFE &&
+        static_cast<unsigned char>(bytes[1]) == 0xFF)
+        return 1201;
+
+    const QByteArray head = bytes.left(4096);
+    const QByteArray name = metaCharset(head);
+    if (!name.isEmpty()) {
+        const int cp = charsetCodepage(name);
+        if (cp >= 0)
+            return cp;
+    }
+    return fallback == 65001 || fallback == 20127 ? 65001 : fallback;
+}
+
+// Scans a page head for a declared charset, honoring both the classic
+// `<meta http-equiv="content-type" content="...;charset=X">` and the modern
+// `<meta charset="X">` forms. Returns the lowercased charset token, or empty.
+QByteArray metaCharset(const QByteArray& head) {
+    const QByteArray low = head.toLower();
+    int pos = 0;
+    while ((pos = low.indexOf("<meta", pos)) >= 0) {
+        const int gt = low.indexOf('>', pos);
+        const QByteArray tag =
+            low.mid(pos + 5, (gt < 0 ? low.size() : gt) - pos - 5);
+        pos = gt < 0 ? low.size() : gt + 1;
+        const int cs = tag.indexOf("charset");
+        if (cs < 0)
+            continue;
+        // http-equiv metas count only when they name content-type, so a
+        // refresh rule carrying "charset" in its content cannot win.
+        if (tag.contains("http-equiv") && !tag.contains("content-type"))
+            continue;
+        const int eq = tag.indexOf('=', cs);
+        if (eq < 0)
+            continue;
+        QByteArray value;
+        for (int i = eq + 1; i < tag.size(); ++i) {
+            const char c = tag[i];
+            if (c == '"' || c == '\'' || c == ' ' || c == '>' || c == ';') {
+                if (!value.isEmpty())
+                    break;
+                continue;
+            }
+            value.append(c);
+        }
+        if (!value.isEmpty())
+            return value;
+    }
+    return {};
+}
+
+// Maps a lowercased charset token to a Windows codepage, or -1 when the name
+// is not recognized (the caller then falls back to the archive codepage).
+int charsetCodepage(const QByteArray& name) {
+    struct Alias {
+        const char* name;
+        int cp;
+    };
+    static const Alias aliases[] = {
+        {"utf-8", 65001},    {"utf8", 65001},      {"unicode", 65001},
+        {"utf-16", 1200},    {"utf-16le", 1200},   {"utf-16be", 1201},
+        {"windows-874", 874}, {"tis-620", 874},
+        {"shift_jis", 932},  {"shift-jis", 932},   {"sjis", 932},
+        {"ms932", 932},
+        {"gb2312", 936},     {"gbk", 936},         {"gb18030", 936},
+        {"x-gbk", 936},
+        {"euc-kr", 949},     {"ks_c_5601", 949},   {"korean", 949},
+        {"windows-949", 949},
+        {"big5", 950},       {"big-5", 950},
+        {"koi8-r", 20866},   {"koi8r", 20866},     {"koi", 20866},
+        {"koi8-u", 21866},   {"koi8u", 21866},
+        {"iso-8859-1", 28591}, {"latin1", 28591},  {"latin-1", 28591},
+        {"ascii", 28591},    {"us-ascii", 28591},  {"cp819", 28591},
+        {"iso-8859-2", 28592},
+        {"iso-8859-5", 28595},
+        {"iso-8859-7", 28597}, {"greek", 28597},   {"greek8", 28597},
+        {"iso-8859-9", 28599},
+        {"iso-8859-15", 28605},
+    };
+    for (const Alias& a : aliases) {
+        if (name == a.name)
+            return a.cp;
+    }
+    if (name.startsWith("windows-125")) {
+        bool ok = false;
+        const int cp = name.mid(11).toInt(&ok);
+        if (ok && cp >= 1250 && cp <= 1258)
+            return cp;
+    }
+    if (name.startsWith("cp125")) {
+        bool ok = false;
+        const int cp = name.mid(5).toInt(&ok);
+        if (ok && cp >= 1250 && cp <= 1258)
+            return cp;
+    }
+    return -1;
+}
+
+#ifndef _WIN32
+// iconv alias for a Windows codepage; used on non-Windows builds where
+// MultiByteToWideChar is unavailable.
+const char* iconvNameForCodepage(int cp) {
+    switch (cp) {
+        case 65001: return "UTF-8";
+        case 1200:  return "UTF-16LE";
+        case 1201:  return "UTF-16BE";
+        case 874:   return "TIS-620";
+        case 932:   return "SHIFT_JIS";
+        case 936:   return "GBK";
+        case 949:   return "EUC-KR";
+        case 950:   return "BIG5";
+        case 1250:  return "WINDOWS-1250";
+        case 1251:  return "WINDOWS-1251";
+        case 1252:  return "WINDOWS-1252";
+        case 1253:  return "WINDOWS-1253";
+        case 1254:  return "WINDOWS-1254";
+        case 1255:  return "WINDOWS-1255";
+        case 1256:  return "WINDOWS-1256";
+        case 1257:  return "WINDOWS-1257";
+        case 1258:  return "WINDOWS-1258";
+        case 20866: return "KOI8-R";
+        case 21866: return "KOI8-U";
+        case 28591: return "ISO-8859-1";
+        case 28592: return "ISO-8859-2";
+        case 28595: return "ISO-8859-5";
+        case 28597: return "ISO-8859-7";
+        case 28599: return "ISO-8859-9";
+        case 28605: return "ISO-8859-15";
+        default:    return nullptr;
+    }
+}
+
+// iconv-based UTF-8 transcoding for non-Windows builds.
+QString iconvDecode(const QByteArray& bytes, int cp) {
+    const char* enc = iconvNameForCodepage(cp);
+    if (!enc)
+        return QString::fromLatin1(bytes);
+    iconv_t cd = iconv_open("UTF-8", enc);
+    if (cd == (iconv_t)-1)
+        return QString::fromLatin1(bytes);
+    QString result;
+    size_t cap = static_cast<size_t>(bytes.size()) * 2 + 16;
+    while (cap <= 64u * 1024 * 1024) {
+        QByteArray out(static_cast<int>(cap), Qt::Uninitialized);
+        char* inPtr = const_cast<char*>(bytes.constData());
+        size_t inLeft = static_cast<size_t>(bytes.size());
+        char* outPtr = out.data();
+        size_t outLeft = out.size();
+        const size_t before = inLeft;
+        const size_t r = iconv(cd, &inPtr, &inLeft, &outPtr, &outLeft);
+        if (r == static_cast<size_t>(-1) && errno != E2BIG) {
+            result = QString::fromUtf8(out.constData(), out.size() - outLeft);
+            break;
+        }
+        if (inLeft == 0 || inLeft == before) {
+            result = QString::fromUtf8(out.constData(), out.size() - outLeft);
+            break;
+        }
+        cap *= 2;
+    }
+    iconv_close(cd);
+    if (result.isEmpty() && !bytes.isEmpty())
+        return QString::fromLatin1(bytes);
+    return result;
+}
+#endif
+
+// Decodes entry bytes stored in Windows codepage `cp` to a QString. UTF-8
+// (65001) passes through; UTF-16 BOMs are stripped before transcode.
+QString decodeBytes(const QByteArray& raw, int cp) {
+    QByteArray bytes = raw;
+    if (cp == 1200 && bytes.startsWith(QByteArray("\xFF\xFE", 2)))
+        bytes.remove(0, 2);
+    else if (cp == 1201 && bytes.startsWith(QByteArray("\xFE\xFF", 2)))
+        bytes.remove(0, 2);
+    if (bytes.isEmpty())
+        return {};
+    if (cp == 65001)
+        return QString::fromUtf8(bytes);
+#ifdef _WIN32
+    const int wlen = MultiByteToWideChar(
+        static_cast<UINT>(cp), 0, bytes.constData(), bytes.size(), nullptr, 0);
+    if (wlen <= 0)
+        return QString::fromLatin1(bytes);
+    QString out;
+    out.resize(wlen);
+    MultiByteToWideChar(static_cast<UINT>(cp), 0, bytes.constData(), bytes.size(),
+                        reinterpret_cast<wchar_t*>(out.data()), wlen);
+    return out;
+#else
+    return iconvDecode(bytes, cp);
+#endif
 }
 
 constexpr quint64 kMaxEntryBytes = 64ull * 1024 * 1024;
@@ -559,18 +777,12 @@ ChmEngine::OpenedHtmlPage ChmEngine::openHtmlPage(int page) const {
     if (html.isEmpty())
         return opened;
 
-    // MuPDF's HTML pipeline assumes UTF-8 input; transcode non-UTF-8 pages on
-    // Windows where the codepage is known. Elsewhere prepend a charset hint as
-    // a best-effort fallback (spec acknowledges mojibake outside 1252/ACP).
-    if (m_codepage != 65001) {
-#ifdef _WIN32
-        html = decodeText(html).toUtf8();
-#else
-        const QByteArray meta =
-            "<meta charset=\"windows-" + QByteArray::number(m_codepage) + "\">";
-        html.prepend(meta);
-#endif
-    }
+    // MuPDF's HTML pipeline expects UTF-8. Decode each page with the encoding
+    // it declares for itself (BOM or <meta charset>); the archive LCID
+    // codepage is the fallback. UTF-8 pages pass through untouched.
+    const int cp = pageCodepage(html, m_codepage);
+    if (cp != 65001)
+        html = decodeBytes(html, cp).toUtf8();
 
     fz_context* ctx = m_fzCtx;
     fz_buffer* buf = nullptr;
