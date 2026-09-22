@@ -24,6 +24,10 @@ struct SidebarEntry {
     int pageNo = 1;
     bool resolved = true;  // false: container/dangling link, activation falls back to page 1
     QString title;
+    // Normalized (0..1) vertical position of the destination inside pageNo's
+    // page; 0 = page top. A CHM TOC entry targeting a fragment can land
+    // mid-page after the topic is paginated into A5 pages.
+    float anchorY = 0.0f;
 };
 
 class SidebarPresenter;
@@ -178,8 +182,14 @@ public:
         if (!e)
             return;
         m_controller->goToPage(e->pageNo);
-        if (!m_controller->isPagedMode() && m_applyScroll)
+        // Entries with a fragment anchor land on the heading (works in paged
+        // mode as an in-page offset, in continuous mode as an absolute canvas
+        // offset); plain entries keep the old page-top behavior.
+        if (e->anchorY > 0.0f && m_applyScroll) {
+            m_applyScroll(m_controller->anchorScrollOffset(e->pageNo, e->anchorY));
+        } else if (!m_controller->isPagedMode() && m_applyScroll) {
             m_applyScroll(m_controller->scrollOffsetForPage(e->pageNo));
+        }
     }
 
     const SidebarEntry* entry(int id) const {
@@ -210,7 +220,7 @@ private:
         for (const OutlineItem& it : items) {
             const int id = m_entries.size();
             m_entries.append(SidebarEntry{id, parentId, level, it.pageNo,
-                                          it.resolved, it.title});
+                                          it.resolved, it.title, it.anchorY});
             flatten(it.children, id, level + 1);
         }
     }

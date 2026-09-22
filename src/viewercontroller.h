@@ -200,6 +200,10 @@ public:
     // should apply; external links are handed to the installed handler and the
     // current scrollY is returned unchanged, as are unresolvable links.
     int followLink(int page, int linkIndex, int scrollY);
+    // Scroll offset that puts an anchor at the top of the page area for `page`
+    // (paged mode: in-page overflow; continuous mode: absolute canvas offset).
+    // Used by followLink and by sidebar TOC entries that target a fragment.
+    int anchorScrollOffset(int page, float anchorY) const;
     // Platform-injected external-URL launcher (ShellExecuteW on Win32,
     // QDesktopServices::openUrl on Qt). Keeps shared code free of OS types.
     using ExternalLinkHandler = std::function<void(const QString& uri)>;
@@ -307,9 +311,6 @@ private:
     void computeLayout();
     int clampScroll(int scrollY) const;
     void notifyChanged();
-    // Scroll offset that puts an anchor at the top of the page area for `page`
-    // (paged mode: in-page overflow; continuous mode: absolute canvas offset).
-    int anchorScrollOffset(int page, float anchorY) const;
     // Deepest resolved outline heading whose pageNo <= page, used as the
     // favorite's initial label when toggling the current page on.
     QString outlineTitleForPage(int page) const;

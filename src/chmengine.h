@@ -5,6 +5,7 @@
 
 #include <QByteArray>
 #include <QHash>
+#include <QSet>
 #include <QString>
 #include <QTemporaryFile>
 #include <QVector>
@@ -16,11 +17,14 @@ struct fz_context;
 struct fz_document;
 struct fz_page;
 
-// CHM (Microsoft Compiled HTML Help) engine. Pages are the archive's
+// CHM (Microsoft Compiled HTML Help) engine. Topics are the archive's
 // .htm/.html entries ordered by reading order: home topic, then .hhc
-// table-of-contents order, then remaining archive entries. Each page's bytes
-// are rendered through MuPDF's HTML pipeline into a bitmap; text selection
-// and search come from MuPDF's structured-text extraction over the same page.
+// table-of-contents order, then remaining archive entries. Each topic is laid
+// out through MuPDF's HTML pipeline in the same A5 reflow box MuPdfEngine uses
+// for reflowable documents, so a long topic paginates into several
+// viewport-sized pages instead of one unbounded page; the public page index is
+// the running page count across topics. Text selection and search come from
+// MuPDF's structured-text extraction over the same pages.
 class ChmEngine : public DocumentEngine {
 public:
     ChmEngine() = default;
@@ -63,11 +67,33 @@ private:
     WindowsPaths windowsPaths() const;
     QVector<OutlineItem> parseWindowsOutline() const;
     QString stringAt(const QByteArray& blob, unsigned offset) const;
+    // Resolves a topic path (with or without a `#fragment`) to its 0-based
+    // topic index in m_htmlPages, or -1.
     int pageIndexOf(const QString& path) const;
-    int pageIndexFor(const QString& path) const;
-    // Resolves a `#fragment` anchor within the topic at `page` to a normalized
-    // (0..1) vertical position; 0 when it cannot be resolved (page top).
-    float fragmentAnchorY(int page, const QString& fragment) const;
+    // First 1-based global page of the topic holding `path`, or 1 when it is
+    // not a known topic.
+    int firstPageForPath(const QString& path) const;
+    // Maps a 1-based global page to its source topic and 0-based page within
+    // that topic's A5 layout. False when `page` is out of range.
+    bool topicOfPage(int page, int& topicIndex, int& pageInTopic) const;
+    int firstPageOfTopic(int topic) const;
+    // One heading's destination inside a topic after A5 pagination: the 0-based
+    // page within the topic plus the normalized (0..1) y inside that page.
+    struct AnchorTarget {
+        int pageInTopic = 0;
+        float anchorY = 0.0f;
+    };
+    // Resolves one `#fragment` (or a batch of them) within a topic, opening the
+    // topic's HTML once per call. Unresolved fragments are absent from the batch
+    // result; a missing single fragment yields the topic's first page.
+    AnchorTarget resolveTopicFragment(int topic, const QString& fragment) const;
+    QHash<QString, AnchorTarget> resolveTopicFragments(int topic, const QSet<QString>& fragments) const;
+    // Opens a topic's HTML (decoded to UTF-8) and lays it out in the A5 reflow
+    // box. Callers must drop the result.
+    OpenedHtmlPage openTopicDoc(int topic) const;
+    // Lays out every topic to count its A5 pages and builds the topic -> global
+    // page map. Must run after m_htmlPages is finalized.
+    void countTopicPages();
     QString decodeText(const QByteArray& bytes) const;
 
     chmFile* m_chm = nullptr;
@@ -75,6 +101,11 @@ private:
     QVector<QString> m_htmlPages;
     QVector<OutlineItem> m_outline;
     mutable QHash<int, PageInfo> m_dimCache;
+    // A5 reflow pagination: pages per topic (parallel to m_htmlPages), the
+    // prefix sums that map a topic to its first global page, and the total.
+    QVector<int> m_topicPageCount;
+    QVector<int> m_topicBase;
+    int m_pageCount = 0;
 
     QString m_title;
     QString m_creator;

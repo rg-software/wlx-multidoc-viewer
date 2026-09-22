@@ -1,5 +1,6 @@
 #include "chmengine.h"
 #include "documenttheme.h"
+#include "mupdfengine.h" // kReflowPageWidthPt/HeightPt (shared A5 reflow box)
 
 #include <mupdf/fitz.h>
 
@@ -11,6 +12,7 @@
 #include <QDebug>
 #include <QtEndian>
 #include <algorithm>
+#include <cmath>
 #include <functional>
 
 #include <chm_lib.h>
@@ -702,8 +704,9 @@ bool ChmEngine::open(const QString& path) {
     parseSystemData();
     composeDocument();
 
-    qDebug() << "ChmEngine:" << m_htmlPages.size() << "HTML pages," << m_outline.size()
-             << "outline items, codepage" << m_codepage << "for" << path;
+    qDebug() << "ChmEngine:" << m_htmlPages.size() << "HTML topics," << m_pageCount
+             << "pages," << m_outline.size() << "outline items, codepage" << m_codepage
+             << "for" << path;
     return true;
 }
 
@@ -720,6 +723,9 @@ void ChmEngine::dropArchive() {
     m_htmlPages.clear();
     m_outline.clear();
     m_dimCache.clear();
+    m_topicPageCount.clear();
+    m_topicBase.clear();
+    m_pageCount = 0;
     m_title.clear();
     m_creator.clear();
     m_systemHome.clear();
@@ -739,7 +745,7 @@ bool ChmEngine::isOpen() const {
 
 int ChmEngine::pageCount() const {
     std::lock_guard<std::mutex> lock(m_mutex);
-    return m_htmlPages.size();
+    return m_pageCount;
 }
 
 QByteArray ChmEngine::readEntry(const QString& path) const {
@@ -770,16 +776,38 @@ QByteArray ChmEngine::readEntry(const QString& path) const {
 
 ChmEngine::OpenedHtmlPage ChmEngine::openHtmlPage(int page) const {
     OpenedHtmlPage opened;
-    if (!m_chm || !m_fzCtx || page < 1 || page > m_htmlPages.size())
+    int topic = 0;
+    int pageInTopic = 0;
+    if (!topicOfPage(page, topic, pageInTopic))
         return opened;
 
-    QByteArray html = readEntry(m_htmlPages.at(page - 1));
+    opened = openTopicDoc(topic);
+    if (!opened.doc)
+        return opened;
+
+    fz_context* ctx = m_fzCtx;
+    fz_try(ctx) {
+        opened.page = fz_load_page(ctx, opened.doc, pageInTopic);
+    }
+    fz_catch(ctx) {
+        qWarning() << "ChmEngine: failed to load page" << pageInTopic << "of topic" << topic;
+        opened.page = nullptr;
+    }
+    return opened;
+}
+
+ChmEngine::OpenedHtmlPage ChmEngine::openTopicDoc(int topic) const {
+    OpenedHtmlPage opened;
+    if (!m_chm || !m_fzCtx || topic < 0 || topic >= m_htmlPages.size())
+        return opened;
+
+    QByteArray html = readEntry(m_htmlPages.at(topic));
     if (html.isEmpty())
         return opened;
 
-    // MuPDF's HTML pipeline expects UTF-8. Decode each page with the encoding
+    // MuPDF's HTML pipeline expects UTF-8. Decode each topic with the encoding
     // it declares for itself (BOM or <meta charset>); the archive LCID
-    // codepage is the fallback. UTF-8 pages pass through untouched.
+    // codepage is the fallback. UTF-8 topics pass through untouched.
     const int cp = pageCodepage(html, m_codepage);
     if (cp != 65001)
         html = decodeBytes(html, cp).toUtf8();
@@ -791,19 +819,85 @@ ChmEngine::OpenedHtmlPage ChmEngine::openHtmlPage(int page) const {
             ctx, reinterpret_cast<const unsigned char*>(html.constData()),
             static_cast<size_t>(html.size()));
         opened.doc = fz_open_document_with_buffer(ctx, "html", buf);
-        if (opened.doc)
-            opened.page = fz_load_page(ctx, opened.doc, 0);
     }
     fz_always(ctx) {
         if (buf)
             fz_drop_buffer(ctx, buf);
     }
     fz_catch(ctx) {
-        qWarning() << "ChmEngine: failed to open HTML page" << page;
+        qWarning() << "ChmEngine: failed to open HTML topic" << topic;
         opened.doc = nullptr;
         opened.page = nullptr;
     }
+    if (!opened.doc)
+        return opened;
+
+    // Paginate the reflow into the same A5 box MuPdfEngine uses for reflowable
+    // documents, so a long topic becomes several viewport-sized pages instead of
+    // one unbounded page. The default layout is kept if this fails (older
+    // system libmupdf without fz_layout_document support).
+    fz_try(ctx) {
+        fz_layout_document(ctx, opened.doc, kReflowPageWidthPt, kReflowPageHeightPt,
+                           static_cast<float>(viewer_settings::kReflowFontSize));
+    }
+    fz_catch(ctx) { /* keep MuPDF's default layout */ }
     return opened;
+}
+
+void ChmEngine::countTopicPages() {
+    m_topicPageCount.clear();
+    m_topicBase.clear();
+    m_pageCount = 0;
+    m_topicPageCount.reserve(m_htmlPages.size());
+    m_topicBase.reserve(m_htmlPages.size() + 1);
+
+    for (int topic = 0; topic < m_htmlPages.size(); ++topic) {
+        m_topicBase.append(m_pageCount);
+        int pages = 1; // a topic that fails to open still occupies one page
+        OpenedHtmlPage h = openTopicDoc(topic);
+        if (h.doc) {
+            fz_try(m_fzCtx) {
+                pages = fz_count_pages(m_fzCtx, h.doc);
+            }
+            fz_catch(m_fzCtx) {
+                pages = 1;
+            }
+            if (pages < 1)
+                pages = 1;
+            h.drop(m_fzCtx);
+        }
+        m_topicPageCount.append(pages);
+        m_pageCount += pages;
+    }
+    m_topicBase.append(m_pageCount);
+}
+
+bool ChmEngine::topicOfPage(int page, int& topicIndex, int& pageInTopic) const {
+    if (page < 1 || page > m_pageCount || m_topicBase.size() < 2)
+        return false;
+    // m_topicBase[t] = pages before topic t, m_topicBase[last] = m_pageCount:
+    // the topic owning `page` is the last one whose base is below it.
+    int lo = 0;
+    int hi = m_htmlPages.size() - 1;
+    int found = 0;
+    while (lo <= hi) {
+        const int mid = lo + (hi - lo) / 2;
+        if (m_topicBase.at(mid) < page) {
+            found = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    topicIndex = found;
+    pageInTopic = page - 1 - m_topicBase.at(found);
+    return true;
+}
+
+int ChmEngine::firstPageOfTopic(int topic) const {
+    if (topic < 0 || topic + 1 >= m_topicBase.size())
+        return 1;
+    return m_topicBase.at(topic) + 1;
 }
 
 QImage ChmEngine::renderPage(int page, float zoom, float dpiScale, int rotation) {
@@ -965,7 +1059,12 @@ QString ChmEngine::extractText(int page) {
 QVector<LinkItem> ChmEngine::pageLinks(int page) {
     std::lock_guard<std::mutex> lock(m_mutex);
     QVector<LinkItem> result;
-    if (!m_chm || !m_fzCtx || page < 1 || page > m_htmlPages.size())
+    if (!m_chm || !m_fzCtx || page < 1 || page > m_pageCount)
+        return result;
+
+    int currentTopic = 0;
+    int currentPageInTopic = 0;
+    if (!topicOfPage(page, currentTopic, currentPageInTopic))
         return result;
 
     OpenedHtmlPage h = openHtmlPage(page);
@@ -974,7 +1073,7 @@ QVector<LinkItem> ChmEngine::pageLinks(int page) {
 
     fz_context* ctx = m_fzCtx;
     fz_link* links = nullptr;
-    const QString currentPath = m_htmlPages.at(page - 1);
+    const QString currentPath = m_htmlPages.at(currentTopic);
 
     fz_try(ctx) {
         links = fz_load_links(ctx, h.page);
@@ -1004,22 +1103,24 @@ QVector<LinkItem> ChmEngine::pageLinks(int page) {
                     target.truncate(hash);
                 }
 
-                if (target.isEmpty()) {
-                    // Anchor within the current topic.
-                    item.destPage = page;
-                } else {
+                int destTopic = currentTopic;
+                if (!target.isEmpty()) {
                     const QString resolved =
                         resolveTopicPath(currentPath, percentDecode(target));
                     if (!isHtmlPath(resolved))
-                        continue; // only HTML entries are pages
-                    const int idx = pageIndexOf(resolved);
-                    if (idx < 0)
+                        continue; // only HTML topics are pages
+                    destTopic = pageIndexOf(resolved);
+                    if (destTopic < 0)
                         continue; // unresolved destination -> drop the link
-                    item.destPage = idx + 1;
                 }
 
-                if (!fragment.isEmpty())
-                    item.anchorY = fragmentAnchorY(item.destPage, percentDecode(fragment));
+                // Resolve the fragment inside the destination topic's A5 layout
+                // so the link lands on the right page (and y within it).
+                const AnchorTarget at = fragment.isEmpty()
+                    ? AnchorTarget{}
+                    : resolveTopicFragment(destTopic, percentDecode(fragment));
+                item.destPage = firstPageOfTopic(destTopic) + at.pageInTopic;
+                item.anchorY = at.anchorY;
             }
             result.append(item);
         }
@@ -1168,7 +1269,7 @@ QVector<OutlineItem> ChmEngine::outline() const {
 
 PageInfo ChmEngine::pageDimensions(int page) const {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (!m_chm || page < 1 || page > m_htmlPages.size())
+    if (!m_chm || page < 1 || page > m_pageCount)
         return {};
 
     auto it = m_dimCache.constFind(page);
@@ -1176,11 +1277,19 @@ PageInfo ChmEngine::pageDimensions(int page) const {
         return it.value();
 
     PageInfo info;
-    const QImage img = renderPageLocked(page, 1.0f, 1.0f, 0);
-    if (!img.isNull()) {
-        info.width = img.width();
-        info.height = img.height();
-        m_dimCache.insert(page, info);
+    OpenedHtmlPage h = openHtmlPage(page);
+    if (h.doc && h.page) {
+        fz_try(m_fzCtx) {
+            const fz_rect bounds = fz_bound_page(m_fzCtx, h.page);
+            info.width = static_cast<int>(std::lround(bounds.x1 - bounds.x0));
+            info.height = static_cast<int>(std::lround(bounds.y1 - bounds.y0));
+        }
+        fz_catch(m_fzCtx) {
+            info = PageInfo();
+        }
+        h.drop(m_fzCtx);
+        if (info.width > 0 && info.height > 0)
+            m_dimCache.insert(page, info);
     }
     return info;
 }
@@ -1301,7 +1410,39 @@ void ChmEngine::composeDocument() {
     if (!ordered.isEmpty())
         m_htmlPages = ordered;
 
+    // Paginate every topic into the shared A5 reflow box so the public page
+    // index is the running page count across topics (a long topic is several
+    // pages, not one). Must run before resolving outline/links to global pages.
+    countTopicPages();
+
     if (haveHhc) {
+        // Resolve each TOC fragment against its topic's HTML after pagination,
+        // opening each topic once for its whole set of anchors. An entry targets
+        // the topic's first global page plus the page/y the fragment lands on.
+        QHash<int, QSet<QString>> fragsByTopic;
+        std::function<void(const QVector<HhcNode>&)> collectFrags =
+            [&](const QVector<HhcNode>& nodes) {
+                for (const HhcNode& n : nodes) {
+                    const int hash = n.local.indexOf(QLatin1Char('#'));
+                    if (hash >= 0) {
+                        const int topic = pageIndexOf(n.local);
+                        if (topic >= 0)
+                            fragsByTopic[topic].insert(percentDecode(n.local.mid(hash + 1)));
+                    }
+                    collectFrags(n.children);
+                }
+            };
+        collectFrags(hhc);
+
+        QHash<QString, AnchorTarget> targets; // key "topic\x1Ffragment"
+        for (auto it = fragsByTopic.constBegin(); it != fragsByTopic.constEnd(); ++it) {
+            const QHash<QString, AnchorTarget> resolved =
+                resolveTopicFragments(it.key(), it.value());
+            const QString prefix = QString::number(it.key()) + QChar(0x1F);
+            for (auto f = resolved.constBegin(); f != resolved.constEnd(); ++f)
+                targets.insert(prefix + f.key(), f.value());
+        }
+
         std::function<QVector<OutlineItem>(const QVector<HhcNode>&)> convert =
             [&](const QVector<HhcNode>& nodes) -> QVector<OutlineItem> {
             QVector<OutlineItem> out;
@@ -1309,8 +1450,21 @@ void ChmEngine::composeDocument() {
             for (const HhcNode& n : nodes) {
                 OutlineItem item;
                 item.title = n.name.isEmpty() ? n.local : n.name;
-                item.pageNo = pageIndexFor(n.local);
-                item.resolved = !n.local.isEmpty() && pageIndexOf(n.local) >= 0;
+                const int topic = pageIndexOf(n.local);
+                item.resolved = topic >= 0;
+                if (topic >= 0) {
+                    const int hash = n.local.indexOf(QLatin1Char('#'));
+                    AnchorTarget target;
+                    if (hash >= 0) {
+                        const QString fragment = percentDecode(n.local.mid(hash + 1));
+                        target = targets.value(
+                            QString::number(topic) + QChar(0x1F) + fragment, AnchorTarget{});
+                    }
+                    item.pageNo = firstPageOfTopic(topic) + target.pageInTopic;
+                    item.anchorY = target.anchorY;
+                } else {
+                    item.pageNo = 1; // dangling target -> engine falls back to page 1
+                }
                 item.children = convert(n.children);
                 out.append(item);
             }
@@ -1353,7 +1507,7 @@ QVector<OutlineItem> ChmEngine::parseWindowsOutline() const {
         item.title = title.isEmpty() ? home : title;
         if (item.title.isEmpty())
             continue;
-        item.pageNo = pageIndexFor(home);
+        item.pageNo = firstPageForPath(home);
         items.append(item);
     }
     return items;
@@ -1380,38 +1534,67 @@ int ChmEngine::pageIndexOf(const QString& path) const {
     return -1;
 }
 
-int ChmEngine::pageIndexFor(const QString& path) const {
-    const int idx = pageIndexOf(path);
-    return idx >= 0 ? idx + 1 : 1;
+int ChmEngine::firstPageForPath(const QString& path) const {
+    const int topic = pageIndexOf(path);
+    return topic >= 0 ? firstPageOfTopic(topic) : 1;
 }
 
-float ChmEngine::fragmentAnchorY(int page, const QString& fragment) const {
-    if (fragment.isEmpty() || page < 1)
-        return 0.0f;
+ChmEngine::AnchorTarget ChmEngine::resolveTopicFragment(int topic, const QString& fragment) const {
+    if (fragment.isEmpty())
+        return AnchorTarget{};
+    QSet<QString> one;
+    one.insert(fragment);
+    return resolveTopicFragments(topic, one).value(fragment, AnchorTarget{});
+}
 
-    OpenedHtmlPage h = openHtmlPage(page);
-    if (!h.doc || !h.page)
-        return 0.0f;
+QHash<QString, ChmEngine::AnchorTarget>
+ChmEngine::resolveTopicFragments(int topic, const QSet<QString>& fragments) const {
+    QHash<QString, AnchorTarget> out;
+    if (fragments.isEmpty() || topic < 0 || topic >= m_htmlPages.size())
+        return out;
+
+    OpenedHtmlPage h = openTopicDoc(topic);
+    if (!h.doc)
+        return out;
 
     fz_context* ctx = m_fzCtx;
-    float anchor = 0.0f;
-    const QByteArray uri = ('#' + fragment).toUtf8();
+    fz_page* target = nullptr;
+    const int topicPages = m_topicPageCount.value(topic, 1);
 
     fz_try(ctx) {
-        const fz_link_dest dest = fz_resolve_link_dest(ctx, h.doc, uri.constData());
-        const fz_rect bounds = fz_bound_page(ctx, h.page);
-        const float height = bounds.y1 - bounds.y0;
-        if (dest.type == FZ_LINK_DEST_XYZ && height > 0.0f && dest.y > 0.0f)
-            anchor = (std::clamp)(dest.y / height, 0.0f, 1.0f);
+        for (const QString& fragment : fragments) {
+            if (fragment.isEmpty())
+                continue;
+            const QByteArray uri = ('#' + fragment).toUtf8();
+            const fz_link_dest dest = fz_resolve_link_dest(ctx, h.doc, uri.constData());
+            if (dest.type != FZ_LINK_DEST_XYZ)
+                continue;
+
+            AnchorTarget at;
+            const int destPage = dest.loc.page;
+            at.pageInTopic = (destPage > 0 && destPage < topicPages) ? destPage : 0;
+            target = fz_load_page(ctx, h.doc, at.pageInTopic);
+            if (target) {
+                const fz_rect bounds = fz_bound_page(ctx, target);
+                const float height = bounds.y1 - bounds.y0;
+                if (height > 0.0f && dest.y > bounds.y0)
+                    at.anchorY = (std::clamp)((dest.y - bounds.y0) / height, 0.0f, 1.0f);
+                fz_drop_page(ctx, target);
+                target = nullptr;
+            }
+            out.insert(fragment, at);
+        }
     }
     fz_always(ctx) {
+        if (target)
+            fz_drop_page(ctx, target);
         h.drop(ctx);
     }
     fz_catch(ctx) {
-        anchor = 0.0f;
+        out.clear();
     }
 
-    return anchor;
+    return out;
 }
 
 QString ChmEngine::decodeText(const QByteArray& bytes) const {

@@ -14,6 +14,11 @@ struct OutlineItem {
     // or dangling link); engines fall back to page 1 on activation, while
     // reading-position sync must skip these entries.
     bool resolved = true;
+    // Normalized (0..1) vertical position of the heading's destination within
+    // pageNo's page, matching LinkItem::anchorY; 0 = page top / no anchor.
+    // Lets a TOC entry target a fragment that lands mid-page (reflowable HTML
+    // paginated into A5 pages) instead of only the page top.
+    float anchorY = 0.0f;
     QVector<OutlineItem> children;
 };
 
