@@ -112,7 +112,15 @@ void ViewerController::closeDocument() {
 
     if (m_engine)
         m_engine->close();
+    // The Paged/Continuous choice is a per-window preference seeded from
+    // [Viewer] PagedMode at construction and kept from then on: ListLoad/
+    // ListLoadNext swap documents through close-then-reopen on the same
+    // controller, so resetting the raw state here would silently drop the
+    // configured (or user-toggled) mode back to continuous on the very first
+    // open. Preserve it across the document swap (issue #11).
+    const bool keepPagedMode = m_state.isPagedMode();
     m_state = ViewerState();
+    m_state.setPagedMode(keepPagedMode);
     m_fitMode = FitMode::FitToPage;
     m_rotation = 0;
     m_pageRects.clear();
