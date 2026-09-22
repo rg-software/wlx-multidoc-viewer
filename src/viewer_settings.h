@@ -241,6 +241,24 @@ inline int kReflowFontSize = [] {
     return (std::max)(kReflowFontSizeMin, (std::min)(kReflowFontSizeMax, parsed));
 }();
 
+// Startup viewer state, read from the [Viewer] section and applied to a fresh
+// lister window (issue #11): the Paged/Continuous toggle and the Fit button
+// cycle persist in the INI so the plugin relaunches in the user's preferred
+// view. Like every other [Viewer] key, these are read-only — never written
+// back — and an absent or malformed key keeps the built-in default.
+inline constexpr bool kDefaultStartPagedMode = false; // continuous
+enum class StartFitMode { FitToPage, FitToWidth, Manual };
+inline bool kStartPagedMode = parseBool(
+    PluginConfig::get().get("Viewer").get("PagedMode"), kDefaultStartPagedMode);
+inline StartFitMode kStartFitMode = [] {
+    const std::string v = toLowerAscii(PluginConfig::get().get("Viewer").get("FitMode"));
+    if (v == "width")
+        return StartFitMode::FitToWidth;
+    if (v == "manual")
+        return StartFitMode::Manual;
+    return StartFitMode::FitToPage; // also covers "page" and anything malformed
+}();
+
 } // namespace viewer_settings
 
 #endif // VIEWER_SETTINGS_H
