@@ -72,11 +72,13 @@ using viewer_settings::kPageMargin;
 using viewer_settings::kScrollBarLineStepPx;
 using viewer_settings::kWheelStepPx;
 
-// QImage::Format_RGB888 -> DIB (bottom-left origin, BGR byte order).
+// QImage -> 24bpp DIB (bottom-left origin, BGR byte order). BGR888 conversion
+// does the channel reorder with Qt's optimized path; this only copies rows
+// across (DIB stride is 4-byte aligned exactly like QImage rows).
 HBITMAP QImageToBitmap(const QImage& src) {
     if (src.isNull())
         return nullptr;
-    QImage img = src.convertToFormat(QImage::Format_RGB888);
+    QImage img = src.convertToFormat(QImage::Format_BGR888);
     const int w = img.width();
     const int h = img.height();
     if (w <= 0 || h <= 0)
@@ -100,18 +102,11 @@ HBITMAP QImageToBitmap(const QImage& src) {
     const int srcStride = img.bytesPerLine();
     const uchar* srcd = img.constBits();
     auto* dst = static_cast<uchar*>(bits);
-    for (int y = 0; y < h; ++y) {
-        const uchar* srcRow = srcd + y * srcStride;
-        uchar* dstRow = dst + y * dibStride;
-        for (int x = 0; x < w; ++x) {
-            uchar r = srcRow[x * 3 + 0];
-            uchar g = srcRow[x * 3 + 1];
-            uchar b = srcRow[x * 3 + 2];
-            dstRow[x * 3 + 0] = b;
-            dstRow[x * 3 + 1] = g;
-            dstRow[x * 3 + 2] = r;
-        }
-    }
+    if (srcStride == dibStride)
+        memcpy(dst, srcd, size_t(dibStride) * h);
+    else
+        for (int y = 0; y < h; ++y)
+            memcpy(dst + y * dibStride, srcd + y * srcStride, size_t(w) * 3);
     return hbm;
 }
 
@@ -620,12 +615,7 @@ void ViewerWin32::onPaint() {
     HBITMAP hbmMem = CreateCompatibleBitmap(hdc, w, h);
     HGDIOBJ hOldBmp = SelectObject(hdcMem, hbmMem);
 
-    const uint32_t bg = viewer_settings::activePalette().pageBg;
-    HBRUSH bgBrush = CreateSolidBrush(RGB((bg >> 16) & 0xFF,
-                                          (bg >> 8) & 0xFF,
-                                          bg & 0xFF));
-    FillRect(hdcMem, &rc, bgBrush);
-    DeleteObject(bgBrush);
+    FillRect(hdcMem, &rc, viewerBackgroundBrush());
 
     const int top = pageAreaTop();
     const int left = sidebarLeft();
@@ -1001,22 +991,22 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
             m_scrollY = m_controller->rotateCw(m_scrollY);
         captured = true;
         break;
-    case 0xBB:
-    case 0x6B:
+    case VK_OEM_PLUS:
+    case VK_ADD:
         m_scrollY = m_controller->zoomIn(m_scrollY);
         captured = true;
         break;
-    case 0xBD:
-    case 0x6D:
+    case VK_OEM_MINUS:
+    case VK_SUBTRACT:
         m_scrollY = m_controller->zoomOut(m_scrollY);
         captured = true;
         break;
-    case 0x60:          // VK_NUMPAD0
-    case 0xBF:          // VK_OEM_2  (forward slash /)
+    case VK_NUMPAD0:
+    case VK_OEM_2:      // forward slash /
         m_scrollY = m_controller->setManualZoom(1.0f, m_scrollY);
         captured = true;
         break;
-    case 0x7B:          // VK_F12 (sidebar toggle)
+    case VK_F12:        // sidebar toggle
         onSidebarToggle();
         captured = true;
         break;
@@ -1417,12 +1407,6 @@ void ViewerWin32::paintSelectionOverlay(HDC hdc, const RECT& rc, int topChrome) 
     AlphaBlend(hdc, 0, 0, w, hgt, mem, 0, 0, w, hgt, bf);
     SelectObject(mem, old);
     DeleteDC(mem);
-}
-
-void ViewerWin32::paintSearchOverlay(HDC hdc, const RECT& rc, int panelH) {
-    Q_UNUSED(hdc)
-    Q_UNUSED(rc)
-    Q_UNUSED(panelH)
 }
 
 void ViewerWin32::onMouseWheel(int delta) {

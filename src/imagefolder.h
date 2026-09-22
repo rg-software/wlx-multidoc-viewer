@@ -10,7 +10,7 @@
 // next/prev can cross from one standalone image document to its neighbour.
 class ImageFolder {
 public:
-    // Scans `dir` for raster images (jpg/jpeg/png/gif/tif/tiff/bmp/webp,
+    // Scans `dir` for raster images (jpg/jpeg/png/gif/bmp/ico,
     // case-insensitive), sorted naturally. A missing/unreadable directory
     // yields an empty list.
     void scan(const QString& dir);

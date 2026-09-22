@@ -1012,7 +1012,7 @@ QPointF ViewerController::canvasToPagePoint(int page, const QPointF& canvasPt) c
 // with the pointer position. tolerancePx >= 0 returns -1 when nothing is within
 // that distance (empty area -> pan, not selection).
 int ViewerController::wordAtCanvas(int page, const QPointF& canvasPt, double tolerancePx) const {
-    const PageText pt = const_cast<ViewerController*>(this)->pageText(page);
+    const PageText pt = pageText(page);
     if (pt.words.isEmpty())
         return -1;
     const QTransform t = pageTransform(page);

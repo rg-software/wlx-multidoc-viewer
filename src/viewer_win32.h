@@ -65,7 +65,6 @@ private:
     void setHoverCursor(int x, int y);
     void refreshHoverCursor();
     void paintSelectionOverlay(HDC hdc, const RECT& rc, int panelH);
-    void paintSearchOverlay(HDC hdc, const RECT& rc, int panelH);
 
     HBITMAP bitmapForPage(int page);
     void invalidatePageBitmaps();
