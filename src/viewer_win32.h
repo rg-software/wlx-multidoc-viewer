@@ -40,6 +40,7 @@ private:
     void onSize(int w, int h);
     void onKeyDown(WPARAM wp, bool shift);
     void onMouseWheel(int delta);
+    void onMouseWheelZoom(int delta);
     void onVScroll(int code, int pos);
     void onHScroll(int code, int pos);
     void onDragStart(LPARAM lp);
@@ -108,6 +109,7 @@ private:
     int m_scrollX = 0;
     int m_scrollY = 0;
     int m_wheelRemainder = 0;
+    int m_zoomWheelRemainder = 0;
 
     // Cached semi-transparent selection-overlay surface (rebuilt only on size
     // change) so dragging a selection doesn't churn a DIB every paint.

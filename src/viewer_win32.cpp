@@ -512,7 +512,12 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_MOUSEWHEEL:
-        onMouseWheel(GET_WHEEL_DELTA_WPARAM(wp));
+        // Ctrl+wheel zooms (same math as the +/- hotkeys); a plain wheel
+        // scrolls or flips pages.
+        if ((GET_KEYSTATE_WPARAM(wp) & MK_CONTROL) != 0)
+            onMouseWheelZoom(GET_WHEEL_DELTA_WPARAM(wp));
+        else
+            onMouseWheel(GET_WHEEL_DELTA_WPARAM(wp));
         return 0;
     case WM_COPY:
         // Standard copy message (some hosts send this instead of a hotkey).
@@ -1428,6 +1433,28 @@ void ViewerWin32::onMouseWheel(int delta) {
     m_wheelRemainder -= applied * WHEEL_DELTA;
     m_scrollY -= applied;
     m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
+    updateVisiblePage();
+    updateScrollBars();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void ViewerWin32::onMouseWheelZoom(int delta) {
+    if (!m_controller)
+        return;
+    // Accumulate fractional wheel deltas so high-resolution wheels and
+    // trackpads (|delta| < WHEEL_DELTA per message) zoom one step per notch,
+    // mirroring the scroll-wheel remainder logic.
+    m_zoomWheelRemainder += delta;
+    const int steps = m_zoomWheelRemainder / WHEEL_DELTA;
+    m_zoomWheelRemainder -= steps * WHEEL_DELTA;
+    if (steps == 0)
+        return;
+    int target = m_scrollY;
+    for (int i = 0; i < std::abs(steps); ++i)
+        target = (steps > 0) ? m_controller->zoomIn(target) : m_controller->zoomOut(target);
+    m_scrollY = (std::clamp)(target, 0, maxScrollY());
+    m_scrollX = (std::clamp)(m_scrollX, 0, maxScrollX());
+    m_controller->setScrollAnchor(m_scrollY);
     updateVisiblePage();
     updateScrollBars();
     InvalidateRect(m_hwnd, nullptr, FALSE);

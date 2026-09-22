@@ -902,6 +902,10 @@ bool ViewerWidget::onControlKey(QKeyEvent* event) {
 
 void ViewerWidget::wheelEvent(QWheelEvent* event) {
     if (m_controller && m_controller->isPagedMode()) {
+        if (event->modifiers().testFlag(Qt::ControlModifier)) {
+            event->accept(); // Ctrl+wheel zoom is handled in the event filter
+            return;
+        }
         if (event->angleDelta().y() < 0)
             m_controller->nextPage();
         else if (event->angleDelta().y() > 0)
@@ -1190,6 +1194,29 @@ if (!m_dragging) {
             break;
         m_dragging = false;
         unsetCursor();
+        return true;
+    }
+    case QEvent::Wheel: {
+        // Ctrl+wheel zooms regardless of mode; the plain wheel is left to the
+        // scroll area (continuous) or ViewerWidget::wheelEvent (paged). Only
+        // the document surfaces trigger it, so Ctrl+wheel over the toolbar or
+        // sidebar keeps its native behavior.
+        if (obj != m_canvas && obj != m_scrollArea->viewport())
+            break;
+        if (!(static_cast<QWheelEvent*>(event)->modifiers()
+                  .testFlag(Qt::ControlModifier)))
+            break;
+        static constexpr int kWheelDelta = QWheelEvent::DefaultDeltasPerStep;
+        m_wheelZoomRemainder += static_cast<QWheelEvent*>(event)->angleDelta().y();
+        const int steps = m_wheelZoomRemainder / kWheelDelta;
+        m_wheelZoomRemainder -= steps * kWheelDelta;
+        if (steps > 0) {
+            for (int i = 0; i < steps; ++i)
+                onZoomIn();
+        } else if (steps < 0) {
+            for (int i = 0; i < -steps; ++i)
+                onZoomOut();
+        }
         return true;
     }
     case QEvent::Leave:

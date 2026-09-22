@@ -107,6 +107,10 @@ private:
     bool m_dragging = false;
     QPointF m_lastMousePos;
     bool m_suppressScrollTracking = false;
+    // Fractional wheel-delta accumulator for Ctrl+wheel zoom so trackpads and
+    // high-resolution wheels (|angleDelta| < a full step per event) zoom once
+    // per notch instead of per event.
+    int m_wheelZoomRemainder = 0;
     bool m_selecting = false;
     // Last local pointer position over the canvas. Wayland/compositor hosting
     // cannot be trusted for QCursor::pos()/mapFromGlobal (the viewer is
