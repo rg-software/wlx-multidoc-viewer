@@ -16,6 +16,12 @@ struct chmFile;
 struct fz_context;
 struct fz_document;
 struct fz_page;
+struct fz_archive;
+
+// Lazy MuPDF archive over the open CHM, so a topic opened from an in-memory
+// buffer can still resolve its relative resources (e.g. <img> images). Its
+// callbacks read entries straight out of the archive; defined in chmengine.cpp.
+struct ChmResourceArchive;
 
 // CHM (Microsoft Compiled HTML Help) engine. Topics are the archive's
 // .htm/.html entries ordered by reading order: home topic, then .hhc
@@ -47,6 +53,8 @@ public:
     QVector<TextMatch> searchText(int page, const QString& needle, bool matchCase) override;
 
 private:
+    friend struct ChmResourceArchive;
+
     struct OpenedHtmlPage {
         fz_document* doc = nullptr;
         fz_page* page = nullptr;
@@ -56,6 +64,14 @@ private:
     // Callers must hold m_mutex; every helper below assumes it.
     void dropArchive();
     QByteArray readEntry(const QString& path) const;
+    // Whether a CHM entry exists, without reading it.
+    bool entryExists(const QString& path) const;
+    // Resolves a resource name MuPDF asks for (a relative URL from a topic or
+    // from another resource) to an archive path: the name itself, or the name
+    // resolved against the current topic's directory.
+    QString resolveResourcePath(const QString& name) const;
+    // Builds the lazy resource archive (m_archive) over the open CHM.
+    void buildResourceArchive();
     OpenedHtmlPage openHtmlPage(int page) const;
     QImage renderPageLocked(int page, float zoom, float dpiScale, int rotation) const;
     void parseSystemData();
@@ -106,6 +122,13 @@ private:
     QVector<int> m_topicPageCount;
     QVector<int> m_topicBase;
     int m_pageCount = 0;
+
+    // Relative-resource resolution: a lazy archive over the CHM, the cached
+    // entry list it lists, and the directory of the topic currently being
+    // opened (relative URLs resolve against it).
+    fz_archive* m_archive = nullptr;
+    QVector<QByteArray> m_archiveNames;
+    mutable QString m_resourceBase;
 
     QString m_title;
     QString m_creator;

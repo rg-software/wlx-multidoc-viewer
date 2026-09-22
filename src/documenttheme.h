@@ -91,20 +91,36 @@ inline void applyToRenderedPage(QImage& img) {
     applyDuotone(img, p.documentText, p.documentBg);
 }
 
+// 0x00RRGGBB -> "#RRGGBB".
+inline std::string hexColor(uint32_t c) {
+    static const char* digits = "0123456789ABCDEF";
+    std::string s = "#";
+    for (int shift = 20; shift >= 0; shift -= 4)
+        s += digits[(c >> shift) & 0xF];
+    return s;
+}
+
+// Linear blend: `percentOfB` (0..100) of color b over color a. Lets stylesheets
+// derive subtle surfaces/borders from the document palette so they stay
+// readable in both light and dark themes.
+inline uint32_t mixColor(uint32_t a, uint32_t b, int percentOfB) {
+    percentOfB = std::clamp(percentOfB, 0, 100);
+    const int ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
+    const int br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
+    const int r = ar + (br - ar) * percentOfB / 100;
+    const int g = ag + (bg - ag) * percentOfB / 100;
+    const int bl = ab + (bb - ab) * percentOfB / 100;
+    return (static_cast<uint32_t>(r) << 16) | (static_cast<uint32_t>(g) << 8) |
+           static_cast<uint32_t>(bl);
+}
+
 // Internal stylesheet for reflowable documents, built from the palette. The
 // background is set on `html` (a document's own body background covers it) and
 // the text color on `body` (elements that set their own color keep it).
 inline std::string reflowCss() {
     const viewer_settings::Palette& p = viewer_settings::activePalette();
-    auto hex = [](uint32_t c) {
-        static const char* d = "0123456789ABCDEF";
-        std::string s = "#";
-        for (int shift = 20; shift >= 0; shift -= 4)
-            s += d[(c >> shift) & 0xF];
-        return s;
-    };
-    return "html, body { background-color: " + hex(p.documentBg) +
-           "; } body { color: " + hex(p.documentText) + "; }";
+    return "html, body { background-color: " + hexColor(p.documentBg) +
+           "; } body { color: " + hexColor(p.documentText) + "; }";
 }
 
 } // namespace documenttheme

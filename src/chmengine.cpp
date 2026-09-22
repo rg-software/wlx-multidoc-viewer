@@ -6,6 +6,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSet>
 #include <QStringList>
 #include <QTemporaryFile>
@@ -46,6 +47,98 @@ QString normalizePath(const QString& path) {
 bool isHtmlPath(const QString& path) {
     return path.endsWith(QLatin1String(".htm"), Qt::CaseInsensitive) ||
            path.endsWith(QLatin1String(".html"), Qt::CaseInsensitive);
+}
+
+// Compact safety stylesheet used only when no CHM stylesheet file can be read.
+// The tuned values live in the shipped assets/chm.css (next to the plugin); this
+// just keeps CHM readable if that file and any [Viewer] ChmCss are missing. The
+// @...@ tokens are palette colors (see substituteThemeTokens).
+std::string chmFallbackCss() {
+    return "html, body { margin: 0; padding: 0; }\n"
+           "body { background-color: @document-bg@; color: @document-text@; }\n"
+           "pre, tt, code { white-space: pre-wrap !important; overflow-wrap: break-word; }\n"
+           "pre { background-color: @surface@; }\n"
+           "div.Code, div.CodeBox, div.Cmd, div.CmdBox { width: auto !important; }\n"
+           "table { width: 100%; border-collapse: collapse; }\n"
+           "table, th, td { border: 1px solid @border@; }\n";
+}
+
+// Replaces the @...@ theme tokens with the active palette's colors.
+std::string substituteThemeTokens(const std::string& css) {
+    const viewer_settings::Palette& p = viewer_settings::activePalette();
+    std::string out = css;
+    auto replaceAll = [&out](const std::string& from, const std::string& to) {
+        for (size_t pos = 0; (pos = out.find(from, pos)) != std::string::npos;
+             pos += to.size())
+            out.replace(pos, from.size(), to);
+    };
+    replaceAll("@document-bg@", documenttheme::hexColor(p.documentBg));
+    replaceAll("@document-text@", documenttheme::hexColor(p.documentText));
+    replaceAll("@surface@",
+               documenttheme::hexColor(
+                   documenttheme::mixColor(p.documentBg, p.documentText, 8)));
+    replaceAll("@border@",
+               documenttheme::hexColor(
+                   documenttheme::mixColor(p.documentBg, p.documentText, 28)));
+    return out;
+}
+
+// The CHM stylesheet injected into MuPDF: the shared palette colors, then the
+// token-substituted stylesheet file. The file is the default `chm.css` next to
+// the plugin binary, or [Viewer] ChmCss (resolved relative to the plugin
+// directory when not absolute); if neither is readable a compact fallback is
+// used. Read once per process, so an edited stylesheet applies on the next
+// host start.
+const std::string& chmStylesheet() {
+    static const std::string css = [] {
+        const std::string configured = PluginConfig::get().get("Viewer").get("ChmCss");
+        const QString name = QString::fromStdString(
+            configured.empty() ? std::string("chm.css") : configured);
+        const QDir module(QString::fromStdString(PluginConfig::modulePath()));
+        const QString path = QFileInfo(name).isAbsolute() ? name : module.filePath(name);
+
+        std::string overrides;
+        QFile in(path);
+        if (in.open(QIODevice::ReadOnly)) {
+            overrides = in.readAll().toStdString();
+        } else {
+            qWarning() << "ChmEngine: cannot read CHM stylesheet, using fallback:" << path;
+            overrides = chmFallbackCss();
+        }
+        return documenttheme::reflowCss() + substituteThemeTokens(overrides);
+    }();
+    return css;
+}
+
+
+// Removes every <link ...> tag (external CSS/icons) and <style>...</style> block
+// from a topic before rendering.
+QByteArray stripDocumentStyles(QByteArray html) {
+    QByteArray low = html.toLower();
+    int pos = 0;
+    while (true) { // <link ...>
+        const int s = low.indexOf("<link", pos);
+        if (s < 0)
+            break;
+        const int gt = low.indexOf('>', s);
+        if (gt < 0)
+            break;
+        html.remove(s, gt - s + 1);
+        low.remove(s, gt - s + 1);
+        pos = s;
+    }
+    pos = 0;
+    while (true) { // <style>...</style>
+        const int s = low.indexOf("<style", pos);
+        if (s < 0)
+            break;
+        const int e = low.indexOf("</style>", s);
+        const int end = (e < 0) ? low.size() : e + 8;
+        html.remove(s, end - s);
+        low.remove(s, end - s);
+        pos = s;
+    }
+    return html;
 }
 
 int hexVal(char c) {
@@ -130,6 +223,33 @@ int enumCallback(struct chmFile*, struct chmUnitInfo* ui, void* context) {
     if (isHtmlPath(path))
         pages->append(path);
     return CHM_ENUMERATOR_CONTINUE;
+}
+
+// Collects every normal file entry (raw archive path) for the resource archive.
+int archiveEnumCallback(struct chmFile*, struct chmUnitInfo* ui, void* context) {
+    auto* names = static_cast<QVector<QByteArray>*>(context);
+    if (!(ui->flags & CHM_ENUMERATE_NORMAL) ||
+        (ui->flags & (CHM_ENUMERATE_SPECIAL | CHM_ENUMERATE_META)))
+        return CHM_ENUMERATOR_CONTINUE;
+    names->append(QByteArray(ui->path));
+    return CHM_ENUMERATOR_CONTINUE;
+}
+
+// Resolves `rel` against `baseDir` (both archive paths), collapsing `.`/`..`.
+QString joinResourcePath(const QString& baseDir, const QString& rel) {
+    QStringList parts = baseDir.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    const QStringList rels = rel.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    for (const QString& part : rels) {
+        if (part == QLatin1String("..")) {
+            if (!parts.isEmpty())
+                parts.removeLast();
+        } else if (part == QLatin1String(".")) {
+            continue;
+        } else {
+            parts.append(part);
+        }
+    }
+    return parts.join(QLatin1Char('/'));
 }
 
 quint32 le32(const unsigned char* p) { return qFromLittleEndian<quint32>(p); }
@@ -240,6 +360,22 @@ int pageCodepage(const QByteArray& bytes, int fallback) {
             return cp;
     }
     return fallback == 65001 || fallback == 20127 ? 65001 : fallback;
+}
+
+// Rewrites the declared charset token (a lowercased name from metaCharset) to
+// `utf-8` in the head of an already-decoded UTF-8 topic, so MuPDF does not
+// re-decode our bytes using the original declaration.
+QByteArray rewriteCharsetToUtf8(QByteArray html, const QByteArray& declaredName) {
+    if (declaredName.isEmpty())
+        return html;
+    const int limit = qMin(html.size(), 4096);
+    QByteArray head = html.left(limit);
+    const int at = head.toLower().indexOf(declaredName);
+    if (at < 0)
+        return html;
+    head.replace(at, declaredName.size(), QByteArrayLiteral("utf-8"));
+    html.replace(0, limit, head);
+    return html;
 }
 
 // Scans a page head for a declared charset, honoring both the classic
@@ -636,6 +772,58 @@ QVector<HhcNode> parseHhc(const QString& html) {
 
 } // namespace
 
+// Lazy fz_archive over the open CHM. MuPDF consults it for the relative
+// resources a topic references (style.css, images) when the topic is opened
+// with fz_open_document_with_stream_and_dir. Entries are read on demand from
+// the archive; the engine owns the CHM, and MuPDF frees the archive struct
+// itself, so there is no drop_archive callback.
+struct ChmResourceArchive {
+    fz_archive base;
+    const ChmEngine* engine;
+
+    static int countEntries(fz_context*, fz_archive* arch) {
+        return reinterpret_cast<ChmResourceArchive*>(arch)->engine->m_archiveNames.size();
+    }
+    static const char* listEntry(fz_context*, fz_archive* arch, int idx) {
+        const auto* a = reinterpret_cast<const ChmResourceArchive*>(arch);
+        if (idx < 0 || idx >= a->engine->m_archiveNames.size())
+            return nullptr;
+        return a->engine->m_archiveNames.at(idx).constData();
+    }
+    static int hasEntry(fz_context*, fz_archive* arch, const char* name) {
+        const auto* a = reinterpret_cast<const ChmResourceArchive*>(arch);
+        return a->engine->resolveResourcePath(QString::fromUtf8(name)).isEmpty() ? 0 : 1;
+    }
+    static fz_buffer* readEntry(fz_context* ctx, fz_archive* arch, const char* name) {
+        const auto* a = reinterpret_cast<const ChmResourceArchive*>(arch);
+        const QString path = a->engine->resolveResourcePath(QString::fromUtf8(name));
+        if (path.isEmpty())
+            return nullptr;
+        const QByteArray data = a->engine->readEntry(path);
+        if (data.isEmpty())
+            return nullptr;
+        return fz_new_buffer_from_copied_data(
+            ctx, reinterpret_cast<const unsigned char*>(data.constData()),
+            static_cast<size_t>(data.size()));
+    }
+    static fz_stream* openEntry(fz_context* ctx, fz_archive* arch, const char* name) {
+        fz_buffer* buf = readEntry(ctx, arch, name);
+        if (!buf)
+            return nullptr;
+        fz_stream* stream = nullptr;
+        fz_try(ctx) {
+            stream = fz_open_buffer(ctx, buf);
+        }
+        fz_always(ctx) {
+            fz_drop_buffer(ctx, buf);
+        }
+        fz_catch(ctx) {
+            return nullptr;
+        }
+        return stream;
+    }
+};
+
 void ChmEngine::OpenedHtmlPage::drop(fz_context* ctx) {
     if (page) {
         fz_drop_page(ctx, page);
@@ -693,8 +881,9 @@ bool ChmEngine::open(const QString& path) {
     m_fzCtx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
     if (m_fzCtx) {
         fz_register_document_handlers(m_fzCtx);
-        // CHM bodies are reflowable HTML: theme them from the active palette.
-        const std::string css = documenttheme::reflowCss();
+        // CHM bodies are reflowable HTML: theme them from the active palette,
+        // then apply the CHM layout overrides (built-in or user stylesheet).
+        const std::string css = chmStylesheet();
         fz_try(m_fzCtx) { fz_set_user_css(m_fzCtx, css.c_str()); }
         fz_catch(m_fzCtx) { /* keep MuPDF's default stylesheet */ }
     } else {
@@ -702,6 +891,7 @@ bool ChmEngine::open(const QString& path) {
     }
 
     parseSystemData();
+    buildResourceArchive();
     composeDocument();
 
     qDebug() << "ChmEngine:" << m_htmlPages.size() << "HTML topics," << m_pageCount
@@ -711,6 +901,13 @@ bool ChmEngine::open(const QString& path) {
 }
 
 void ChmEngine::dropArchive() {
+#ifdef MUPDF_HAVE_STREAM_AND_DIR
+    if (m_archive) {
+        if (m_fzCtx)
+            fz_drop_archive(m_fzCtx, m_archive);
+        m_archive = nullptr;
+    }
+#endif
     if (m_fzCtx) {
         fz_drop_context(m_fzCtx);
         m_fzCtx = nullptr;
@@ -726,6 +923,8 @@ void ChmEngine::dropArchive() {
     m_topicPageCount.clear();
     m_topicBase.clear();
     m_pageCount = 0;
+    m_archiveNames.clear();
+    m_resourceBase.clear();
     m_title.clear();
     m_creator.clear();
     m_systemHome.clear();
@@ -774,6 +973,69 @@ QByteArray ChmEngine::readEntry(const QString& path) const {
     return data;
 }
 
+bool ChmEngine::entryExists(const QString& path) const {
+    if (!m_chm)
+        return false;
+    QString fixed = path;
+    fixed.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    while (!fixed.isEmpty() && fixed.startsWith(QLatin1Char('/')))
+        fixed.remove(0, 1);
+    if (fixed.isEmpty())
+        return false;
+    const QByteArray pathBytes = ('/' + fixed).toUtf8();
+    struct chmUnitInfo ui {};
+    return ::chm_resolve_object(m_chm, pathBytes.constData(), &ui) == CHM_RESOLVE_SUCCESS;
+}
+
+QString ChmEngine::resolveResourcePath(const QString& name) const {
+    // Strip any query/fragment, then percent-decode (URLs are UTF-8).
+    QString n = name;
+    int cut = n.indexOf(QLatin1Char('?'));
+    const int hash = n.indexOf(QLatin1Char('#'));
+    if (cut < 0 || (hash >= 0 && hash < cut))
+        cut = hash;
+    if (cut >= 0)
+        n.truncate(cut);
+    n = percentDecode(n);
+    if (n.isEmpty())
+        return {};
+    if (entryExists(n))
+        return n;
+    if (!m_resourceBase.isEmpty()) {
+        const QString candidate = joinResourcePath(m_resourceBase, n);
+        if (!candidate.isEmpty() && candidate != n && entryExists(candidate))
+            return candidate;
+    }
+    return {};
+}
+
+void ChmEngine::buildResourceArchive() {
+#ifdef MUPDF_HAVE_STREAM_AND_DIR
+    if (!m_fzCtx || !m_chm || m_archive)
+        return;
+
+    m_archiveNames.clear();
+    ::chm_enumerate(m_chm, CHM_ENUMERATE_ALL, archiveEnumCallback, &m_archiveNames);
+
+    // fz_new_archive_of_size needs a non-null stream (it keeps one ref); pass an
+    // empty one. MuPDF frees the archive struct itself on drop, so drop_archive
+    // stays null and the engine keeps owning the CHM.
+    fz_stream* dummy = fz_open_memory(
+        m_fzCtx, reinterpret_cast<const unsigned char*>(""), 0);
+    auto* arch = reinterpret_cast<ChmResourceArchive*>(
+        fz_new_archive_of_size(m_fzCtx, dummy, sizeof(ChmResourceArchive)));
+    fz_drop_stream(m_fzCtx, dummy);
+    arch->base.format = "chm";
+    arch->base.count_entries = &ChmResourceArchive::countEntries;
+    arch->base.list_entry = &ChmResourceArchive::listEntry;
+    arch->base.has_entry = &ChmResourceArchive::hasEntry;
+    arch->base.read_entry = &ChmResourceArchive::readEntry;
+    arch->base.open_entry = &ChmResourceArchive::openEntry;
+    arch->engine = this;
+    m_archive = &arch->base;
+#endif
+}
+
 ChmEngine::OpenedHtmlPage ChmEngine::openHtmlPage(int page) const {
     OpenedHtmlPage opened;
     int topic = 0;
@@ -801,26 +1063,47 @@ ChmEngine::OpenedHtmlPage ChmEngine::openTopicDoc(int topic) const {
     if (!m_chm || !m_fzCtx || topic < 0 || topic >= m_htmlPages.size())
         return opened;
 
-    QByteArray html = readEntry(m_htmlPages.at(topic));
-    if (html.isEmpty())
+    const QString topicPath = m_htmlPages.at(topic);
+    QByteArray raw = readEntry(topicPath);
+    if (raw.isEmpty())
         return opened;
 
     // MuPDF's HTML pipeline expects UTF-8. Decode each topic with the encoding
-    // it declares for itself (BOM or <meta charset>); the archive LCID
-    // codepage is the fallback. UTF-8 topics pass through untouched.
-    const int cp = pageCodepage(html, m_codepage);
+    // it declares for itself (BOM or <meta charset>); the archive LCID codepage
+    // is the fallback. After decoding we rewrite the declaration to utf-8 so
+    // MuPDF does not decode the bytes a second time. UTF-8 topics pass through.
+    const int cp = pageCodepage(raw, m_codepage);
+    QByteArray html = raw;
     if (cp != 65001)
-        html = decodeBytes(html, cp).toUtf8();
+        html = rewriteCharsetToUtf8(decodeBytes(raw, cp).toUtf8(), metaCharset(raw.left(4096)));
+
+    // Document stylesheets target a wide fixed layout and fight the A5 reflow,
+    // so drop them; our injected stylesheet is the only one that governs.
+    html = stripDocumentStyles(html);
+
+    // Relative resources (stylesheets, images) resolve against the topic's
+    // directory through the resource archive.
+    const QString norm = normalizePath(topicPath);
+    const int slash = norm.lastIndexOf(QLatin1Char('/'));
+    m_resourceBase = slash > 0 ? norm.left(slash) : QString();
 
     fz_context* ctx = m_fzCtx;
     fz_buffer* buf = nullptr;
+    fz_stream* stream = nullptr;
     fz_try(ctx) {
         buf = fz_new_buffer_from_copied_data(
             ctx, reinterpret_cast<const unsigned char*>(html.constData()),
             static_cast<size_t>(html.size()));
+#ifdef MUPDF_HAVE_STREAM_AND_DIR
+        stream = fz_open_buffer(ctx, buf);
+        opened.doc = fz_open_document_with_stream_and_dir(ctx, "html", stream, m_archive);
+#else
         opened.doc = fz_open_document_with_buffer(ctx, "html", buf);
+#endif
     }
     fz_always(ctx) {
+        if (stream)
+            fz_drop_stream(ctx, stream);
         if (buf)
             fz_drop_buffer(ctx, buf);
     }

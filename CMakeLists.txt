@@ -37,6 +37,7 @@ if(WIN32)
     set(MUPDF_HAVE_STEXT_ACCURATE_BBOXES ON)
     set(MUPDF_HAVE_STYLE_DOCUMENT ON)
     set(MUPDF_HAVE_FZ_ERROR_FORMAT ON)
+    set(MUPDF_HAVE_STREAM_AND_DIR ON)
 else()
     # Debian/Ubuntu (and derivatives) ship libmupdf as a static archive whose
     # transitive codec/3rd-party dependencies (libmupdf-third, mujs, gumbo,
@@ -121,6 +122,16 @@ int main(void) {
     return 0;
 }
 ]=] MUPDF_HAVE_FZ_ERROR_FORMAT)
+    check_c_source_compiles([=[
+#include <mupdf/fitz.h>
+int main(void) {
+    fz_archive *a = (fz_archive*)0;
+    a->has_entry = 0;
+    a->read_entry = 0;
+    (void)fz_open_document_with_stream_and_dir((fz_context*)0, "html", (fz_stream*)0, a);
+    return 0;
+}
+]=] MUPDF_HAVE_STREAM_AND_DIR)
     unset(CMAKE_REQUIRED_INCLUDES)
     unset(CMAKE_REQUIRED_LIBRARIES)
 endif()
@@ -137,6 +148,9 @@ if(MUPDF_HAVE_STYLE_DOCUMENT)
 endif()
 if(MUPDF_HAVE_FZ_ERROR_FORMAT)
     list(APPEND _MUPDF_COMPILE_DEFS MUPDF_HAVE_FZ_ERROR_FORMAT=1)
+endif()
+if(MUPDF_HAVE_STREAM_AND_DIR)
+    list(APPEND _MUPDF_COMPILE_DEFS MUPDF_HAVE_STREAM_AND_DIR=1)
 endif()
 if(_MUPDF_COMPILE_DEFS)
     set_property(TARGET unofficial::libmupdf::libmupdf APPEND PROPERTY
@@ -361,15 +375,19 @@ include(GNUInstallDirs)
 install(TARGETS wlx-multidoc-viewer
         LIBRARY DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
 
-# Shipped INI template: the plugin reads multidocviewer.ini from its own
-# directory, so the template rides along next to the built binary and is
-# installed alongside the plugin on Linux.
+# Shipped templates read from the plugin's own directory: multidocviewer.ini
+# (settings) and chm.css (default CHM stylesheet). Both ride along next to the
+# built binary and are installed alongside the plugin on Linux.
 install(FILES "${CMAKE_SOURCE_DIR}/assets/multidocviewer.ini"
+              "${CMAKE_SOURCE_DIR}/assets/chm.css"
         DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
 add_custom_command(TARGET wlx-multidoc-viewer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/assets/multidocviewer.ini"
         "$<TARGET_FILE_DIR:wlx-multidoc-viewer>/multidocviewer.ini"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/assets/chm.css"
+        "$<TARGET_FILE_DIR:wlx-multidoc-viewer>/chm.css"
     VERBATIM)
 
 if(WIN32)

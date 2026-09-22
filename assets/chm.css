@@ -1,0 +1,46 @@
+/* Default CHM topic stylesheet, shipped next to the plugin binary.
+ *
+ * Edit this file in place (a restart is needed), or point [Viewer] ChmCss in
+ * multidocviewer.ini at another file. The tokens below are replaced from the
+ * active theme palette, so the same file works in light and dark themes:
+ *   @document-bg@    document background (paper)
+ *   @document-text@  document text
+ *   @surface@        subtle fill for code / command blocks
+ *   @border@         table and box borders
+ *
+ * CHM topics are authored for a wide fixed layout, and their own stylesheet is
+ * ignored, so these rules govern the page: compact type, no body inset, wrapped
+ * code, full-width tables.
+ */
+
+html, body { margin: 0; padding: 0; }
+body {
+  background-color: @document-bg@; color: @document-text@;
+  font-size: 10pt; line-height: 1.3;
+}
+p { margin: 0.4em 0; }
+ul, ol, dl { margin: 0.4em 0; }
+h1 { font-size: 150%; margin: 0.6em 0 0.3em; }
+h2 { font-size: 130%; margin: 0.6em 0 0.3em; }
+h3 { font-size: 115%; margin: 0.5em 0 0.3em; }
+h4, h5 { font-size: 105%; margin: 0.4em 0 0.2em; }
+
+/* Command/output samples: wrap long lines and give them a subtle fill. */
+pre, tt, code { white-space: pre-wrap !important; overflow-wrap: break-word; }
+pre {
+  font-size: 90%; margin: 0.4em 0; padding: 0.3em 0.5em;
+  background-color: @surface@;
+}
+tt, code { background-color: @surface@; }
+div.Code, div.CodeBox, div.Cmd, div.CmdBox {
+  width: auto !important; margin: 0.4em 0; padding: 0.3em 0.5em;
+  background-color: @surface@; border: 1px solid @border@;
+}
+div.NoteBox { width: auto !important; margin: 0.4em 0; }
+
+/* Tables: full width with visible borders. Table type is shrunk because MuPDF
+ * has no fixed/scrollable table layout; lower the percentage to fit wider
+ * tables (smaller table text), raise it for larger text. */
+table { width: 100%; border-collapse: collapse; font-size: 80%; }
+table, th, td { border: 1px solid @border@; }
+td, th { padding: 0 2px; overflow-wrap: break-word; }
