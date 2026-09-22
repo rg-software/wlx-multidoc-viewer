@@ -16,8 +16,10 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
+#include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QScrollBar>
-#include <QShortcut>
+#include <QTextEdit>
 #include <QTimer>
 #include <QUrl>
 
@@ -231,6 +233,12 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     : QFrame(parent)
 {
     setFrameStyle(QFrame::NoFrame);
+    // QFrame defaults to NoFocus; without an explicit StrongFocus policy the
+    // host (Double Commander) keeps the lister's own control focused, so Qt
+    // never delivers key events here and Ctrl+F/Ctrl+C/link-hover never fire.
+    // The canvas takes click focus (MouseFocusReason) and this widget holds
+    // focus for keystrokes that land outside the canvas/toolbar.
+    setFocusPolicy(Qt::StrongFocus);
 
     auto* layout = new QVBoxLayout(this);
     layout->setSpacing(0);
@@ -334,29 +342,15 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     };
     m_toolbarPresenter.sidebarVisible = [this]() { return m_sidebarVisible; };
 
-    // Keyboard shortcuts (unchanged; focus neutrality is natural in Qt: line
-    // edits consume their own keys).
-    connect(new QShortcut(QKeySequence(Qt::Key_Right), this), &QShortcut::activated, this, &ViewerWidget::onNextPage);
-    connect(new QShortcut(QKeySequence(Qt::Key_Left), this), &QShortcut::activated, this, &ViewerWidget::onPrevPage);
-    connect(new QShortcut(QKeySequence(Qt::Key_Home), this), &QShortcut::activated, this, &ViewerWidget::onFirstPage);
-    connect(new QShortcut(QKeySequence(Qt::Key_End), this), &QShortcut::activated, this, &ViewerWidget::onLastPage);
-    connect(new QShortcut(QKeySequence(Qt::Key_PageDown), this), &QShortcut::activated, this, &ViewerWidget::onPageDown);
-    connect(new QShortcut(QKeySequence(Qt::Key_PageUp), this), &QShortcut::activated, this, &ViewerWidget::onPageUp);
-    connect(new QShortcut(QKeySequence(Qt::Key_V), this), &QShortcut::activated, this, &ViewerWidget::onToggleMode);
-    connect(new QShortcut(QKeySequence("Shift+V"), this), &QShortcut::activated, this, &ViewerWidget::onCycleFit);
-    connect(new QShortcut(QKeySequence(Qt::Key_B), this), &QShortcut::activated, this, &ViewerWidget::onTogglePresentation);
-    connect(new QShortcut(QKeySequence("Shift+B"), this), &QShortcut::activated, this, &ViewerWidget::onToggleFavorite);
-    connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_F), this), &QShortcut::activated, this, &ViewerWidget::onFocusFind);
-    connect(new QShortcut(QKeySequence(Qt::Key_Plus), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
-    connect(new QShortcut(QKeySequence(Qt::Key_Equal), this), &QShortcut::activated, this, &ViewerWidget::onZoomIn);
-    connect(new QShortcut(QKeySequence(Qt::Key_Minus), this), &QShortcut::activated, this, &ViewerWidget::onZoomOut);
-    connect(new QShortcut(QKeySequence(Qt::Key_0 | Qt::KeypadModifier), this), &QShortcut::activated, this, &ViewerWidget::onZoomOriginal);
-    connect(new QShortcut(QKeySequence(Qt::Key_Slash), this), &QShortcut::activated, this, &ViewerWidget::onZoomOriginal);
-    connect(new QShortcut(QKeySequence(Qt::Key_F12), this), &QShortcut::activated, this, &ViewerWidget::onSidebarToggle);
-    connect(new QShortcut(QKeySequence(Qt::Key_R), this), &QShortcut::activated, this, &ViewerWidget::onRotateCw);
-    connect(new QShortcut(QKeySequence("Shift+R"), this), &QShortcut::activated, this, &ViewerWidget::onRotateCcw);
-    connect(new QShortcut(QKeySequence(Qt::Key_Escape), this), &QShortcut::activated, this, &ViewerWidget::onEscapePressed);
-    connect(new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_C), this), &QShortcut::activated, this, &ViewerWidget::copySelection);
+    // Keyboard handling happens in the application-level event filter
+    // (eventFilter, installed below): Qt resolves QShortcuts only AFTER every
+    // QShortcut the host registered (Double Commander binds Left/Right to its
+    // panel navigation, which is why those keys starved), so shortcut-based
+    // keys cannot win inside an embedded plugin. The filter reads the raw
+    // key events before the shortcut map, exactly like the Win32 WM_KEYDOWN
+    // path. Install it as the last filter so it runs first (filters are
+    // called in reverse registration order).
+    QCoreApplication::instance()->installEventFilter(this);
 
     m_toolbarPresenter.refreshState();
 }
@@ -380,6 +374,13 @@ bool ViewerWidget::loadDocument(const QString& path) {
     // reload() runs after openDocument() (which already fired refreshState),
     // so re-sync the toolbar now that sidebarAvailable()/hasOutline() are real.
     m_toolbarPresenter.refreshState();
+    // Pull keyboard focus into the viewer once the host has finished sizing
+    // the newly created plugin panel, so Ctrl+<key> land here and not in the
+    // lister toolbar (mirrors the Win32 SetFocus on creation).
+    QTimer::singleShot(0, this, [this]() {
+        if (isVisible())
+            setFocus(Qt::OtherFocusReason);
+    });
     return true;
 }
 
@@ -613,8 +614,24 @@ void ViewerWidget::onTogglePresentation() {
 }
 
 void ViewerWidget::focusFind() {
+    // Called from the host's ListSearchDialog (Ctrl+F in the lister) and from
+    // our own Ctrl+F shortcut. The embedded panel may never have had keyboard
+    // focus, so make sure the top-level accepts input before (and while)
+    // steering focus at the search box.
+    static const bool keyDebug = qEnvironmentVariableIsSet("WLX_KEY_DEBUG");
+    if (keyDebug) {
+        qWarning() << "[WLX] focusFind invoked";
+        if (m_toolbar)
+            m_toolbar->setText(toolbar::Control::FindStatus, QStringLiteral("FOC"));
+    }
+    if (QWidget* win = window()) {
+        win->raise();
+        win->activateWindow();
+    }
+    setFocus(Qt::ShortcutFocusReason);
     if (m_toolbar)
         m_toolbar->focusFind();
+    setFocus(Qt::ShortcutFocusReason);
 }
 
 void ViewerWidget::onFocusFind() {
@@ -635,6 +652,12 @@ void ViewerWidget::copySelection() {
     if (!m_controller || !m_controller->hasSelection())
         return;
     const QString text = m_controller->selectedText();
+    static const bool keyDebug = qEnvironmentVariableIsSet("WLX_KEY_DEBUG");
+    if (keyDebug) {
+        qWarning() << "[WLX] copySelection chars=" << text.size();
+        if (m_toolbar)
+            m_toolbar->setText(toolbar::Control::FindStatus, QStringLiteral("CPY"));
+    }
     if (!text.isEmpty())
         QGuiApplication::clipboard()->setText(text);
 }
@@ -652,6 +675,29 @@ void ViewerWidget::onEscapePressed() {
     onExitRequested();
 }
 
+// Continuous-mode keyboard scroll helpers (mirrors ViewerWin32:pageJumpContinuous
+// and the kKeyboardStepPx/Home/End scrolls). Paged mode routes through the
+// page-oriented slots instead, so these only ever touch the scrollbar.
+void ViewerWidget::pageJumpContinuous(int delta) {
+    if (!m_controller)
+        return;
+    const int page = m_controller->pageAtScrollOffset(scrollYValue());
+    const int out = qBound(1, page + delta, m_controller->pageCount());
+    stepVerticalTo(m_controller->scrollOffsetForPage(out));
+}
+
+void ViewerWidget::stepVertical(int deltaPx) {
+    QScrollBar* vBar = m_scrollArea ? m_scrollArea->verticalScrollBar() : nullptr;
+    if (vBar)
+        vBar->setValue(vBar->value() + deltaPx);
+}
+
+void ViewerWidget::stepVerticalTo(int y) {
+    QScrollBar* vBar = m_scrollArea ? m_scrollArea->verticalScrollBar() : nullptr;
+    if (vBar)
+        vBar->setValue(qBound(vBar->minimum(), y, vBar->maximum()));
+}
+
 void ViewerWidget::clearSelectionUi() {
     if (m_selecting)
         endSelectionGesture();
@@ -664,18 +710,24 @@ void ViewerWidget::clearSelectionUi() {
 QPointF ViewerWidget::widgetToCanvas(const QPoint& pos) const {
     if (m_controller->isPagedMode()) {
         // The unit is centered as one group, so the page-specific term cancels
-        // and the mapping only needs the unit origin.
-        const QSize vp = m_scrollArea->viewport()->size();
-        const QSize unit = pagedUnitLayoutSize(m_controller.get());
+        // and the mapping only needs the unit origin. Use the CANVAS size,
+        // exactly like the paint code pagedUnitCanvasOffset(c, size()): when an
+        // overflowing unit grows the canvas beyond the viewport, centering
+        // against the viewport would shift the hit test by half the overflow.
         const QRect r1 = m_controller->pageRect(m_controller->unitFirst(m_controller->currentPage()));
-        if (!unit.isEmpty() && r1.isValid()) {
-            const int dx = (vp.width() - unit.width()) / 2;
-            const int dy = (vp.height() - unit.height()) / 2;
-            return QPointF(pos.x() - dx + r1.x(), pos.y() - dy + r1.y());
+        if (r1.isValid() && m_canvas) {
+            const QSize canvasSize = m_canvas->size();
+            const QSize unit = pagedUnitLayoutSize(m_controller.get());
+            if (!unit.isEmpty()) {
+                const QPointF org = pagedUnitCanvasOffset(m_controller.get(), canvasSize);
+                return QPointF(pos.x() - org.x() + r1.x(), pos.y() - org.y() + r1.y());
+            }
         }
         const QRect pr = m_controller->pageRect(m_controller->currentPage());
-        const int dx = (vp.width() - pr.width()) / 2;
-        const int dy = (vp.height() - pr.height()) / 2;
+        const QSize canvasSize = m_canvas ? m_canvas->size()
+                                          : m_scrollArea->viewport()->size();
+        const int dx = (canvasSize.width() - pr.width()) / 2;
+        const int dy = (canvasSize.height() - pr.height()) / 2;
         return QPointF(pos.x() - dx + pr.x(), pos.y() - dy + pr.y());
     }
     return QPointF(pos.x(), pos.y());
@@ -705,12 +757,33 @@ bool ViewerWidget::startSelection(const QPoint& pos) {
         return false;
     const QPointF canvasPt = widgetToCanvas(pos);
     const int page = pageAtCanvas(canvasPt);
+    static const bool keyDebug = qEnvironmentVariableIsSet("WLX_KEY_DEBUG");
+    if (keyDebug) {
+        qWarning() << "[WLX] sel press pos=" << pos
+                   << "canvasPt=" << canvasPt.x() << canvasPt.y()
+                   << "page=" << page
+                   << "canvas=" << m_canvas->size().width() << "x" << m_canvas->size().height()
+                   << "vp=" << m_scrollArea->viewport()->size().width()
+                             << "x" << m_scrollArea->viewport()->size().height()
+                   << "scrollY=" << scrollYValue()
+                   << "paged=" << (m_controller->isPagedMode() ? 1 : 0);
+    }
     if (page < 1 || !m_controller->pageHasText(page))
         return false;
     const int word = m_controller->wordAtCanvas(page, canvasPt,
                                                 viewer_settings::kSelectionHitTolerancePx);
     if (word < 0)
         return false; // empty area -> pan gesture proceeds
+    static const bool dbg = qEnvironmentVariableIsSet("WLX_KEY_DEBUG");
+    if (dbg) {
+        const QRectF wb = m_controller->wordRectOnCanvas(page, word);
+        qWarning() << "[WLX] sel word idx=" << word
+                   << "rect=" << wb.x() << wb.y() << wb.width() << wb.height();
+        if (m_toolbar)
+            m_toolbar->setText(toolbar::Control::FindStatus,
+                               QString::asprintf("p%02d %03d,%03d", page,
+                                                 qRound(canvasPt.x()), qRound(canvasPt.y())));
+    }
     const int ch = m_controller->charAtCanvas(page, word, canvasPt);
     m_controller->beginSelection(page, word, ch);
     m_selecting = true;
@@ -748,11 +821,15 @@ void ViewerWidget::endSelectionGesture() {
 void ViewerWidget::refreshHoverCursor() {
     if (!m_controller || !m_controller->hasDocument() || m_dragging || m_selecting)
         return;
-    const QPoint global = QCursor::pos();
-    QWidget* under = QApplication::widgetAt(global);
-    if (under != m_canvas && under != m_scrollArea->viewport())
+    // No QCursor::pos()/QApplication::widgetAt/mapFromGlobal here: on Wayland
+    // (and towards other-toolkit hosts) global cursor queries are unreliable,
+    // so we use the last pointer position captured from a MouseMove targeted at
+    // our canvas. Fall back to the viewport-tracked delta otherwise.
+    if (!m_hoverPosValid || !m_canvas)
         return;
-    const QPoint pos = under->mapFromGlobal(global);
+    const QPoint pos = m_lastHoverPos;
+    if (!m_canvas->rect().contains(pos))
+        return;
     const QPointF canvasPt = widgetToCanvas(pos);
     const int page = pageAtCanvas(canvasPt);
     const bool ctrl = (QGuiApplication::keyboardModifiers() & Qt::ControlModifier) != 0;
@@ -782,8 +859,10 @@ void ViewerWidget::keyPressEvent(QKeyEvent* event) {
 bool ViewerWidget::onControlKey(QKeyEvent* event) {
     if (!event)
         return false;
-    const Qt::KeyboardModifiers mods = event->modifiers() & Qt::KeyboardModifierMask;
-    if (mods != Qt::ControlModifier)
+    // Test bit rather than matching the modifier mask exactly: the host window
+    // system can attach extra layout/keysym bits, and an exact-equality gate
+    // would silently drop the combo.
+    if (!event->modifiers().testFlag(Qt::ControlModifier))
         return false;
     if (event->key() == Qt::Key_F) {
         focusFind();
@@ -826,6 +905,108 @@ void ViewerWidget::onVerticalScrollChanged(int value) {
 }
 
 bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
+    // Application-wide key interception. This eventFilter is installed on
+    // QCoreApplication as well as on the canvas/scroll-area, so a key press
+    // reaches us BEFORE Qt's QShortcutMap (which would otherwise hand keys to
+    // a QShortcut the host registered earlier — Double Commander binds
+    // Left/Right to its panel navigation). Mirror the Win32 WM_KEYDOWN
+    // handler by taking every key aimed at our window, no matter which widget
+    // inside it holds keyboard focus; text inputs (search/page boxes) keep
+    // their own keys so the caret and in-box Ctrl+C keep working.
+    const bool isKey = event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease;
+    if (isKey) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+
+        // WLX_KEY_DEBUG=1: report every key that reaches us so host/keyboard
+        // layer issues are observable. The status label is otherwise unused
+        // when no search is active, and the override is opt-in.
+        static const bool keyDebug = qEnvironmentVariableIsSet("WLX_KEY_DEBUG");
+        if (keyDebug && event->type() == QEvent::KeyPress && m_toolbar) {
+            QString m = ke->modifiers().testFlag(Qt::ControlModifier) ? "Ctrl+" : QString();
+            if (ke->modifiers().testFlag(Qt::AltModifier)) m += "Alt+";
+            if (ke->modifiers().testFlag(Qt::ShiftModifier)) m += "Shift+";
+            const QString name =
+                ke->key() == Qt::Key_Control ? "Ctrl" : QString("%1").arg(ke->key(), 0, 16);
+            m_toolbar->setText(toolbar::Control::FindStatus,
+                               (m + name).left(12));
+        }
+
+        if (ke->key() == Qt::Key_Control) {
+            // Holding/releasing Ctrl changes the link cursor even without a
+            // mouse move or a canvas-focus event, so refresh for ANY Ctrl
+            // key event (refreshHoverCursor already no-ops unless the pointer
+            // is over our document canvas).
+            refreshHoverCursor();
+            return false; // pass the bare modifier through to the host
+        }
+
+        QWidget* target = qobject_cast<QWidget*>(obj);
+        const bool inOurWindow = target && target->window() == window();
+        const bool textInput = target &&
+            (qobject_cast<QLineEdit*>(target) != nullptr ||
+             qobject_cast<QTextEdit*>(target) != nullptr ||
+             qobject_cast<QPlainTextEdit*>(target) != nullptr);
+        if (inOurWindow && !textInput &&
+            m_controller && m_controller->hasDocument() && isVisible()) {
+            if (event->type() == QEvent::KeyRelease)
+                return false;
+            const bool shift = ke->modifiers().testFlag(Qt::ShiftModifier);
+            if (ke->modifiers().testFlag(Qt::ControlModifier)) {
+                if (ke->key() == Qt::Key_F) {
+                    focusFind();
+                    return true;
+                }
+                if (ke->key() == Qt::Key_C || ke->key() == Qt::Key_Insert) {
+                    copySelection();
+                    return true;
+                }
+            }
+            switch (ke->key()) {
+            case Qt::Key_Right:
+                m_controller->isPagedMode() ? onNextPage() : pageJumpContinuous(+1);
+                return true;
+            case Qt::Key_Left:
+                m_controller->isPagedMode() ? onPrevPage() : pageJumpContinuous(-1);
+                return true;
+            case Qt::Key_PageDown: onPageDown(); return true;
+            case Qt::Key_PageUp: onPageUp(); return true;
+            case Qt::Key_Up:
+                m_controller->isPagedMode() ? onPrevPage() : stepVertical(-viewer_settings::kKeyboardStepPx);
+                return true;
+            case Qt::Key_Down:
+                m_controller->isPagedMode() ? onNextPage() : stepVertical(+viewer_settings::kKeyboardStepPx);
+                return true;
+            case Qt::Key_Home:
+                m_controller->isPagedMode() ? onFirstPage() : stepVerticalTo(0);
+                return true;
+            case Qt::Key_End:
+                m_controller->isPagedMode() ? onLastPage()
+                    : stepVerticalTo(m_controller->maxScrollOffset());
+                return true;
+            case Qt::Key_V:
+                shift ? onCycleFit() : onToggleMode();
+                return true;
+            case Qt::Key_B:
+                shift ? onToggleFavorite() : onTogglePresentation();
+                return true;
+            case Qt::Key_R:
+                shift ? onRotateCcw() : onRotateCw();
+                return true;
+            case Qt::Key_Escape: onEscapePressed(); return true;
+            case Qt::Key_F12: onSidebarToggle(); return true;
+            case Qt::Key_Plus:
+            case Qt::Key_Equal: onZoomIn(); return true;
+            case Qt::Key_Minus: onZoomOut(); return true;
+            case Qt::Key_0:
+                if (ke->modifiers().testFlag(Qt::KeypadModifier))
+                    onZoomOriginal();
+                return true;
+            case Qt::Key_Slash: onZoomOriginal(); return true;
+            default: break;
+            }
+        }
+    }
+
     if (!m_controller || !m_controller->hasDocument()) {
         if (m_dragging) {
             m_dragging = false;
@@ -856,6 +1037,9 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
         if (me->button() != Qt::LeftButton)
             break;
         const QPoint pos = me->position().toPoint();
+        // First pointer contact must claim keyboard focus for the viewer
+        // subtree or the host keeps directing every keystroke at itself.
+        m_canvas->setFocus(Qt::MouseFocusReason);
         // Ctrl+click follows a hyperlink, taking precedence over text selection
         // and drag-pan (see viewer-hyperlinks).
         if (me->modifiers().testFlag(Qt::ControlModifier)) {
@@ -889,6 +1073,16 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
     case QEvent::MouseMove: {
         auto* me = static_cast<QMouseEvent*>(event);
         const QPoint pos = me->position().toPoint();
+        // Cache the local pointer position for refreshHoverCursor (Ctrl
+        // transitions happen without a mouse move). Only trust positions
+        // targeted at our document area.
+        if (obj == m_canvas) {
+            m_lastHoverPos = pos;
+            m_hoverPosValid = true;
+        } else if (obj == m_scrollArea->viewport()) {
+            m_lastHoverPos = m_canvas->mapFrom(m_scrollArea->viewport(), pos);
+            m_hoverPosValid = true;
+        }
         if (m_selecting) {
             extendSelection(pos);
             return true;
@@ -952,6 +1146,10 @@ if (!m_dragging) {
         unsetCursor();
         return true;
     }
+    case QEvent::Leave:
+        if (obj == m_canvas)
+            m_hoverPosValid = false;
+        break;
     default:
         break;
     }

@@ -80,6 +80,9 @@ private:
     void clearSelectionUi();
     void refreshHoverCursor();
     bool onControlKey(QKeyEvent* event);
+    void pageJumpContinuous(int delta);
+    void stepVertical(int deltaPx);
+    void stepVerticalTo(int y);
     void paintSearch(QPainter& p, const QRect& vis);
 
     std::unique_ptr<ViewerController> m_controller;
@@ -103,6 +106,12 @@ private:
     QPointF m_lastMousePos;
     bool m_suppressScrollTracking = false;
     bool m_selecting = false;
+    // Last local pointer position over the canvas. Wayland/compositor hosting
+    // cannot be trusted for QCursor::pos()/mapFromGlobal (the viewer is
+    // embedded in another toolkit's surface), so the hover refresh uses this
+    // event-derived position instead.
+    QPoint m_lastHoverPos;
+    bool m_hoverPosValid = false;
 };
 
 // Pure-paint canvas that draws each page from the controller's render cache at
@@ -115,6 +124,10 @@ public:
         : QWidget(parent)
     {
         setAttribute(Qt::WA_OpaquePaintEvent);
+        // Take click focus so key events (Ctrl+F, Ctrl+C, link-hover on the
+        // Ctrl transition) reach the ViewerWidget's event filter. NoFocus
+        // leaves the host's lister control in charge of the keyboard.
+        setFocusPolicy(Qt::StrongFocus);
     }
 
     void setController(ViewerController* controller) { m_controller = controller; }
