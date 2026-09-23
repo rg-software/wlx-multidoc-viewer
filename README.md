@@ -51,6 +51,7 @@ A WLX lister plugin for [Total Commander](https://www.ghisler.com/) and
 | `B` | Toggle single / double / skip cover double mode |
 | `Shift+B` | Toggle bookmark |
 | `Shift+V` | Cycle fit mode (page / width / 100%) |
+| `F3` / `Shift+F3` | Next / previous search match |
 | `F12` | Show / hide sidebar |
 | `+` / `-` / `Numpad 0` or `/` | Zoom in / out / reset |
 | `R` / `Shift+R` | Rotate clockwise / counter-clockwise |

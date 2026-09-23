@@ -70,6 +70,46 @@ static bool focusFindForListWin(HANDLE ListWin) {
     return true;
 }
 
+// The host routes F3 (FindNext) to ListSearchDialog when the lister owns the
+// key. F3 advances to the next search match, Shift+F3 to the previous one —
+// the same controller commands as the toolbar's Find buttons. Without an
+// active search this falls back to focusing the search box so the user can
+// type a term; a non-searchable document (e.g. DjVu) can only focus.
+static bool navigateSearchForListWin(HANDLE ListWin, bool next) {
+#if defined(_WIN32)
+    HWND hViewer = static_cast<HWND>(ListWin);
+    auto* viewer = hViewer
+        ? reinterpret_cast<ViewerWin32*>(GetWindowLongPtrW(hViewer, GWLP_USERDATA))
+        : nullptr;
+#else
+    auto* viewer = static_cast<ViewerWidget*>(ListWin);
+#endif
+    if (!viewer)
+        return false;
+    auto* controller = viewer->controller();
+    if (controller && controller->searchAvailable() && controller->searchActive()) {
+        if (next)
+            viewer->nextMatch();
+        else
+            viewer->prevMatch();
+        return true;
+    }
+    viewer->focusFind();
+    return true;
+}
+
+// Reports whether the Shift modifier is down at call time. Used to split F3
+// (next match) from Shift+F3 (previous match) in the ListSearchDialog path,
+// where the host passes only a flat FindNext flag — and the call happens
+// synchronously on the UI thread while the F3 key message is being processed.
+static bool shiftDown() {
+#if defined(_WIN32)
+    return (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+#else
+    return QGuiApplication::keyboardModifiers().testFlag(Qt::ShiftModifier);
+#endif
+}
+
 // Shared document-open core used by both the ANSI and wide (W) entry points.
 // The WLX interface hands plugins a narrow char* file name in the ANSI code
 // page, which cannot represent CJK/Cyrillic filenames on a mismatched system
@@ -176,8 +216,12 @@ DCPCALL int ListLoadNextW(HANDLE ParentWin, HANDLE PluginWin,
 DCPCALL void ListCloseWindowW(HANDLE ListWin); // defined below after ListCloseWindow
 
 DCPCALL int ListSearchDialogW(HWND ListWin, int FindNext, wchar_t* FindText) {
-    Q_UNUSED(FindNext)
     Q_UNUSED(FindText)
+    // FindNext != 0 is F3 (find next). The host offers no shift info here, so
+    // read the live modifier state to split F3 from Shift+F3.
+    if (FindNext != 0)
+        return navigateSearchForListWin(ListWin, !shiftDown())
+            ? LISTPLUGIN_OK : LISTPLUGIN_ERROR;
     return focusFindForListWin(ListWin) ? LISTPLUGIN_OK : LISTPLUGIN_ERROR;
 }
 #endif // _WIN32
@@ -213,7 +257,11 @@ DCPCALL void ListGetDetectString(char* DetectString, int maxlen) {
 }
 
 DCPCALL int ListSearchDialog(HWND ListWin, int FindNext) {
-    Q_UNUSED(FindNext)
+    // FindNext != 0 is F3 (find next). The host offers no shift info here, so
+    // read the live modifier state to split F3 from Shift+F3.
+    if (FindNext != 0)
+        return navigateSearchForListWin(ListWin, !shiftDown())
+            ? LISTPLUGIN_OK : LISTPLUGIN_ERROR;
     return focusFindForListWin(ListWin) ? LISTPLUGIN_OK : LISTPLUGIN_ERROR;
 }
 

@@ -32,6 +32,13 @@ public:
     // Focus the toolbar search box (host Find command / Ctrl+F).
     void focusFind();
 
+    // Search-match navigation (F3 next / Shift+F3 previous). Driven by the
+    // host's ListSearchDialog FindNext contract (plugin.cpp) and by the F3
+    // key handler; both route through the toolbar presenter so the keyboard
+    // and the Find buttons never diverge.
+    void nextMatch();
+    void prevMatch();
+
 private:
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     LRESULT handleMsg(UINT msg, WPARAM wp, LPARAM lp);

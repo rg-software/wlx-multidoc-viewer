@@ -258,6 +258,14 @@ void ViewerWin32::focusFind() {
         m_toolbar->focusFind();
 }
 
+void ViewerWin32::nextMatch() {
+    m_toolbarPresenter.onFindNext();
+}
+
+void ViewerWin32::prevMatch() {
+    m_toolbarPresenter.onFindPrev();
+}
+
 void ViewerWin32::onFavoritesChanged() {
     if (!m_controller)
         return;
@@ -974,6 +982,16 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
             }
             captured = true;
         }
+        break;
+    case VK_F3:
+        // F3 = next search match, Shift+F3 = previous. Mirrors the toolbar
+        // Find buttons (same presenter path) so the shortcuts and the UI
+        // never diverge.
+        if (shift)
+            prevMatch();
+        else
+            nextMatch();
+        captured = true;
         break;
     case VK_INSERT:
         // Ctrl+Ins copies the selection (standard shortcut).

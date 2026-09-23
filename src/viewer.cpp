@@ -640,6 +640,14 @@ void ViewerWidget::onFocusFind() {
     focusFind();
 }
 
+void ViewerWidget::nextMatch() {
+    m_toolbarPresenter.onFindNext();
+}
+
+void ViewerWidget::prevMatch() {
+    m_toolbarPresenter.onFindPrev();
+}
+
 void ViewerWidget::onRotateCw() {
     if (!m_controller) return;
     m_scrollArea->verticalScrollBar()->setValue(m_controller->rotateCw(scrollYValue()));
@@ -1035,6 +1043,12 @@ bool ViewerWidget::eventFilter(QObject* obj, QEvent* event) {
                 return true;
             case Qt::Key_Escape: onEscapePressed(); return true;
             case Qt::Key_F12: onSidebarToggle(); return true;
+            case Qt::Key_F3:
+                // F3 = next search match, Shift+F3 = previous. Mirrors the
+                // toolbar Find buttons (same presenter path) so the shortcuts
+                // and the UI never diverge.
+                shift ? prevMatch() : nextMatch();
+                return true;
             case Qt::Key_Plus:
             case Qt::Key_Equal: onZoomIn(); return true;
             case Qt::Key_Minus: onZoomOut(); return true;
