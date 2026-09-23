@@ -124,7 +124,7 @@ int main(int argc, char** argv) {
     QTemporaryDir tmp;
     if (tmp.isValid()) {
         QFile bogus(tmp.filePath("bogus.zip"));
-        bogus.open(QIODevice::WriteOnly);
+        (void)bogus.open(QIODevice::WriteOnly);
         bogus.write("this is not a zip archive, just plain bytes\n");
         bogus.close();
         {
@@ -136,6 +136,32 @@ int main(int argc, char** argv) {
             std::unique_ptr<DocumentEngine> engine = createEngine(tmp.filePath("missing.zip"));
             CHECK("missing .zip file declined",
                   static_cast<bool>(engine) && !engine->open(tmp.filePath("missing.zip")));
+        }
+        // .fb2z is the same payload as .fb2.zip: a renamed copy must open
+        // through the dispatcher and a non-archive .fb2z must decline.
+        {
+            const QString fb2z = tmp.filePath("sample.fb2z");
+            const bool copied = QFile::copy(sampleZip, fb2z);
+            CHECK("copy to .fb2z", copied);
+            std::unique_ptr<DocumentEngine> engine = createEngine(fb2z);
+            CHECK("dispatcher produces an engine for .fb2z", static_cast<bool>(engine));
+            if (engine) {
+                CHECK("sample.fb2z opens", engine->open(fb2z));
+                if (engine->isOpen()) {
+                    CHECK("sample.fb2z shows FB2 text",
+                          wholeText(*engine).contains("Sample FB2"));
+                    engine->close();
+                }
+            }
+            QFile bogusFb2z(tmp.filePath("bogus.fb2z"));
+            (void)bogusFb2z.open(QIODevice::WriteOnly);
+            bogusFb2z.write("not an archive\n");
+            bogusFb2z.close();
+            {
+                std::unique_ptr<DocumentEngine> engine = createEngine(bogusFb2z.fileName());
+                CHECK("non-archive .fb2z declined",
+                      static_cast<bool>(engine) && !engine->open(bogusFb2z.fileName()));
+            }
         }
     }
 

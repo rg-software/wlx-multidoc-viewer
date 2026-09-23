@@ -37,13 +37,13 @@ std::unique_ptr<DocumentEngine> createEngine(const QString& path) {
         return std::make_unique<ComicEngine>();
     }
 
-    if (suffix == "zip") {
-        // .fb2.zip: claim only zips that actually contain FictionBook. Any
-        // other zip must DECLINE (Fb2ZipEngine::open -> false -> ListLoad
-        // returns 0) so the host hands the file to the next plugin. Never
-        // fall through to MuPdfEngine for zips: MuPDF's CBZ handler also
-        // registers the "zip" extension and would silently open every zip as
-        // a comic (or an empty comic) instead of declining.
+    if (suffix == "zip" || suffix == "fb2z") {
+        // .fb2.zip / .fb2z: claim only archives that actually contain
+        // FictionBook. Any other archive must DECLINE (Fb2ZipEngine::open ->
+        // false -> ListLoad returns 0) so the host hands the file to the next
+        // plugin. Never fall through to MuPdfEngine for zips: MuPDF's CBZ
+        // handler also registers the "zip" extension and would silently open
+        // every zip as a comic (or an empty comic) instead of declining.
         qDebug() << "createEngine: FB2-zip engine for" << path;
         return std::make_unique<Fb2ZipEngine>();
     }
