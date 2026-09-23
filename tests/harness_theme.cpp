@@ -39,8 +39,7 @@ bool paletteEquals(const viewer_settings::Palette& a, const viewer_settings::Pal
            a.toolbarCheckedTint == b.toolbarCheckedTint &&
            a.toolbarCheckedRing == b.toolbarCheckedRing && a.glyph == b.glyph &&
            a.treeText == b.treeText && a.editBg == b.editBg && a.editText == b.editText &&
-           a.selectionFill == b.selectionFill && a.searchActiveFill == b.searchActiveFill &&
-           a.searchActivePen == b.searchActivePen;
+           a.selectionFill == b.selectionFill && a.searchActiveFill == b.searchActiveFill;
 }
 
 void writeIni(const QString& text) {

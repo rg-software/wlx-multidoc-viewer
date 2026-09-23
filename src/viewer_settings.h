@@ -124,7 +124,6 @@ struct Palette {
     uint32_t editText;
     uint32_t selectionFill;
     uint32_t searchActiveFill;
-    uint32_t searchActivePen;
     uint32_t documentBg;
     uint32_t documentText;
 };
@@ -143,7 +142,6 @@ inline const Palette kLightPalette = {
     0x000000, // editText
     0x69FFF069, // selectionFill  (a=105, #FFF069)
     0x9600DCDC, // searchActiveFill (a=150, #00DCDC)
-    0xFF008282, // searchActivePen  (#008282)
     0xFFFFFF, // documentBg (paper)
     0x000000, // documentText
 };
@@ -160,7 +158,6 @@ inline const Palette kDarkPalette = {
     0xE0E0E0, // editText
     0x69FFF069, // selectionFill
     0x9600DCDC, // searchActiveFill
-    0xFF008282, // searchActivePen
     0x262626, // documentBg (a touch lighter than the chrome pageBg)
     0xE0E0E0, // documentText
 };
@@ -188,7 +185,6 @@ inline const Palette& activePalette() {
         p.editText = parseHexColor(section.get("EditText"), p.editText);
         p.selectionFill = parseHexColor(section.get("SelectionFill"), p.selectionFill);
         p.searchActiveFill = parseHexColor(section.get("SearchActiveFill"), p.searchActiveFill);
-        p.searchActivePen = parseHexColor(section.get("SearchActivePen"), p.searchActivePen);
         p.documentBg = parseHexColor(section.get("DocumentBackground"), p.documentBg);
         p.documentText = parseHexColor(section.get("DocumentText"), p.documentText);
         return p;

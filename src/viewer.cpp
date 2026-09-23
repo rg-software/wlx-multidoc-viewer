@@ -214,7 +214,6 @@ void ViewerCanvas::paintSearchOverlay(QPainter& p, const QRect& vis) const {
         if (!active.isNull()) {
             const QRectF rr = active.translated(org);
             p.setBrush(paletteColor(viewer_settings::activePalette().searchActiveFill));   // cyan active match
-            p.setPen(QPen(paletteColor(viewer_settings::activePalette().searchActivePen), 1));
             p.drawRect(rr);
         }
     }
