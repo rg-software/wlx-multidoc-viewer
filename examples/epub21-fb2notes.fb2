@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"
+             xmlns:l="http://www.w3.org/1999/xlink">
+ <body>
+  <section><title><p>Text</p></title>
+  <p>text<sup><a type="note" l:href="#note1">[1]</a></sup></p>
+  </section>
+ </body>
+ <body name="notes">
+  <section><title><p>Notes</p></title></section>
+  <section id="note1"><p>[1] Note text.</p></section>
+ </body>
+</FictionBook>

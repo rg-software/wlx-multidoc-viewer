@@ -1002,7 +1002,14 @@ int ViewerController::followLink(int page, int linkIndex, int scrollY) {
     }
     if (link.destPage < 1 || link.destPage > m_state.pageCount())
         return scrollY; // unresolved destination -> no-op
-    if (!goToPage(link.destPage))
+    // Apply the anchor even when already on the destination page: same-page
+    // links (e.g. an EPUB endnote backlink or a #fragment on the current
+    // page) must still scroll, otherwise the click looks dead. Mirror
+    // goToPage's double-page unit normalization for the comparison.
+    const int target = isDoublePagePresentation() ? unitFirst(link.destPage) : link.destPage;
+    const int current = isDoublePagePresentation() ? unitFirst(m_state.currentPage())
+                                                   : m_state.currentPage();
+    if (target != current && !goToPage(link.destPage))
         return scrollY;
     return anchorScrollOffset(link.destPage, link.anchorY);
 }
