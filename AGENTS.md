@@ -94,6 +94,7 @@ Write conventional, structured commit messages so the release pipeline can group
 - **Mood**: imperative mood in the subject line (e.g. prefer "Add feature" over "Added feature" / "Adding feature").
 - **Length**: keep the first line under 72 characters.
 - **Issue Link**: use `Fixes #<id>` for bug fixes, `Refs #<id>` otherwise. Skip the reference if the branch is not issue-based.
+- **Repository hosting**: This project is on **GitHub** at `rg-software/wlx-multidoc-viewer`. Issues and pull requests are read/written with the **`gh` CLI** (`gh issue`, `gh pr`). The remote `git` origin also points at GitHub.
 
 ## Known Issues
 

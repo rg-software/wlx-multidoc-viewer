@@ -25,7 +25,3 @@ rules:
   tasks:
     - Group shared work first, platform-specific work in separate groups
     - Each task must be verifiable in one build cycle
-  commits:
-    - Use Conventional Commits (feat:/fix:/docs:/refactor:/chore:, optional scope like fix(comics):)
-    - Imperative mood in the subject, keep the first line under 72 characters
-    - Append "Fixes #id" for bug fixes, "Refs #id" otherwise; skip if the branch is not issue-based
