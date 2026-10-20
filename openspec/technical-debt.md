@@ -132,3 +132,13 @@ Deliberately scheduled debt for the MultidocViewer plugin. One priority axis, on
 - Impact: A known-flaky check trains maintainers to ignore red builds and can mask real geometry regressions in the same assert.
 - Direction: Investigate the G-series pump timing (`pump(40)`) around the Single -> ... -> Single presentation cycle — likely an async relayout or refit landing outside the pump window — and make the assertion wait for a stable layout or capture geometry deterministically.
 - Status: open
+
+### TD-012 Stock MuPDF refuses EPUBs with malformed container/OPF/NCX XML
+- Priority: P1
+- Scope: `overlay-ports/libmupdf` (patch surface), MuPDF `source/fitz/xml.c` (`close_tag`), `source/html/epub-doc.c` (`epub_parse_ncx`/`epub_parse_nav`), our open path `src/mupdfengine.cpp:74-124`
+- Category: correctness
+- Source: issue #21 investigation 2026-10-20/21 (forum post p490313); probes `tests/harness_epub21.cpp` §2 with fixtures `examples/epub21-bad-ncx.epub`, `examples/epub21-unclosed.epub`
+- Symptom: Stock MuPDF `fz_parse_xml` aborts the whole parse on malformed XML — the reporter's `<contentsrc="..."/>` typo dies with "syntax error after element name" (missing whitespace between tag name and `=`), an unclosed tag with "opening and closing tag mismatch". `epub_parse_ncx`/`epub_parse_nav` rethrow (unlike per-chapter loads, which warn-and-continue), so the entire `open()` fails and `ListLoad` returns 0: the book is unreadable, not just outline-less.
+- Impact: Books every reference reader opens (Sumatra/sLister confirmed on both fixtures) are refused; users must hand-repair files. F3/QuickView both affected.
+- Direction: (a) Mirror SumatraPDF's `ext/patches/0013-xml-recover-from-mismatched-close-tags.patch` (HTML-style closer recovery, their issue #5792) in our overlay port via `vcpkg_apply_patches`, keeping attribution — covers the mismatched-closer class; (b) additionally wrap `epub_parse_ncx`/`epub_parse_nav` in warn-and-continue so an NCX failure drops only the outline — covers all NCX classes including `contentsrc`; (c) decide the Linux story in an openspec change (distro libmupdf cannot be patched: engine-level fallback vs accepted platform split). Then rebuild the libmupdf port (VS dev env + `VCPKG_ROOT`) and re-verify all MuPDF harnesses.
+- Status: open
