@@ -14,6 +14,7 @@ public:
     bool nextPage() {
         if (m_currentPage < m_pageCount) {
             ++m_currentPage;
+            m_anchorPage = m_currentPage;
             return true;
         }
         return false;
@@ -22,6 +23,7 @@ public:
     bool prevPage() {
         if (m_currentPage > 1) {
             --m_currentPage;
+            m_anchorPage = m_currentPage;
             return true;
         }
         return false;
@@ -30,6 +32,7 @@ public:
     bool firstPage() {
         if (m_currentPage != 1) {
             m_currentPage = 1;
+            m_anchorPage = 1;
             return true;
         }
         return false;
@@ -38,6 +41,7 @@ public:
     bool lastPage() {
         if (m_currentPage < m_pageCount) {
             m_currentPage = m_pageCount;
+            m_anchorPage = m_pageCount;
             return true;
         }
         return false;
@@ -46,6 +50,7 @@ public:
     bool goToPage(int page) {
         if (page >= 1 && page <= m_pageCount && page != m_currentPage) {
             m_currentPage = page;
+            m_anchorPage = page;
             return true;
         }
         return false;
@@ -84,16 +89,40 @@ public:
     void setPagePresentation(PagePresentation presentation) { m_pagePresentation = presentation; }
     PagePresentation pagePresentation() const { return m_pagePresentation; }
 
+    // Reading anchor independent of unit pairing (issue #20). currentPage is
+    // truncated to the unit's first page in double-page states, so cycling the
+    // presentation off currentPage alone accumulates unitFirst() rounding and
+    // drifts toward page 1. anchorPage is the page actually being read and is
+    // only rewritten by real navigation, never by unit resolution.
+    int anchorPage() const { return m_anchorPage; }
+    void setAnchorPage(int page) {
+        if (page >= 1 && (m_pageCount <= 0 || page <= m_pageCount))
+            m_anchorPage = page;
+    }
+    // Unit resolution only: moves current without touching the anchor. Used by
+    // cyclePagePresentation and trackCurrentPage.
+    void resolveCurrentPage(int page) {
+        if (page >= 1 && page <= m_pageCount)
+            m_currentPage = page;
+    }
+
     // State accessors
     int currentPage() const { return m_currentPage; }
     int pageCount() const { return m_pageCount; }
     float zoom() const { return m_zoom; }
 
-    void setPageCount(int count) { m_pageCount = count; }
-    void resetPage() { m_currentPage = 1; }
+    void setPageCount(int count) {
+        m_pageCount = count;
+        if (m_pageCount > 0) {
+            m_currentPage = (std::clamp)(m_currentPage, 1, m_pageCount);
+            m_anchorPage = (std::clamp)(m_anchorPage, 1, m_pageCount);
+        }
+    }
+    void resetPage() { m_currentPage = 1; m_anchorPage = 1; }
 
 private:
     int m_currentPage = 1;
+    int m_anchorPage = 1;
     int m_pageCount = 0;
     float m_zoom = 1.0f;
     bool m_pagedMode = false;

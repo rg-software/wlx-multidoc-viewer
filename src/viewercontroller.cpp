@@ -231,10 +231,15 @@ bool ViewerController::lastPage() {
 }
 
 bool ViewerController::goToPage(int page) {
+    // The anchor is the requested page BEFORE unit normalization: in a
+    // double-page state the reader asked for this page even though the unit
+    // resolves to its first member (issue #20).
+    const int requested = (std::clamp)(page, 1, m_state.pageCount());
     if (isDoublePagePresentation())
         page = unitFirst(page);
     if (!m_state.goToPage(page))
         return false;
+    m_state.setAnchorPage(requested);
     refitAfterNavigation();
     notifyChanged();
     return true;
@@ -377,8 +382,11 @@ void ViewerController::cyclePagePresentation() {
         break;
     }
     if (hasDocument()) {
-        // Keep the current page resolved to its unit under the new pairing rule.
-        m_state.goToPage(unitFirst(m_state.currentPage()));
+        // Resolve the unit containing the READING anchor under the new pairing
+        // rule, not unitFirst(currentPage): current is already truncated to the
+        // old unit's first page, so re-resolving it accumulates rounding and
+        // drifts toward page 1 with every press (issue #20).
+        m_state.resolveCurrentPage(unitFirst(m_state.anchorPage()));
         computeFitZoom();
         computeLayout();
         notifyChanged();
@@ -796,9 +804,17 @@ int ViewerController::clampScroll(int scrollY) const {
 void ViewerController::trackCurrentPage(int page) {
     // In a double-page state keep the current page resolved to its unit's first
     // page so unit-based navigation, layout and sidebar highlight stay correct.
+    // The anchor is only rewritten when it leaves the top unit: while the
+    // reading page is still in view the anchor must survive, otherwise cycling
+    // the presentation (or any scroll tracking right after it) re-truncates the
+    // anchor and the view drifts toward page 1 (issue #20).
+    const int top = page;
     if (isDoublePagePresentation())
         page = unitFirst(page);
-    m_state.goToPage(page);
+    const int anchor = m_state.anchorPage();
+    if (anchor < page || anchor > unitLast(page))
+        m_state.setAnchorPage(top);
+    m_state.resolveCurrentPage(page);
 }
 
 // ---------------------------------------------------------------------------
@@ -1336,6 +1352,7 @@ int ViewerController::takeSearchJump() {
     if (m_activeHit < 0 || m_activeHit >= m_searchHits.size())
         return 0;
     m_state.goToPage(unitFirst(m_searchHits[m_activeHit].page));
+    m_state.setAnchorPage(m_searchHits[m_activeHit].page);
     return scrollToActiveMatch(0);
 }
 
@@ -1390,6 +1407,7 @@ int ViewerController::nextMatch(int scrollY) {
     else
         m_activeHit = (m_activeHit + 1) % m_searchHits.size();
     m_state.goToPage(unitFirst(m_searchHits[m_activeHit].page));
+    m_state.setAnchorPage(m_searchHits[m_activeHit].page);
     const int out = scrollToActiveMatch(scrollY);
     notifyChanged();
     return out;
@@ -1403,6 +1421,7 @@ int ViewerController::prevMatch(int scrollY) {
     else
         m_activeHit = (m_activeHit > 0) ? m_activeHit - 1 : m_searchHits.size() - 1;
     m_state.goToPage(unitFirst(m_searchHits[m_activeHit].page));
+    m_state.setAnchorPage(m_searchHits[m_activeHit].page);
     const int out = scrollToActiveMatch(scrollY);
     notifyChanged();
     return out;

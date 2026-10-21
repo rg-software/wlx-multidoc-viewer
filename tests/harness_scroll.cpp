@@ -954,6 +954,97 @@ viewer.controller()->setManualZoom(1.0f, 0);
         pump(50);
     }
 
+    // ---------------- H) Issue #20: presentation cycle keeps the reading page,
+    // ----------------    arrows step whole units in double-continuous
+    {
+        std::string pdfPath = std::string(tmpPath) + "wlx_issue20.pdf";
+        if (!writeTestPdf(pdfPath.c_str(), 8, 420, 595)) {
+            std::printf("FAIL pdf gen\n");
+            return 2;
+        }
+        HWND host = CreateWindowExW(0, L"WLXHarnessHostScroll", L"harness",
+                                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                    120, 120, 800, 600,
+                                    nullptr, nullptr, wc.hInstance, nullptr);
+        pump(100);
+        ViewerWin32 viewer(host);
+        HWND vh = viewer.hwnd();
+        MoveWindow(vh, 0, 0, 800, 600, TRUE);
+        pump(100);
+        if (!viewer.loadDocument(QString::fromLocal8Bit(pdfPath.c_str()))) {
+            std::printf("FAIL load\n");
+            return 2;
+        }
+        pump(80);
+        viewer.controller()->toggleMode(); // default is continuous; enter paged
+        pump(80);
+        viewer.controller()->setManualZoom(1.0f, 0);
+        pump(100);
+
+        auto postKey = [vh](WORD vk) {
+            PostMessageW(vh, WM_KEYDOWN, vk, 0);
+            pump(200);
+        };
+
+        // Paged cycle stability from a right-hand member page (the reported
+        // drift: Single 6 -> Double -> Cover walked 6 -> 5 -> 4 -> ... -> 1).
+        viewer.controller()->goToPage(6);
+        pump(40);
+        CHECK("H1 paged at page 6", viewer.controller()->currentPage() == 6);
+        postKey('B'); // -> Double
+        CHECK("H2 double shows unit (5,6)", viewer.controller()->currentPage() == 5);
+        CHECK("H3 anchor still the reading page 6", viewer.controller()->anchorPage() == 6);
+        postKey('B'); // -> DoubleWithCover
+        CHECK("H4 cover keeps unit (6,7), no drift to (4,5)",
+              viewer.controller()->currentPage() == 6);
+        postKey('B'); // -> Single
+        CHECK("H5 full cycle returns to page 6 (no upward drift)",
+              viewer.controller()->currentPage() == 6);
+        for (int i = 0; i < 3; ++i) {
+            postKey('B');
+            postKey('B');
+            postKey('B');
+        }
+        CHECK("H6 repeated cycles never drift", viewer.controller()->currentPage() == 6);
+
+        // trackCurrentPage keeps the anchor while it stays in the top unit.
+        viewer.controller()->cyclePagePresentation(); // Single -> Double
+        pump(40);
+        viewer.controller()->trackCurrentPage(5);
+        CHECK("H7 tracking the unit top keeps anchor 6",
+              viewer.controller()->currentPage() == 5 &&
+              viewer.controller()->anchorPage() == 6);
+        viewer.controller()->trackCurrentPage(3);
+        CHECK("H8 scrolling away moves the anchor",
+              viewer.controller()->currentPage() == 3 &&
+              viewer.controller()->anchorPage() == 3);
+
+        // Continuous double: Left/Right step whole units via the real key path.
+        viewer.controller()->goToPage(6); // anchor 6, current 5 in Double
+        pump(40);
+        postKey('V'); // paged -> continuous through onKeyDown (sets the scroll)
+        CHECK("H9 continuous double active",
+              !viewer.controller()->isPagedMode() &&
+              viewer.controller()->pagePresentation() ==
+                  ViewerState::PagePresentation::Double);
+        const int unitTop = viewer.controller()->scrollOffsetForPage(5);
+        CHECK("H10 view starts at unit (5,6) top", vPos(vh) == unitTop);
+        postKey(VK_RIGHT);
+        CHECK("H11 Right steps to unit (7,8)",
+              vPos(vh) == viewer.controller()->scrollOffsetForPage(7));
+        postKey(VK_RIGHT);
+        CHECK("H11b Right past the final unit is a no-op",
+              vPos(vh) == viewer.controller()->scrollOffsetForPage(7));
+        postKey(VK_LEFT);
+        CHECK("H12 Left steps back to unit (5,6)", vPos(vh) == unitTop);
+        postKey(VK_LEFT);
+        CHECK("H13 Left steps to unit (3,4)",
+              vPos(vh) == viewer.controller()->scrollOffsetForPage(3));
+
+        DestroyWindow(host);
+        pump(50);
+    }
+
     // ---------------- E) Text selection (MuPDF path)
     {
         std::string pdfPath = std::string(tmpPath) + "wlx_text.pdf";

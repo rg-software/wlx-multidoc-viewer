@@ -690,8 +690,12 @@ void ViewerWidget::onEscapePressed() {
 void ViewerWidget::pageJumpContinuous(int delta) {
     if (!m_controller)
         return;
+    // Unit-aware step (issue #20): in a double-page presentation both members
+    // of a unit share one row, so a raw page+delta lands on the same scroll
+    // offset and the key looks dead. scrollStepPage moves whole units there and
+    // is identical to page+delta in Single mode. Mirrors the toolbar Prev/Next.
     const int page = m_controller->pageAtScrollOffset(scrollYValue());
-    const int out = qBound(1, page + delta, m_controller->pageCount());
+    const int out = m_controller->scrollStepPage(page, delta);
     stepVerticalTo(m_controller->scrollOffsetForPage(out));
 }
 

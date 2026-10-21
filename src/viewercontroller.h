@@ -243,6 +243,9 @@ public:
 
     // Accessors
     int currentPage() const { return m_state.currentPage(); }
+    // Pairing-independent reading page (issue #20): survives presentation
+    // cycles while currentPage resolves to the unit's first page.
+    int anchorPage() const { return m_state.anchorPage(); }
     int pageCount() const { return m_state.pageCount(); }
     float zoom() const { return m_state.zoom(); }
     FitMode fitMode() const { return m_fitMode; }

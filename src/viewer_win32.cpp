@@ -812,7 +812,12 @@ void ViewerWin32::onSize(int w, int h) {
 void ViewerWin32::pageJumpContinuous(int delta) {
     if (!m_controller)
         return;
-    const int out = (std::clamp)(m_controller->pageAtScrollOffset(m_scrollY) + delta, 1, m_controller->pageCount());
+    // Unit-aware step (issue #20): in a double-page presentation both members
+    // of a unit share one row, so a raw page+delta lands on the same scroll
+    // offset and the key looks dead. scrollStepPage moves whole units there and
+    // is identical to page+delta in Single mode. Mirrors the toolbar Prev/Next.
+    const int base = m_controller->pageAtScrollOffset(m_scrollY);
+    const int out = m_controller->scrollStepPage(base, delta);
     m_scrollY = m_controller->scrollOffsetForPage(out);
     m_scrollX = 0;
     m_scrollY = (std::clamp)(m_scrollY, 0, m_controller->maxScrollOffset());
