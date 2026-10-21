@@ -246,6 +246,12 @@ inline constexpr bool kDefaultStartPagedMode = false; // continuous
 enum class StartFitMode { FitToPage, FitToWidth, Manual };
 inline bool kStartPagedMode = parseBool(
     PluginConfig::get().get("Viewer").get("PagedMode"), kDefaultStartPagedMode);
+
+// Opt-in autosave of the last-used view mode (paged/continuous, page
+// presentation, fit mode) in the shared user store. Read-only seed like the
+// other [Viewer] keys; absent/malformed disables it.
+inline bool kAutosaveViewMode = parseBool(
+    PluginConfig::get().get("Viewer").get("AutosaveViewMode"), false);
 inline StartFitMode kStartFitMode = [] {
     const std::string v = toLowerAscii(PluginConfig::get().get("Viewer").get("FitMode"));
     if (v == "width")

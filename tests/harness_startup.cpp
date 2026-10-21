@@ -124,6 +124,10 @@ QString scenarioIniText(const QString& s) {
         return QStringLiteral("[Viewer]\nPagedMode = ON\nFitMode = WIDTH\n");
     if (s == QStringLiteral("malformed"))
         return QStringLiteral("[Viewer]\nPagedMode = maybe\nFitMode = banana\n");
+    if (s == QStringLiteral("autosave-enabled"))
+        return QStringLiteral("[Viewer]\nAutosaveViewMode = true\n");
+    if (s == QStringLiteral("autosave-disabled"))
+        return QStringLiteral("[Viewer]\nAutosaveViewMode = maybe\n");
     return {};
 }
 
@@ -132,6 +136,7 @@ int runScenario(const QString& s) {
         check(!viewer_settings::kStartPagedMode, "absent PagedMode -> continuous");
         check(viewer_settings::kStartFitMode == viewer_settings::StartFitMode::FitToPage,
               "absent FitMode -> page");
+        check(!viewer_settings::kAutosaveViewMode, "absent AutosaveViewMode -> disabled");
     } else if (s == QStringLiteral("paged-manual")) {
         check(viewer_settings::kStartPagedMode, "PagedMode=true -> paged");
         check(viewer_settings::kStartFitMode == viewer_settings::StartFitMode::Manual,
@@ -148,6 +153,10 @@ int runScenario(const QString& s) {
         check(!viewer_settings::kStartPagedMode, "malformed PagedMode -> continuous");
         check(viewer_settings::kStartFitMode == viewer_settings::StartFitMode::FitToPage,
               "malformed FitMode -> page");
+    } else if (s == QStringLiteral("autosave-enabled")) {
+        check(viewer_settings::kAutosaveViewMode, "AutosaveViewMode=true -> enabled");
+    } else if (s == QStringLiteral("autosave-disabled")) {
+        check(!viewer_settings::kAutosaveViewMode, "malformed AutosaveViewMode -> disabled");
     } else {
         std::printf("FAIL unknown scenario: %s\n", s.toUtf8().constData());
         return 2;
@@ -170,7 +179,8 @@ int runAll() {
 
     int rc = 0;
     const char* scenarios[] = { "default", "paged-manual", "continuous-width",
-                                "case-insensitive", "malformed" };
+                                "case-insensitive", "malformed",
+                                "autosave-enabled", "autosave-disabled" };
     for (const char* s : scenarios) {
         if (!writeIni(scenarioIniText(QString::fromLatin1(s))))
             continue;

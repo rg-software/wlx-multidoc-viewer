@@ -23,6 +23,7 @@ static bool ensureQApplication() {
 #endif
 
 #include "viewer_settings.h"
+#include "favorites.h"
 
 // Records the host's ambient mode once, before any viewer constructs and thus
 // before the active palette is first resolved (it is frozen thereafter).
@@ -244,6 +245,7 @@ DCPCALL void ListCloseWindow(HANDLE ListWin) {
     viewer->hide();
     viewer->deleteLater();
 #endif
+    FavoritesStore::get().flush();
 }
 
 #ifdef _WIN32

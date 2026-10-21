@@ -160,6 +160,13 @@ void FavoritesStore::flush() {
     saveNow();
 }
 
+void FavoritesStore::setViewState(const ViewState& state) {
+    m_viewState = state;
+    m_hasViewState = true;
+    m_dirty = true;
+    scheduleSave();
+}
+
 QString FavoritesStore::canonicalKey(const QString& path) const {
     if (path.isEmpty())
         return {};
@@ -229,11 +236,19 @@ QByteArray FavoritesStore::serialize() const {
         favs.append(fav);
     }
     root.insert(QStringLiteral("favorites"), favs);
+    if (m_hasViewState) {
+        QJsonObject vs;
+        vs.insert(QStringLiteral("paged"), m_viewState.paged);
+        vs.insert(QStringLiteral("presentation"), m_viewState.presentation);
+        vs.insert(QStringLiteral("fit"), m_viewState.fit);
+        root.insert(QStringLiteral("viewState"), vs);
+    }
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
 
 void FavoritesStore::loadFrom(const QByteArray& json) {
     m_favorites.clear();
+    m_hasViewState = false;
     if (json.isEmpty())
         return;
     const QJsonDocument doc = QJsonDocument::fromJson(json);
@@ -270,6 +285,35 @@ void FavoritesStore::loadFrom(const QByteArray& json) {
                   });
         if (!entries.isEmpty())
             m_favorites.insert(path, entries);
+    }
+
+    // Optional top-level viewState record (add-viewmode-autosave). Kept
+    // additive so older readers ignore it and missing/malformed values leave
+    // hasViewState() false.
+    const QJsonValue vsVal = root.value(QStringLiteral("viewState"));
+    if (vsVal.isObject()) {
+        const QJsonObject vsObj = vsVal.toObject();
+        ViewState vs;
+        vs.paged = vsObj.value(QStringLiteral("paged")).toString();
+        vs.presentation = vsObj.value(QStringLiteral("presentation")).toString();
+        vs.fit = vsObj.value(QStringLiteral("fit")).toString();
+
+        const bool pagedValid = (vs.paged == QStringLiteral("paged") ||
+                                 vs.paged == QStringLiteral("continuous"));
+        const bool presValid = (vs.presentation == QStringLiteral("single") ||
+                                vs.presentation == QStringLiteral("double") ||
+                                vs.presentation == QStringLiteral("double-cover"));
+        const bool fitValid = (vs.fit == QStringLiteral("manual") ||
+                               vs.fit == QStringLiteral("page") ||
+                               vs.fit == QStringLiteral("width"));
+
+        // A viewState object with no recognizable field is treated as absent.
+        if (!pagedValid && !presValid && !fitValid) {
+            m_hasViewState = false;
+            return;
+        }
+        m_viewState = vs;
+        m_hasViewState = true;
     }
 }
 

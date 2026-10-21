@@ -60,11 +60,19 @@ ViewerController::FitMode startupFitMode() {
 }
 
 ViewerController::ViewerController() {
-    // Startup view mode from [Viewer] PagedMode (issue #11): a fresh lister
-    // window opens in the persisted Paged/Continuous state instead of the
-    // hard-coded continuous default. Set once here so a controller reused by
-    // ListLoadNext keeps the user's current choice across files.
-    m_state.setPagedMode(viewer_settings::kStartPagedMode);
+    // Startup view mode: when autosave is enabled and a record exists, seed
+    // paged/continuous from it; otherwise from [Viewer] PagedMode (issue #11).
+    bool paged = viewer_settings::kStartPagedMode;
+    if (viewer_settings::kAutosaveViewMode && FavoritesStore::get().hasViewState()) {
+        const ViewState vs = FavoritesStore::get().viewState();
+        if (vs.paged == QStringLiteral("paged"))
+            paged = true;
+        else if (vs.paged == QStringLiteral("continuous"))
+            paged = false;
+        else
+            paged = viewer_settings::kStartPagedMode;
+    }
+    m_state.setPagedMode(paged);
 }
 
 void ViewerController::setEngine(std::unique_ptr<DocumentEngine> engine) {
@@ -86,7 +94,31 @@ bool ViewerController::openDocument(const QString& path) {
     m_openPath = path;
     m_state.setPageCount(m_engine->pageCount());
     m_state.resetPage();
+    // Seed fit mode + page presentation from the autosaved record (per bit)
+    // when enabled, otherwise from the INI seed / Single default.
     m_fitMode = startupFitMode();
+    ViewerState::PagePresentation presentation = ViewerState::PagePresentation::Single;
+    if (viewer_settings::kAutosaveViewMode && FavoritesStore::get().hasViewState()) {
+        const ViewState vs = FavoritesStore::get().viewState();
+        if (vs.fit == QStringLiteral("manual"))
+            m_fitMode = FitMode::Manual;
+        else if (vs.fit == QStringLiteral("page"))
+            m_fitMode = FitMode::FitToPage;
+        else if (vs.fit == QStringLiteral("width"))
+            m_fitMode = FitMode::FitToWidth;
+        else
+            m_fitMode = startupFitMode();
+
+        if (vs.presentation == QStringLiteral("single"))
+            presentation = ViewerState::PagePresentation::Single;
+        else if (vs.presentation == QStringLiteral("double"))
+            presentation = ViewerState::PagePresentation::Double;
+        else if (vs.presentation == QStringLiteral("double-cover"))
+            presentation = ViewerState::PagePresentation::DoubleWithCover;
+        else
+            presentation = ViewerState::PagePresentation::Single;
+    }
+    m_state.setPagePresentation(presentation);
     m_rotation = 0;
     m_pageCache.clear();
     m_cacheRecency.clear();
@@ -132,6 +164,37 @@ void ViewerController::closeDocument() {
     m_linkCache.clear();
     stopAnimation();
     notifyChanged();
+}
+
+void ViewerController::recordViewState() {
+    if (!viewer_settings::kAutosaveViewMode)
+        return;
+    ViewState vs;
+    vs.paged = m_state.isPagedMode() ? QStringLiteral("paged")
+                                     : QStringLiteral("continuous");
+    switch (m_state.pagePresentation()) {
+    case ViewerState::PagePresentation::Single:
+        vs.presentation = QStringLiteral("single");
+        break;
+    case ViewerState::PagePresentation::Double:
+        vs.presentation = QStringLiteral("double");
+        break;
+    case ViewerState::PagePresentation::DoubleWithCover:
+        vs.presentation = QStringLiteral("double-cover");
+        break;
+    }
+    switch (m_fitMode) {
+    case FitMode::Manual:
+        vs.fit = QStringLiteral("manual");
+        break;
+    case FitMode::FitToPage:
+        vs.fit = QStringLiteral("page");
+        break;
+    case FitMode::FitToWidth:
+        vs.fit = QStringLiteral("width");
+        break;
+    }
+    FavoritesStore::get().setViewState(vs);
 }
 
 void ViewerController::toggleCurrentPageFavorite() {
@@ -323,21 +386,33 @@ bool ViewerController::hasPrevPage() const {
 // ---------------------------------------------------------------------------
 
 int ViewerController::zoomIn(int scrollY) {
+    const FitMode oldFit = m_fitMode;
     m_state.zoomIn();
     m_fitMode = FitMode::Manual;
-    return relayout(scrollY);
+    const int r = relayout(scrollY);
+    if (oldFit != FitMode::Manual)
+        recordViewState();
+    return r;
 }
 
 int ViewerController::zoomOut(int scrollY) {
+    const FitMode oldFit = m_fitMode;
     m_state.zoomOut();
     m_fitMode = FitMode::Manual;
-    return relayout(scrollY);
+    const int r = relayout(scrollY);
+    if (oldFit != FitMode::Manual)
+        recordViewState();
+    return r;
 }
 
 int ViewerController::setManualZoom(float zoom, int scrollY) {
+    const FitMode oldFit = m_fitMode;
     m_state.setZoom(zoom);
     m_fitMode = FitMode::Manual;
-    return relayout(scrollY);
+    const int r = relayout(scrollY);
+    if (oldFit != FitMode::Manual)
+        recordViewState();
+    return r;
 }
 
 int ViewerController::cycleFitMode(int scrollY) {
@@ -353,7 +428,9 @@ int ViewerController::cycleFitMode(int scrollY) {
         m_fitMode = FitMode::FitToPage;
         break;
     }
-    return relayout(scrollY);
+    const int r = relayout(scrollY);
+    recordViewState();
+    return r;
 }
 
 int ViewerController::rotateCw(int scrollY) {
@@ -370,6 +447,7 @@ void ViewerController::toggleMode() {
     m_state.setPagedMode(!m_state.isPagedMode());
     computeLayout();
     notifyChanged();
+    recordViewState();
 }
 
 void ViewerController::cyclePagePresentation() {
@@ -394,6 +472,7 @@ void ViewerController::cyclePagePresentation() {
         computeLayout();
         notifyChanged();
     }
+    recordViewState();
 }
 
 int ViewerController::unitFirst(int page) const {

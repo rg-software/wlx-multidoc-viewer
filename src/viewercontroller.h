@@ -2,6 +2,7 @@
 #define VIEWERCONTROLLER_H
 
 #include "document.h"
+#include "favorites.h"
 #include "imagefolder.h"
 #include "searchcontroller.h"
 #include "textselection.h"
@@ -314,6 +315,9 @@ private:
     void computeLayout();
     int clampScroll(int scrollY) const;
     void notifyChanged();
+    // Records the current view-mode state to the shared user store when
+    // autosave is enabled (guarded internally by kAutosaveViewMode).
+    void recordViewState();
     // Deepest resolved outline heading whose pageNo <= page, used as the
     // favorite's initial label when toggling the current page on.
     QString outlineTitleForPage(int page) const;

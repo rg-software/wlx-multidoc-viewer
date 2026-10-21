@@ -13,6 +13,15 @@ struct FavoriteEntry {
     QString label;
 };
 
+// Global last-used view-mode record (paged/continuous, page presentation,
+// fit mode) persisted alongside favorites. Stored as short strings so the
+// store format stays backward compatible.
+struct ViewState {
+    QString paged = QStringLiteral("continuous"); // "paged" | "continuous"
+    QString presentation = QStringLiteral("single"); // "single" | "double" | "double-cover"
+    QString fit = QStringLiteral("page");            // "manual" | "page" | "width"
+};
+
 // Per-document page favorites (openers/add-favorites). Singleton, created
 // lazily on first use; all methods are UI-thread only. Entries are keyed by the
 // canonical absolute path of the document; a toggle inserts or removes the
@@ -32,6 +41,10 @@ public:
     bool isFavorite(const QString& path, int page) const;
     void toggle(const QString& path, int page, const QString& label = {});
     void flush();
+
+    bool hasViewState() const { return m_hasViewState; }
+    ViewState viewState() const { return m_viewState; }
+    void setViewState(const ViewState& state);
 
     // The viewer installs one notifier to react to favorites changes (sidebar
     // section rebuild, availability gates). Only the owning viewer instance
@@ -56,6 +69,9 @@ private:
     QByteArray m_lastSavedJson;
     bool m_dirty = false;
     ChangeNotifier m_notify;
+
+    bool m_hasViewState = false;
+    ViewState m_viewState;
 };
 
 #endif // FAVORITES_H

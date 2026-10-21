@@ -145,6 +145,83 @@ int run() {
     check(FavoritesStore::get().favoritesFor(docA).isEmpty(),
           "unknown format versions load as an empty store");
 
+    // Compatibility: legacy file (favorites only) reports no view state.
+    FavoritesStore::setLocationOverrideForTesting(dir);
+    FavoritesStore::resetForTesting();
+    {
+        FavoritesStore& s = FavoritesStore::get();
+        s.toggle(docA, 1);
+        s.flush();
+    }
+    FavoritesStore::resetForTesting();
+    {
+        FavoritesStore& s = FavoritesStore::get();
+        check(!s.hasViewState(), "legacy file reports no view state");
+        check(s.favoritesFor(docA).size() == 1,
+              "legacy file still loads favorites");
+    }
+
+    // File with favorites plus a viewState loads both.
+    FavoritesStore::resetForTesting();
+    {
+        FavoritesStore& s = FavoritesStore::get();
+        if (!s.isFavorite(docA, 1))
+            s.toggle(docA, 1);
+        ViewState vs;
+        vs.paged = QStringLiteral("paged");
+        vs.presentation = QStringLiteral("double");
+        vs.fit = QStringLiteral("width");
+        s.setViewState(vs);
+        s.flush();
+    }
+    FavoritesStore::resetForTesting();
+    {
+        FavoritesStore& s = FavoritesStore::get();
+        check(s.hasViewState(), "viewState record is detected");
+        check(s.viewState().paged == QStringLiteral("paged"), "paged round-trips");
+        check(s.viewState().presentation == QStringLiteral("double"), "presentation round-trips");
+        check(s.viewState().fit == QStringLiteral("width"), "fit round-trips");
+        check(s.favoritesFor(docA).size() == 1,
+              "favorites still load alongside viewState");
+    }
+
+    // Malformed viewState (wrong type) is ignored without dropping favorites.
+    {
+        // Build a file with favorites then corrupt the viewState field to a string.
+        QJsonObject root = readJson(file);
+        root.insert(QStringLiteral("viewState"), QStringLiteral("garbage"));
+        QFile f(file);
+        f.open(QIODevice::WriteOnly | QIODevice::Truncate);
+        f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    }
+    FavoritesStore::resetForTesting();
+    {
+        FavoritesStore& s = FavoritesStore::get();
+        check(!s.hasViewState(), "malformed viewState is ignored");
+        check(s.favoritesFor(docA).size() == 1,
+              "favorites survive a malformed viewState");
+    }
+
+    // Round-trip: set a record, flush, reset, read back.
+    FavoritesStore::setLocationOverrideForTesting(dir);
+    FavoritesStore::resetForTesting();
+    {
+        FavoritesStore& s = FavoritesStore::get();
+        ViewState vs;
+        vs.paged = QStringLiteral("continuous");
+        vs.presentation = QStringLiteral("double-cover");
+        vs.fit = QStringLiteral("manual");
+        s.setViewState(vs);
+        s.flush();
+        FavoritesStore::resetForTesting();
+        FavoritesStore& r = FavoritesStore::get();
+        check(r.hasViewState(), "view state survives restart");
+        check(r.viewState().paged == QStringLiteral("continuous"), "paged survives restart");
+        check(r.viewState().presentation == QStringLiteral("double-cover"),
+              "presentation survives restart");
+        check(r.viewState().fit == QStringLiteral("manual"), "fit survives restart");
+    }
+
     return g_fail == 0 ? 0 : 1;
 }
 
