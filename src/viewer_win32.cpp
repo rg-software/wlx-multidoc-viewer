@@ -960,11 +960,15 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
             break;
         }
         if (!ctrl) {
-            const int page = m_controller->currentPage();
             m_controller->cyclePagePresentation();
             m_scrollX = 0;
+            // Re-target to the POST-cycle unit top (issue #20): the pre-cycle
+            // current page is truncated to the old unit's first page, which
+            // under the new pairing can sit in an earlier unit. Scrolling
+            // there strands the anchor and updateVisiblePage then truncates
+            // it, so every press walks the view toward page 1.
             if (continuous)
-                m_scrollY = m_controller->scrollOffsetForPage(page);
+                m_scrollY = m_controller->scrollOffsetForPage(m_controller->currentPage());
             else
                 m_scrollY = 0;
             captured = true;

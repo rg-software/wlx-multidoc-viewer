@@ -237,9 +237,12 @@ bool ViewerController::goToPage(int page) {
     const int requested = (std::clamp)(page, 1, m_state.pageCount());
     if (isDoublePagePresentation())
         page = unitFirst(page);
+    // Explicit navigation always re-anchors, even when the normalized unit is
+    // already current (e.g. going to page 6 while showing unit (5,6)): the
+    // reader asked for that page, so the anchor must follow (issue #20).
+    m_state.setAnchorPage(requested);
     if (!m_state.goToPage(page))
         return false;
-    m_state.setAnchorPage(requested);
     refitAfterNavigation();
     notifyChanged();
     return true;

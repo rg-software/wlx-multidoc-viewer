@@ -985,25 +985,41 @@ viewer.controller()->setManualZoom(1.0f, 0);
             PostMessageW(vh, WM_KEYDOWN, vk, 0);
             pump(200);
         };
+        // Self-synchronizing variant: a posted WM_KEYDOWN still queued at
+        // check time shifts every later expectation by one press (the
+        // fixed-pump flake above), so drain lagged deliveries, post, then
+        // pump until the expected end state is observed (or ~2s elapse).
+        // reached() must be false beforehand: a single post dispatches at
+        // most once, so the wait cannot overshoot.
+        auto postKeySync = [vh](WORD vk, auto reached) {
+            pump(250); // drain any lagged delivery from the previous step
+            PostMessageW(vh, WM_KEYDOWN, vk, 0);
+            for (int i = 0; i < 40 && !reached(); ++i)
+                pump(50);
+        };
+        using PP = ViewerState::PagePresentation;
+        auto presIs = [&](PP p) {
+            return viewer.controller()->pagePresentation() == p;
+        };
 
         // Paged cycle stability from a right-hand member page (the reported
         // drift: Single 6 -> Double -> Cover walked 6 -> 5 -> 4 -> ... -> 1).
         viewer.controller()->goToPage(6);
         pump(40);
         CHECK("H1 paged at page 6", viewer.controller()->currentPage() == 6);
-        postKey('B'); // -> Double
+        postKeySync('B', [&] { return presIs(PP::Double); }); // -> Double
         CHECK("H2 double shows unit (5,6)", viewer.controller()->currentPage() == 5);
         CHECK("H3 anchor still the reading page 6", viewer.controller()->anchorPage() == 6);
-        postKey('B'); // -> DoubleWithCover
+        postKeySync('B', [&] { return presIs(PP::DoubleWithCover); }); // -> Cover
         CHECK("H4 cover keeps unit (6,7), no drift to (4,5)",
               viewer.controller()->currentPage() == 6);
-        postKey('B'); // -> Single
+        postKeySync('B', [&] { return presIs(PP::Single); }); // -> Single
         CHECK("H5 full cycle returns to page 6 (no upward drift)",
               viewer.controller()->currentPage() == 6);
         for (int i = 0; i < 3; ++i) {
-            postKey('B');
-            postKey('B');
-            postKey('B');
+            postKeySync('B', [&] { return presIs(PP::Double); });
+            postKeySync('B', [&] { return presIs(PP::DoubleWithCover); });
+            postKeySync('B', [&] { return presIs(PP::Single); });
         }
         CHECK("H6 repeated cycles never drift", viewer.controller()->currentPage() == 6);
 
@@ -1022,24 +1038,140 @@ viewer.controller()->setManualZoom(1.0f, 0);
         // Continuous double: Left/Right step whole units via the real key path.
         viewer.controller()->goToPage(6); // anchor 6, current 5 in Double
         pump(40);
-        postKey('V'); // paged -> continuous through onKeyDown (sets the scroll)
+        // 'V' through onKeyDown (sets the scroll); arrows wait for the exact
+        // scrollbar position the step must produce.
+        postKeySync('V', [&] { return !viewer.controller()->isPagedMode(); });
         CHECK("H9 continuous double active",
-              !viewer.controller()->isPagedMode() &&
-              viewer.controller()->pagePresentation() ==
-                  ViewerState::PagePresentation::Double);
+              !viewer.controller()->isPagedMode() && presIs(PP::Double));
         const int unitTop = viewer.controller()->scrollOffsetForPage(5);
         CHECK("H10 view starts at unit (5,6) top", vPos(vh) == unitTop);
-        postKey(VK_RIGHT);
-        CHECK("H11 Right steps to unit (7,8)",
-              vPos(vh) == viewer.controller()->scrollOffsetForPage(7));
-        postKey(VK_RIGHT);
-        CHECK("H11b Right past the final unit is a no-op",
-              vPos(vh) == viewer.controller()->scrollOffsetForPage(7));
-        postKey(VK_LEFT);
+        const int unit78Top = viewer.controller()->scrollOffsetForPage(7);
+        const int unit34Top = viewer.controller()->scrollOffsetForPage(3);
+        postKeySync(VK_RIGHT, [&] { return vPos(vh) == unit78Top; });
+        CHECK("H11 Right steps to unit (7,8)", vPos(vh) == unit78Top);
+        // No-op steps cannot wait on a change: drain, press once, settle.
+        pump(250);
+        PostMessageW(vh, WM_KEYDOWN, VK_RIGHT, 0);
+        pump(400);
+        CHECK("H11b Right past the final unit is a no-op", vPos(vh) == unit78Top);
+        postKeySync(VK_LEFT, [&] { return vPos(vh) == unitTop; });
         CHECK("H12 Left steps back to unit (5,6)", vPos(vh) == unitTop);
-        postKey(VK_LEFT);
-        CHECK("H13 Left steps to unit (3,4)",
-              vPos(vh) == viewer.controller()->scrollOffsetForPage(3));
+        postKeySync(VK_LEFT, [&] { return vPos(vh) == unit34Top; });
+        CHECK("H13 Left steps to unit (3,4)", vPos(vh) == unit34Top);
+
+        // Continuous B re-target (issue #20 follow-up): from unit (5,6) with
+        // the anchor on the right-hand member, Double -> Cover must land on
+        // the anchor's unit (6,7) — not on the stale pre-cycle unit-first
+        // page 5, which sits in unit (4,5) under cover pairing. The stale
+        // target strands the anchor and scroll tracking truncates it, so
+        // every press walks the view toward page 1.
+        postKeySync(VK_RIGHT, [&] { return vPos(vh) == unitTop; }); // (3,4)->(5,6)
+        CHECK("H14a at unit (5,6) top", vPos(vh) == unitTop);
+        viewer.controller()->goToPage(6); // anchor 6, view stays on the unit
+        pump(40);
+        // NOTE: scrollOffsetForPage(6) is read live: under Double it is the
+        // (5,6) top (already the view), under Cover the (6,7) top (the goal).
+        // The presentation conjunct keeps the wait from passing beforehand.
+        postKeySync('B', [&] { // Double -> DoubleWithCover in continuous
+            return presIs(PP::DoubleWithCover) &&
+                   vPos(vh) == viewer.controller()->scrollOffsetForPage(6);
+        });
+        CHECK("H14b re-target lands on the anchor unit (6,7)",
+              vPos(vh) == viewer.controller()->scrollOffsetForPage(6));
+        CHECK("H14c anchor survives the cycle",
+              viewer.controller()->currentPage() == 6 &&
+              viewer.controller()->anchorPage() == 6);
+
+        DestroyWindow(host);
+        pump(50);
+    }
+
+    // ---------------- H15) Issue #20 on the reported file: WinCMD.SUMMARY.chm
+    {
+        HWND host = CreateWindowExW(0, L"WLXHarnessHostScroll", L"harness",
+                                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                    120, 120, 800, 600,
+                                    nullptr, nullptr, wc.hInstance, nullptr);
+        pump(100);
+        ViewerWin32 viewer(host);
+        HWND vh = viewer.hwnd();
+        MoveWindow(vh, 0, 0, 800, 600, TRUE);
+        pump(100);
+        auto postKeySync = [vh](WORD vk, auto reached) {
+            // Self-synchronizing variant (see the H block): drain lagged
+            // deliveries, post, then pump until the expected end state is
+            // observed (or ~2s elapse).
+            pump(250);
+            PostMessageW(vh, WM_KEYDOWN, vk, 0);
+            for (int i = 0; i < 40 && !reached(); ++i)
+                pump(50);
+        };
+        using PP = ViewerState::PagePresentation;
+        auto presIs = [&](PP p) {
+            return viewer.controller()->pagePresentation() == p;
+        };
+        // Fixture-dependent: skip (not fail) when the example is absent, so a
+        // checkout without the binary fixture stays green.
+        if (!viewer.loadDocument(QStringLiteral("examples/WinCMD.SUMMARY.chm"))) {
+            std::printf("  [dbg] H15 SKIP: example chm not found\n");
+            std::fflush(stdout);
+        } else {
+            pump(80);
+            const int n = viewer.controller()->pageCount();
+            std::printf("  [dbg] H15 chm pages=%d\n", n);
+            std::fflush(stdout);
+            if (n < 4) {
+                std::printf("  [dbg] H15 SKIP: too few pages\n");
+                std::fflush(stdout);
+            } else {
+                viewer.controller()->toggleMode(); // enter paged
+                pump(80);
+                viewer.controller()->setManualZoom(1.0f, 0);
+                pump(100);
+                // Largest even page: a right-hand member in Double pairing, so
+                // the re-target checks below can tell the anchor's unit apart
+                // from the stale pre-cycle unit-first page.
+                const int target = (n / 2) * 2;
+                viewer.controller()->goToPage(target);
+                pump(40);
+                postKeySync('B', [&] { return presIs(PP::Double); });
+                postKeySync('B', [&] { return presIs(PP::DoubleWithCover); });
+                postKeySync('B', [&] { return presIs(PP::Single); });
+                CHECK("H15a chm full cycle returns to the target page",
+                      viewer.controller()->currentPage() == target &&
+                      viewer.controller()->anchorPage() == target);
+                postKeySync('V', [&] { return !viewer.controller()->isPagedMode(); });
+                pump(40);
+                postKeySync('B', [&] { return presIs(PP::Double); });
+                // Double -> Cover: anchor's unit vs stale unit. The offset is
+                // read live (Double: same row as the view; Cover: the goal).
+                postKeySync('B', [&] {
+                    return presIs(PP::DoubleWithCover) &&
+                           vPos(vh) == viewer.controller()->scrollOffsetForPage(target);
+                });
+                CHECK("H15b chm re-target lands on the anchor unit",
+                      vPos(vh) == viewer.controller()->scrollOffsetForPage(target));
+                CHECK("H15c chm anchor survives the cycle",
+                      viewer.controller()->currentPage() == target &&
+                      viewer.controller()->anchorPage() == target);
+                postKeySync('B', [&] { return presIs(PP::Single); });
+                CHECK("H15d chm back to Single on the target page",
+                      vPos(vh) == viewer.controller()->scrollOffsetForPage(target) &&
+                      viewer.controller()->currentPage() == target);
+                postKeySync('B', [&] { return presIs(PP::Double); });
+                viewer.controller()->goToPage(target); // anchor=target, view stays
+                pump(40);
+                postKeySync('B', [&] {
+                    return presIs(PP::DoubleWithCover) &&
+                           vPos(vh) == viewer.controller()->scrollOffsetForPage(target);
+                });
+                CHECK("H15e chm re-target lands on the anchor unit (again)",
+                      vPos(vh) == viewer.controller()->scrollOffsetForPage(target));
+                CHECK("H15f chm anchor survives the cycle (again)",
+                      viewer.controller()->currentPage() == target &&
+                      viewer.controller()->anchorPage() == target);
+            }
+        }
 
         DestroyWindow(host);
         pump(50);

@@ -598,7 +598,6 @@ void ViewerWidget::onTogglePresentation() {
     // Mirror onToggleMode: keep the same unit in view while the spread shape
     // changes. Paged resets to a clean origin; continuous re-targets the scroll
     // to the unit's new top so the reader doesn't jump pages.
-    const int page = m_controller->currentPage();
     m_suppressScrollTracking = true;
     m_controller->cyclePagePresentation();
     if (m_controller->isPagedMode()) {
@@ -608,8 +607,13 @@ void ViewerWidget::onTogglePresentation() {
         resizeCanvas();
         return;
     }
+    // Re-target to the POST-cycle unit top (issue #20): the pre-cycle current
+    // page is truncated to the old unit's first page, which under the new
+    // pairing can sit in an earlier unit and would strand the anchor there.
+    const int target =
+        m_controller->scrollOffsetForPage(m_controller->currentPage());
     resizeCanvas();
-    QTimer::singleShot(0, this, [this, page, target = m_controller->scrollOffsetForPage(page)]() {
+    QTimer::singleShot(0, this, [this, target]() {
         m_scrollArea->verticalScrollBar()->setValue(target);
         m_suppressScrollTracking = false;
     });

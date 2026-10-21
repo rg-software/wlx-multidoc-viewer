@@ -213,14 +213,18 @@ void ToolbarPresenter::onPresentationCycled() {
         return;
     // Mirror the keyboard toggle: keep the current page, and restore the
     // scroll so the view does not reset to page 1 when switching presentation.
-    const int page = m_controller->currentPage();
     m_controller->cyclePagePresentation();
     if (!m_applyScroll)
         return;
     if (m_controller->isPagedMode())
         m_applyScroll(0);
     else
-        m_applyScroll(m_controller->scrollOffsetForPage(page));
+        // Re-target to the POST-cycle unit top (issue #20): the pre-cycle
+        // current page is truncated to the old unit's first page, which under
+        // the new pairing can sit in an earlier unit. Scrolling there strands
+        // the anchor and scroll tracking then truncates it, so every press
+        // walks the view toward page 1.
+        m_applyScroll(m_controller->scrollOffsetForPage(m_controller->currentPage()));
 }
 
 void ToolbarPresenter::onFitCycled() {
