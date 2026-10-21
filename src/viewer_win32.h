@@ -45,7 +45,9 @@ private:
 
     void onPaint();
     void onSize(int w, int h);
-    void onKeyDown(WPARAM wp, bool shift);
+    // Returns true when the key triggered a viewer command (the caller then
+    // consumes it); unhandled keys fall through to DefWindowProc.
+    bool onKeyDown(WPARAM wp, bool shift);
     void onMouseWheel(int delta);
     void onMouseWheelZoom(int delta);
     void onVScroll(int code, int pos);

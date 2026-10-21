@@ -489,8 +489,11 @@ LRESULT ViewerWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
         // move, which would otherwise not trigger WM_SETCURSOR.
         if (wp == VK_CONTROL)
             refreshHoverCursor();
-        onKeyDown(wp, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
-        return 0;
+        // Consume only keys the viewer actually handles; anything else falls
+        // through to DefWindowProc so the host still sees it.
+        if (onKeyDown(wp, (GetKeyState(VK_SHIFT) & 0x8000) != 0))
+            return 0;
+        break;
     case WM_KEYUP:
         if (wp == VK_CONTROL) {
             refreshHoverCursor();
@@ -863,13 +866,13 @@ void ViewerWin32::pageBlockUp() {
     }
 }
 
-void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
+bool ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
     // Focus neutrality (design D8): typed characters belong to a focused
     // toolbar edit box and must never trigger viewer shortcuts.
     if (m_toolbar && m_toolbar->isEditFocused())
-        return;
+        return false;
     if (!m_controller || !m_controller->hasDocument())
-        return;
+        return false;
 
     bool captured = false;
     bool continuous = !m_controller->isPagedMode();
@@ -1073,6 +1076,7 @@ void ViewerWin32::onKeyDown(WPARAM wp, bool shift) {
             m_scrollY = 0;
         }
     }
+    return captured;
 }
 
 void ViewerWin32::onDragStart(LPARAM lp) {
