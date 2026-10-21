@@ -377,15 +377,18 @@ install(TARGETS wlx-multidoc-viewer
         LIBRARY DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
 
 # Shipped templates read from the plugin's own directory: multidocviewer.ini
-# (settings) and chm.css (default CHM stylesheet). Both ride along next to the
-# built binary and are installed alongside the plugin on Linux.
+# (settings) and chm.css (default CHM stylesheet). The settings template is
+# installed/staged as multidocviewer.ini.sample (never a live .ini) so
+# updating the plugin cannot overwrite a user's customized INI.
 install(FILES "${CMAKE_SOURCE_DIR}/assets/multidocviewer.ini"
-              "${CMAKE_SOURCE_DIR}/assets/chm.css"
+        RENAME multidocviewer.ini.sample
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
+install(FILES "${CMAKE_SOURCE_DIR}/assets/chm.css"
         DESTINATION ${CMAKE_INSTALL_DATADIR}/doublecmd/plugins/multidoc)
 add_custom_command(TARGET wlx-multidoc-viewer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/assets/multidocviewer.ini"
-        "$<TARGET_FILE_DIR:wlx-multidoc-viewer>/multidocviewer.ini"
+        "$<TARGET_FILE_DIR:wlx-multidoc-viewer>/multidocviewer.ini.sample"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/assets/chm.css"
         "$<TARGET_FILE_DIR:wlx-multidoc-viewer>/chm.css"

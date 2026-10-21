@@ -5,7 +5,7 @@
 #  Produces:
 #    build/linux-release/MultidocViewer.wlx64   (built plugin)
 #    dist/linux-release/MultidocViewer.wlx64    (packaged)
-#    dist/linux-release/multidocviewer.ini      (packaged INI template)
+#    dist/linux-release/multidocviewer.ini.sample  (packaged INI template)
 #    dist/linux-release/chm.css                 (packaged CHM stylesheet)
 #    dist/wlx-multidoc-viewer-Linux-YYYYMMDD.zip     (bundle)
 #
@@ -34,7 +34,9 @@ cp "build/linux-release/MultidocViewer.wlx64" "$OUT/" || {
 # pluginst.inf is not supported on Linux
 # cp assets/pluginst.inf "$OUT/"
 
-cp assets/multidocviewer.ini "$OUT/"
+# Ship the settings template under a .sample name (never a live .ini) so
+# updating the plugin cannot overwrite a user's customized INI.
+cp assets/multidocviewer.ini "$OUT/multidocviewer.ini.sample"
 cp assets/chm.css "$OUT/"
 
 # --- 3. Compress the package (zip goes outside the packaged dir; remove

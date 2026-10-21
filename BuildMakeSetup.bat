@@ -9,7 +9,7 @@ REM    build\release\Release\MultidocViewer.wlx64     (x64 built plugin)
 REM    build\release-x86\Release\MultidocViewer.wlx   (x86 built plugin)
 REM    dist\release\MultidocViewer.wlx64               (packaged x64)
 REM    dist\release\MultidocViewer.wlx                 (packaged x86)
-REM    dist\release\multidocviewer.ini                  (packaged INI template)
+REM    dist\release\multidocviewer.ini.sample            (packaged INI template)
 REM    dist\release\chm.css                            (packaged CHM stylesheet)
 REM    dist\wlx-multidoc-viewer-Win-YYYYMMDD.zip       (bundle)
 REM
@@ -58,7 +58,9 @@ copy /Y "build\release-x86\Release\MultidocViewer.wlx"  "%OUT%\" >nul || (
     echo [ERROR] x86 plugin .wlx not found.& exit /b 1 )
 
 copy /Y "assets\pluginst.inf" "%OUT%\" >nul
-copy /Y "assets\multidocviewer.ini" "%OUT%\" >nul
+REM Ship the settings template under a .sample name (never a live .ini) so
+REM updating the plugin cannot overwrite a user's customized INI.
+copy /Y "assets\multidocviewer.ini" "%OUT%\multidocviewer.ini.sample" >nul
 copy /Y "assets\chm.css" "%OUT%\" >nul
 
 REM --- compress the package (zip goes OUTSIDE the packaged dir so it
