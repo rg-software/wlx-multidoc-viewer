@@ -11,6 +11,8 @@
 #include <cstdio>
 
 #include <QImage>
+#include <QVector>
+#include <algorithm>
 
 // No-op debug stub (removed instrumentation). Kept as a defined symbol so any
 // residual call sites compile; there should be none in release.
@@ -429,7 +431,14 @@ void ToolbarWin32::setEditText(toolbar::Control c, const QString& text) {
     const QString cur = textOfEdit(h);
     if (cur == text)
         return;
+    // SetWindowTextW raises EN_CHANGE synchronously; a presenter-driven write
+    // (e.g. clearing the box on document load) must not be treated as a user
+    // edit (design decision 7).
+    if (c == toolbar::Control::FindBox)
+        m_findChangeGuard = true;
     SetWindowTextW(h, reinterpret_cast<const wchar_t*>(text.utf16()));
+    if (c == toolbar::Control::FindBox)
+        m_findChangeGuard = false;
 }
 
 QString ToolbarWin32::editText(toolbar::Control c) const {
@@ -469,12 +478,46 @@ LRESULT CALLBACK ToolbarWin32::editProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
     switch (msg) {
     case WM_KEYDOWN:
         if (wp == VK_RETURN) {
+            const int id = GetDlgCtrlID(hwnd);
             SendMessageW(GetParent(hwnd), WM_COMMAND, 0, reinterpret_cast<LPARAM>(hwnd));
-            // After committing, give keyboard focus back to the viewer so
-            // arrows/Esc/pgup/pgdown work again right away.
+            // The find edit KEEPS keyboard focus after a commit so repeated
+            // Enter presses re-commit the same term and cycle through the
+            // matches (issue #12). This also matches the Qt backend, where
+            // returnPressed never moves focus. The page edit still hands
+            // focus back to the viewer so arrows/Esc/pgup/pgdown work right
+            // away after a page jump.
+            if (id != ID_FIND_EDIT)
+                SetFocus(GetParent(GetParent(hwnd)));
+            // Swallow the key so the control does not raise its no-default-
+            // button beep (the ding on every Enter the user heard).
+            return 0;
+        }
+        if (wp == VK_ESCAPE) {
+            // Esc leaves the edit session and returns keyboard focus to the
+            // viewer (where Esc also clears an active selection). Without this
+            // the box would trap focus and Esc would be inert.
             SetFocus(GetParent(GetParent(hwnd)));
             return 0;
         }
+        if (wp == VK_TAB) {
+            // The host (Total Commander/Double Commander) owns the message
+            // loop and does not IsDialogMessage our strip, so Tab would move
+            // the caret inside the edit instead of traversing the toolbar
+            // controls. Traverse to the next/previous toolbar control here.
+            HWND strip = GetParent(hwnd);
+            auto* self = reinterpret_cast<ToolbarWin32*>(
+                GetWindowLongPtrW(strip, GWLP_USERDATA));
+            if (self)
+                self->focusAdjacentControl(hwnd, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+            return 0;
+        }
+        break;
+    // Swallow the WM_CHAR for Return/Escape: the key was already handled in
+    // WM_KEYDOWN, and letting the control see the character is what produces
+    // the default-button beep.
+    case WM_CHAR:
+        if (wp == VK_RETURN || wp == VK_ESCAPE)
+            return 0;
         break;
     // NOTE: no WM_KILLFOCUS commit. Losing focus (e.g. when the user clicks a
     // toolbar button like Match case) must NOT re-run the find/page commit —
@@ -483,6 +526,45 @@ LRESULT CALLBACK ToolbarWin32::editProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
         break;
     }
     return CallWindowProcW(origProc, hwnd, msg, wp, lp);
+}
+
+// Tab traversal for the strip. The strip is a plain child window (not a
+// dialog), so there is no built-in ordering to walk; the control table itself
+// is the focus order, filtered to enabled, visible, WS_TABSTOP controls. The
+// two edits are the only tab stops, so Tab ping-pongs between the page and
+// find boxes and, at the ends, out to the viewer.
+void ToolbarWin32::focusAdjacentControl(HWND from, bool backward) {
+    QVector<int> order;
+    order.reserve(m_controls.size());
+    for (int id : m_controls.keys()) {
+        HWND h = m_controls.value(id);
+        if (!h || !IsWindow(h) || !IsWindowVisible(h) || !IsWindowEnabled(h))
+            continue;
+        if (!(GetWindowLongPtrW(h, GWL_STYLE) & WS_TABSTOP))
+            continue;
+        order.append(id);
+    }
+    if (order.isEmpty()) {
+        SetFocus(GetParent(m_hwnd));
+        return;
+    }
+    std::sort(order.begin(), order.end());
+    int index = order.indexOf(from ? GetDlgCtrlID(from) : -1);
+    int next = 0;
+    if (index >= 0)
+        next = backward ? index - 1 : index + 1;
+    // Leaving either end of the strip hands keyboard focus to the viewer so
+    // the strip never traps Tab.
+    if (next < 0 || next >= order.size()) {
+        SetFocus(GetParent(m_hwnd));
+        return;
+    }
+    HWND target = m_controls.value(order[next]);
+    SetFocus(target);
+    // Select the edit's contents when it is reached by Tab so retyping
+    // replaces the value (same affordance as Ctrl+F focusFind()).
+    if (target == m_controls.value(ID_FIND_EDIT) || target == m_controls.value(ID_PAGE_EDIT))
+        SendMessageW(target, EM_SETSEL, 0, -1);
 }
 
 void ToolbarWin32::layout() {
@@ -657,9 +739,15 @@ LRESULT ToolbarWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         const HWND child = reinterpret_cast<HWND>(lp);
-        // The edit controls report their own notifications (EN_CHANGE,
-        // EN_UPDATE, EN_SETFOCUS...) while the user types or the presenter
-        // syncs text; only the editProc-stamped commit (wParam == 0) may act.
+        // The find edit's EN_CHANGE is the find-text-changed notification: it
+        // tells the presenter the user edited the term (issue #12). The other
+        // native edit notifications (EN_UPDATE, EN_SETFOCUS...) are ignored,
+        // and only the editProc-stamped commit (wParam == 0) may commit.
+        if (child == m_controls.value(ID_FIND_EDIT) && HIWORD(wp) == EN_CHANGE) {
+            if (!m_findChangeGuard)
+                notifyFindTextChanged();
+            return 0;
+        }
         if (child == m_controls.value(ID_PAGE_EDIT) ||
             child == m_controls.value(ID_FIND_EDIT)) {
             if (HIWORD(wp) != 0)

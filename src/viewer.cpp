@@ -368,6 +368,8 @@ bool ViewerWidget::loadDocument(const QString& path) {
     m_controller->setRenderScale(static_cast<float>(devicePixelRatioF()));
     if (!m_controller->openDocument(path))
         return false;
+    // Fresh document: reset find state (box cleared, no stale highlights).
+    m_toolbarPresenter.onDocumentLoaded();
     m_sidebarPresenter.reload();
     m_sidebarVisible = m_sidebarPresenter.hasSidebarContent() && viewer_settings::kSidebarVisibleByDefault;
     m_sidebar->setVisible(m_sidebarVisible);

@@ -79,6 +79,12 @@ public:
     void setPresenter(ToolbarPresenter* p) { m_presenter = p; }
     ToolbarPresenter* presenter() const { return m_presenter; }
 
+    // Backend -> presenter notification: the user changed the find box
+    // contents (Win32 EN_CHANGE / Qt QLineEdit::textChanged). Programmatic
+    // presenter-driven writes are guarded by the presenter and must not raise
+    // this (issue #12).
+    void notifyFindTextChanged();
+
 private:
     ToolbarPresenter* m_presenter = nullptr;
 };
@@ -113,6 +119,11 @@ public:
     // Refresh all control state from the controller (state-changed callback).
     void refreshState();
 
+    // Narrow refresh of just the find controls (FindPrev/FindNext enablement),
+    // computed from search capability + box contents. Used at edit frequency
+    // instead of the full ~20-control refreshState() (design decision 3).
+    void updateFindControls();
+
     // ---- Backend event handlers (called from the native UI) ----
     void onPrevPage();
     void onNextPage();
@@ -129,6 +140,13 @@ public:
     void onFindPrev();
     void onFindNext();
     void onMatchCaseToggled(bool on);
+    // The find box contents changed (user edit). The box is the single source
+    // of truth for the current term: the edit invalidates the active search
+    // (highlights, count, active match) and re-syncs find-control enablement.
+    void onFindTextChanged();
+    // Document opened/switched: reset find state so no term or highlights leak
+    // across documents. Called by the viewers after a successful openDocument.
+    void onDocumentLoaded();
     void onPrint();
     void onCopy();
     void onSidebarToggled();
@@ -144,11 +162,17 @@ public:
 
 private:
     void applyAnchored(std::function<int(int)> step);
+    // Programmatic find-box write; the resulting edit notification is made
+    // inert by the re-entrancy guard (design decision 7).
+    void setFindBoxText(const QString& text);
 
     ViewerController* m_controller = nullptr;
     ToolbarBackend* m_backend = nullptr;
     std::function<void(int)> m_applyScroll;
     bool m_matchCase = false;
+    // True while the presenter itself writes the find box, so the backend's
+    // edit-changed notification is not mistaken for a user edit.
+    bool m_applyingFindBox = false;
 };
 
 } // namespace toolbar

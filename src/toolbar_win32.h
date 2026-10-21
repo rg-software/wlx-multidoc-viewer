@@ -61,6 +61,11 @@ private:
     HWND addEdit(int id, int widthPx, bool rightAlign = false);
     HWND addStatic(int id, int widthPx);
     void layout();
+    // Tab traversal for the strip (the host's message loop does not run
+    // IsDialogMessage on our child HWNDs, so Tab is handled by the edit
+    // subclass). Walks the WS_TABSTOP controls in the control table's order and
+    // hands focus to the viewer when either end is passed.
+    void focusAdjacentControl(HWND from, bool backward);
     void onCommand(int id);
     void drawButton(HDC parentDc, const DRAWITEMSTRUCT& dis);
     void onEditCommit(int id);
@@ -97,6 +102,10 @@ private:
 
     int m_editPage = 0;
     int m_editFind = 0;
+    // True only while the presenter writes the find box programmatically, so
+    // the synchronous EN_CHANGE from SetWindowTextW is not treated as a user
+    // edit (design decision 7).
+    bool m_findChangeGuard = false;
 };
 
 #endif // Q_OS_WIN

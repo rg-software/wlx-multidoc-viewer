@@ -225,6 +225,8 @@ bool ViewerWin32::loadDocument(const QString& path) {
         return false;
     m_scrollX = 0;
     m_scrollY = 0;
+    // Fresh document: reset find state (box cleared, no stale highlights).
+    m_toolbarPresenter.onDocumentLoaded();
     m_sidebarPresenter.reload();
     // An outlined document starts with the sidebar shown only when the INI
     // [Viewer] SidebarVisible key is enabled; manual toggling is never overridden.

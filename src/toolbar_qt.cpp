@@ -188,6 +188,12 @@ ToolbarQt::ToolbarQt(QWidget* parent)
     // too, so the two platforms behave identically).
     connect(as<QLineEdit>(m_ctl.value(toolbar::Control::FindBox)), &QLineEdit::returnPressed,
             this, [this] { presenter()->onFindCommitted(editText(toolbar::Control::FindBox)); });
+    // textChanged is the find-text-changed notification (issue #12): every
+    // edit invalidates the active search through the presenter. Programmatic
+    // setText is silenced by the guard in setEditText, so presenter-driven
+    // writes do not loop back.
+    connect(as<QLineEdit>(m_ctl.value(toolbar::Control::FindBox)), &QLineEdit::textChanged,
+            this, [this](const QString&) { presenter()->onFindTextChanged(); });
     connect(as<QToolButton>(m_ctl.value(toolbar::Control::MatchCase)), &QToolButton::toggled,
             this, [this](bool on) { presenter()->onMatchCaseToggled(on); });
 }
@@ -215,8 +221,13 @@ void ToolbarQt::setText(toolbar::Control c, const QString& text) {
 }
 
 void ToolbarQt::setEditText(toolbar::Control c, const QString& text) {
-    if (auto* e = as<QLineEdit>(m_ctl.value(c)))
+    if (auto* e = as<QLineEdit>(m_ctl.value(c))) {
+        // A presenter-driven write (e.g. clearing the box on document load)
+        // must not raise textChanged and be treated as a user edit (design
+        // decision 7).
+        const QSignalBlocker blocker(e);
         e->setText(text);
+    }
 }
 
 QString ToolbarQt::editText(toolbar::Control c) const {

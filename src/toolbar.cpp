@@ -6,6 +6,11 @@
 
 namespace toolbar {
 
+void ToolbarBackend::notifyFindTextChanged() {
+    if (m_presenter)
+        m_presenter->onFindTextChanged();
+}
+
 void ToolbarPresenter::refreshState() {
     if (!m_backend)
         return;
@@ -95,8 +100,7 @@ void ToolbarPresenter::refreshState() {
 
     const int matchCount = hasDoc ? m_controller->searchMatchCount() : 0;
     const bool hasMatches = matchCount > 0;
-    m_backend->setEnabled(Control::FindPrev, canSearch && hasMatches);
-    m_backend->setEnabled(Control::FindNext, canSearch && hasMatches);
+    updateFindControls();
 
     QString findInfo;
     if (canSearch) {
@@ -131,6 +135,21 @@ void ToolbarPresenter::refreshState() {
     m_backend->setEnabled(Control::RotateRight, hasDoc);
     m_backend->setEnabled(Control::ModeToggle, hasDoc && !singlePage);
     m_backend->setEnabled(Control::FitButton, hasDoc);
+}
+
+void ToolbarPresenter::updateFindControls() {
+    if (!m_backend)
+        return;
+    // Enablement is driven by the box contents plus search capability, NOT by
+    // whether a result set exists: with a term present the buttons are usable
+    // immediately and initiate the search themselves (issue #12, design
+    // decision 3).
+    const bool canSearch =
+        m_controller && m_controller->hasDocument() && m_controller->searchAvailable();
+    const bool termPresent =
+        canSearch && !m_backend->editText(Control::FindBox).trimmed().isEmpty();
+    m_backend->setEnabled(Control::FindPrev, termPresent);
+    m_backend->setEnabled(Control::FindNext, termPresent);
 }
 
 void ToolbarPresenter::applyAnchored(std::function<int(int)> step) {
@@ -258,6 +277,7 @@ void ToolbarPresenter::onFindCommitted(const QString& text) {
     const QString trimmed = text.trimmed();
     if (trimmed.isEmpty()) {
         m_controller->clearSearch();
+        updateFindControls();
         return;
     }
     // Pressing Enter again on the already-active term should cycle through the
@@ -268,23 +288,82 @@ void ToolbarPresenter::onFindCommitted(const QString& text) {
         return;
     }
     m_controller->startSearch(trimmed, m_matchCase);
+    updateFindControls();
 }
 
 void ToolbarPresenter::onMatchCaseToggled(bool on) {
     m_matchCase = on;
-    // Match-case is a pure checkbox: it only affects the next search, it does
-    // not re-run the current one.
+    // Re-run only an already-active query so the toggle updates matches
+    // immediately; with an empty/never-searched box it merely constrains the
+    // next search (design decision 5).
+    if (m_controller && !m_controller->searchQuery().isEmpty()) {
+        const QString boxText =
+            m_backend ? m_backend->editText(Control::FindBox).trimmed() : QString();
+        if (!boxText.isEmpty())
+            m_controller->startSearch(boxText, on);
+    }
     refreshState();
 }
 
 void ToolbarPresenter::onFindPrev() {
-    if (m_controller)
-        applyAnchored([this](int s) { return m_controller->prevMatch(s); });
+    if (!m_controller || !m_backend)
+        return;
+    const QString boxText = m_backend->editText(Control::FindBox).trimmed();
+    if (boxText.isEmpty())
+        return;
+    // No active search for the current box text: this activation initiates it
+    // (same semantics as Enter) instead of navigating a stale result set.
+    // Keyed on the committed query, not the hit list, so a zero-match term is
+    // never re-scanned (design decision 2).
+    if (boxText != m_controller->searchQuery()) {
+        m_controller->startSearch(boxText, m_matchCase);
+        updateFindControls();
+        return;
+    }
+    applyAnchored([this](int s) { return m_controller->prevMatch(s); });
 }
 
 void ToolbarPresenter::onFindNext() {
+    if (!m_controller || !m_backend)
+        return;
+    const QString boxText = m_backend->editText(Control::FindBox).trimmed();
+    if (boxText.isEmpty())
+        return;
+    if (boxText != m_controller->searchQuery()) {
+        m_controller->startSearch(boxText, m_matchCase);
+        updateFindControls();
+        return;
+    }
+    applyAnchored([this](int s) { return m_controller->nextMatch(s); });
+}
+
+void ToolbarPresenter::onFindTextChanged() {
+    if (m_applyingFindBox)
+        return; // programmatic box write, not a user edit (decision 7)
+    // The box is the single source of truth for the current term: any edit
+    // invalidates the committed query and its results immediately, without a
+    // commit (issue #12, decision 1). clearSearch() early-returns when nothing
+    // is active, so editing before any search is free.
     if (m_controller)
-        applyAnchored([this](int s) { return m_controller->nextMatch(s); });
+        m_controller->clearSearch();
+    updateFindControls();
+}
+
+void ToolbarPresenter::onDocumentLoaded() {
+    // No term or highlights leak across documents (decision 6). The guarded
+    // write does not raise onFindTextChanged.
+    setFindBoxText(QString());
+    if (m_controller)
+        m_controller->clearSearch();
+    updateFindControls();
+}
+
+void ToolbarPresenter::setFindBoxText(const QString& text) {
+    if (!m_backend)
+        return;
+    m_applyingFindBox = true;
+    m_backend->setEditText(Control::FindBox, text);
+    m_applyingFindBox = false;
 }
 
 void ToolbarPresenter::onPrint() {
