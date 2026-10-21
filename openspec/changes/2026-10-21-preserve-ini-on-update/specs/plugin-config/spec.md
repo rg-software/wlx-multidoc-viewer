@@ -32,3 +32,17 @@ A missing `multidocviewer.ini` SHALL continue to mean compile-time defaults; the
 
 - **WHEN** only `multidocviewer.ini.sample` is present and no `multidocviewer.ini` exists
 - **THEN** the viewer behaves exactly as with an absent INI (all defaults)
+
+### Requirement: Sample file as fallback layer
+
+The plugin SHALL read `multidocviewer.ini.sample` from the plugin directory as the base configuration layer when present, and overlay `multidocviewer.ini` on top of it key by key. Read sites keep their hardcoded fallbacks for keys absent from both files.
+
+#### Scenario: Sample supplies a missing user key
+
+- **WHEN** the user INI sets `[Viewer] SidebarWidth` but no `Theme`
+- **THEN** `SidebarWidth` resolves from the user INI and `Theme` resolves from the sample
+
+#### Scenario: Sample absent
+
+- **WHEN** neither `multidocviewer.ini` nor `multidocviewer.ini.sample` exists
+- **THEN** every key resolves to its hardcoded read-site default, as before

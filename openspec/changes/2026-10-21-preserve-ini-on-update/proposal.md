@@ -6,9 +6,9 @@ The release archives ship a live `multidocviewer.ini` next to the plugin binary.
 
 ## What Changes
 
-- Ship the default configuration as `multidocviewer.ini.sample` instead of a live `multidocviewer.ini` on both platforms (Windows zip, Linux zip, CMake install tree).
-- Keep `assets/multidocviewer.ini` as the single template source; rename at packaging time.
-- No runtime code changes: an absent INI already falls back to compile-time defaults per `plugin-config`, so unlike the sister project no first-run creation is needed.
+- Stop shipping `multidocviewer.ini` itself in the release archives and install tree; ship `multidocviewer.ini.sample` instead (Windows zip, Linux zip, CMake install).
+- Read the configuration in layers: the shipped `.sample` is the fallback base, the user's `multidocviewer.ini` overlays it key by key, and hardcoded read-site defaults apply only when a key is in neither file. Audited: every active sample value already equals its hardcoded default, so no-INI behavior is unchanged.
+- Add `harness-pluginconfig` covering sample-only, user overlay, user-only, and neither-file scenarios.
 
 ## Capabilities
 

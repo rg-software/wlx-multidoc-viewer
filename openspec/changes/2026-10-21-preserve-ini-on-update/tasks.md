@@ -19,3 +19,10 @@
 
 - [x] 4.1 Confirm no packaging path references a live `multidocviewer.ini` destination anymore (`grep` over `BuildMakeSetup.*`, `release.yml`, `CMakeLists.txt`)
 - [x] 4.2 Confirm runtime behavior is unchanged: absent INI yields defaults (existing `harness-startup` default scenario), present INI is honored
+
+## 5. Layered sample fallback (runtime)
+
+- [x] 5.1 Audit every active sample value against its hardcoded read-site fallback and confirm equality (all `[Viewer]` keys, all 26 palette slots)
+- [x] 5.2 Implement the base-plus-overlay merge in `PluginConfig::get()`; hardcoded fallbacks stay as the last layer
+- [x] 5.3 Add `harness-pluginconfig` (sample-only / user overlay / user-only / neither-file scenarios, spawned children) and wire it in `CMakeLists.txt`; confirm it passes
+- [x] 5.4 Re-run `harness-startup`, `harness-theme`, `harness-findbox` against the layered read and confirm they still pass

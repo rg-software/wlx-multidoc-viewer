@@ -741,6 +741,23 @@ if(WLX_BUILD_HARNESS AND WIN32)
         Qt6::Gui
     )
 
+    # Headless plugin-config layering harness (preserve-ini-on-update): the
+    # shipped .sample template is the fallback layer, the user .ini overlays
+    # it key by key, missing keys stay empty for the hardcoded read-site
+    # defaults. Each scenario runs in a spawned child (config caches per
+    # process); the parent stages scratch files next to the exe.
+    add_executable(harness-pluginconfig
+        tests/harness_pluginconfig.cpp
+        src/pluginconfig.cpp
+    )
+    target_include_directories(harness-pluginconfig PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
+    target_link_libraries(harness-pluginconfig
+        Qt6::Core
+        Qt6::Gui
+    )
+
     # Headless find-box/search-sync harness (fix-find-box-search-sync,
     # issue #12): real ToolbarPresenter + fake ToolbarBackend + real
     # ViewerController over a fake searchable engine. Verifies find-control

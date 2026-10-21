@@ -23,8 +23,13 @@ See `proposal.md`. `PluginConfig::get()` reads `multidocviewer.ini` from the plu
    - Alternative: rename in source. Rejected — wider diff, same result.
 
 2. **No first-run copy**
-   - Absent INI already means defaults (specified, harness-covered). Adding a copy would need plugin-dir writability handling for zero behavioral gain.
+   - An absent user INI already means usable defaults, now sourced from the sample (decision 4) instead of only the hardcoded fallbacks. No file creation keeps the read-only-INI contract and avoids plugin-dir writability handling.
    - Alternative: sister-style auto-create. Rejected per above.
+
+4. **Layered read with the sample as fallback base**
+   - `PluginConfig::get()` parses `multidocviewer.ini.sample` first, then overlays `multidocviewer.ini` key by key; read sites keep their hardcoded fallbacks for keys in neither file. All read sites flow through the singleton, so no call-site changes on either platform.
+   - Rationale: the sample becomes the single human-editable source of default truth; previously defaults lived in two places (sample comments + hardcoded fallbacks) and could drift silently.
+   - Audited before implementing: every active sample value equals its hardcoded default (all 9 `[Viewer]` keys incl. commented-out inactives, all 26 palette slots), so users without an INI see zero behavior change.
 
 3. **Build-tree staging follows the same rule**
    - The CMake post-build copy next to the binary also stages the `.sample`, so a rebuild never clobbers a dev's build-tree `multidocviewer.ini` either. Harnesses write their own temp INI and are unaffected.
@@ -44,5 +49,6 @@ See `proposal.md`. `PluginConfig::get()` reads `multidocviewer.ini` from the plu
 ## Migration Plan
 
 1. Update the five copy sites to emit `multidocviewer.ini.sample`.
-2. Rebuild; confirm the build tree stages the sample and no live INI.
-3. Verify archives/install image contain the sample and no live INI; run the INI harnesses.
+2. Implement the layered read in `PluginConfig::get()` plus `harness-pluginconfig`.
+3. Rebuild; confirm the build tree stages the sample and no live INI.
+4. Verify archives/install image contain the sample and no live INI; run the INI harnesses.

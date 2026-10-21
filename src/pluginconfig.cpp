@@ -13,16 +13,29 @@ namespace PluginConfig {
 
 namespace {
 inline constexpr const char* kIniName = "multidocviewer.ini";
+inline constexpr const char* kSampleName = "multidocviewer.ini.sample";
 }
 
 const mINI::INIStructure& get() {
-    // Lazy parse: first access reads the file (or yields an empty structure
-    // when the file is absent); the result is cached for the process lifetime.
+    // Lazy layered parse, cached for the process lifetime:
+    //   1. shipped template (multidocviewer.ini.sample) as the base layer —
+    //      absent file or key falls through to the hardcoded read-site default;
+    //   2. the user's multidocviewer.ini overlaid key by key on top.
+    // The result is cached for the process lifetime. Neither file is ever
+    // written at runtime.
     static mINI::INIStructure ini;
     if (ini.size() == 0) {
-        const std::string path = modulePath() + "/" + kIniName;
-        mINI::INIFile file(path);
-        file.read(ini);
+        const std::string dir = modulePath();
+        mINI::INIFile sampleFile(dir + "/" + kSampleName);
+        sampleFile.read(ini);
+        mINI::INIStructure user;
+        mINI::INIFile userFile(dir + "/" + kIniName);
+        if (userFile.read(user)) {
+            for (auto& section : user) {
+                for (auto& kv : section.second)
+                    ini[section.first][kv.first] = kv.second;
+            }
+        }
     }
     return ini;
 }
