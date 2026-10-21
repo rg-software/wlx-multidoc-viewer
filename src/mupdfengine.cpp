@@ -72,7 +72,7 @@ MuPdfEngine::~MuPdfEngine() {
 }
 
 bool MuPdfEngine::open(const QString& path) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
 
     dropDocument();
 
@@ -124,7 +124,7 @@ bool MuPdfEngine::open(const QString& path) {
 }
 
 bool MuPdfEngine::openBuffer(const QByteArray& data, const QString& magic) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
 
     dropDocument();
 
@@ -169,12 +169,13 @@ bool MuPdfEngine::openBuffer(const QByteArray& data, const QString& magic) {
 }
 
 bool MuPdfEngine::makeContext(const QString& source) {
-    m_ctx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
+    // Attach to the process-wide context: stock lcms2 refuses a second live
+    // fz_context per process, so engines must share one (see mupdfcontext.h).
+    m_ctx = sharedMuPdfContext();
     if (!m_ctx) {
-        qWarning() << "MuPdfEngine: failed to create MuPDF context for" << source;
+        qWarning() << "MuPdfEngine: shared MuPDF context unavailable for" << source;
         return false;
     }
-    fz_register_document_handlers(m_ctx);
     return true;
 }
 
@@ -365,32 +366,30 @@ void MuPdfEngine::dropDocument() {
         fz_drop_document(m_ctx, m_doc);
         m_doc = nullptr;
     }
-    if (m_ctx) {
-        fz_drop_context(m_ctx);
-        m_ctx = nullptr;
-    }
+    // The context is process-lifetime and shared: detach, never drop.
+    m_ctx = nullptr;
     m_pageCount = 0;
     m_bodyHasCover = false;
     m_coverImage = QImage();
 }
 
 void MuPdfEngine::close() {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     dropDocument();
 }
 
 bool MuPdfEngine::isOpen() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     return m_doc != nullptr;
 }
 
 int MuPdfEngine::pageCount() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     return m_pageCount;
 }
 
 QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale, int rotation) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -492,7 +491,7 @@ QImage MuPdfEngine::renderPage(int page, float zoom, float dpiScale, int rotatio
 }
 
 PageText MuPdfEngine::pageText(int page) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -571,7 +570,7 @@ PageText MuPdfEngine::pageText(int page) {
 }
 
 QString MuPdfEngine::extractText(int page) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -617,7 +616,7 @@ QString MuPdfEngine::extractText(int page) {
 }
 
 QVector<LinkItem> MuPdfEngine::pageLinks(int page) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -678,7 +677,7 @@ QVector<LinkItem> MuPdfEngine::pageLinks(int page) {
 }
 
 QString MuPdfEngine::metadata(const QString& key) const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     if (!m_ctx || !m_doc)
         return {};
 
@@ -697,7 +696,7 @@ QString MuPdfEngine::metadata(const QString& key) const {
 }
 
 QVector<OutlineItem> MuPdfEngine::outline() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     if (!m_ctx || !m_doc)
         return {};
 
@@ -735,7 +734,7 @@ QVector<OutlineItem> MuPdfEngine::outline() const {
     return items;
 }
 
-// Assumes the caller holds m_mutex.
+// Assumes the caller holds the shared MuPDF lock.
 PageInfo MuPdfEngine::pageDimensionsRaw(int bodyPage) const {
     if (!m_ctx || !m_doc || bodyPage < 1)
         return {};
@@ -761,7 +760,7 @@ PageInfo MuPdfEngine::pageDimensionsRaw(int bodyPage) const {
 }
 
 PageInfo MuPdfEngine::pageDimensions(int page) const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount)
         return {};
 
@@ -773,7 +772,7 @@ PageInfo MuPdfEngine::pageDimensions(int page) const {
 }
 
 QVector<TextMatch> MuPdfEngine::searchText(int page, const QString& needle, bool matchCase) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     if (!m_ctx || !m_doc || page < 1 || page > m_pageCount || needle.isEmpty())
         return {};
 

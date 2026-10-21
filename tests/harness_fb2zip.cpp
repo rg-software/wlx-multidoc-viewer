@@ -14,8 +14,10 @@
 // PASS when every property holds. SKIPs (exit 0) when the primary fixture is
 // absent so un-regenerated checkouts do not fail.
 //
-// All engines are scoped and closed before the next opens: MuPDF's lcms2
-// integration tolerates sequential contexts but not concurrent ones.
+// All engines are scoped and closed before the next opens. (Since the
+// share-mupdf-context change the engines share one process-wide fz_context,
+// so concurrent opens are supported; the scoping here simply keeps each
+// scenario's page counts independent.)
 
 #include "document.h"
 #include "mupdfengine.h"

@@ -2,15 +2,13 @@
 #define CHMENGINE_H
 
 #include "document.h"
+#include "mupdfcontext.h"
 
 #include <QByteArray>
 #include <QHash>
 #include <QSet>
 #include <QString>
-#include <QTemporaryFile>
 #include <QVector>
-#include <memory>
-#include <mutex>
 
 struct chmFile;
 struct fz_context;
@@ -61,7 +59,9 @@ private:
         void drop(fz_context* ctx);
     };
 
-    // Callers must hold m_mutex; every helper below assumes it.
+    // Callers must hold the shared MuPDF lock (sharedMuPdfMutex()); every
+    // helper below assumes it. Lock-free by design: the ChmResourceArchive
+    // callbacks run inside fz_* calls while the lock is already held.
     void dropArchive();
     QByteArray readEntry(const QString& path) const;
     // Whether a CHM entry exists, without reading it.
@@ -113,6 +113,9 @@ private:
     QString decodeText(const QByteArray& bytes) const;
 
     chmFile* m_chm = nullptr;
+    // Alias to the process-wide shared MuPDF context (see mupdfcontext.h):
+    // attached in open(), detached in dropArchive(), never dropped. Null
+    // while no archive is open.
     fz_context* m_fzCtx = nullptr;
     QVector<QString> m_htmlPages;
     QVector<OutlineItem> m_outline;
@@ -136,12 +139,10 @@ private:
     QString m_systemToc;
     int m_codepage = 1252;
 
-    // libchm opens archives through the narrow ANSI API on Windows; a temp
-    // copy stages files whose names are not representable in the system
-    // codepage. Auto-removed when it goes out of scope.
-    std::unique_ptr<QTemporaryFile> m_stagedFile;
-
-    mutable std::mutex m_mutex;
+    // Windows staging target: libchm's narrow chm_open() opens with
+    // dwShareMode=0, so every window needs a private temp copy (Linux opens
+    // the archive in place). Deleted in dropArchive. See open().
+    QString m_stagedTempPath;
 };
 
 #endif // CHMENGINE_H

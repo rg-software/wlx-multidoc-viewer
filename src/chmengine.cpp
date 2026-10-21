@@ -9,7 +9,6 @@
 #include <QFileInfo>
 #include <QSet>
 #include <QStringList>
-#include <QTemporaryFile>
 #include <QDebug>
 #include <QtEndian>
 #include <algorithm>
@@ -840,7 +839,7 @@ ChmEngine::~ChmEngine() {
 }
 
 bool ChmEngine::open(const QString& path) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     dropArchive();
 
     if (!QFile::exists(path)) {
@@ -849,24 +848,58 @@ bool ChmEngine::open(const QString& path) {
     }
 
 #ifdef _WIN32
-    // chm_open resolves the file through the narrow ANSI API (CreateFileA),
-    // so stage a temp copy when the path is not representable in the system
-    // codepage; otherwise open in place.
-    QByteArray nameBytes = path.toLocal8Bit();
-    if (QString::fromLocal8Bit(nameBytes) != path) {
-        auto staged = std::make_unique<QTemporaryFile>(
-            QDir::temp().filePath("wlx-chm-XXXXXX.chm"));
+    // libchm's narrow chm_open() passes dwShareMode=0 to CreateFileA, so the
+    // first open locks the file exclusively: a second window on the same file
+    // (or any other reader) fails while the first is alive. Stage a private
+    // per-window temp copy instead, so concurrent windows never conflict.
+    // (This also covers names unrepresentable in the system codepage, which
+    // chm_open could never resolve directly.)
+    //
+    // Written with raw Win32 I/O on purpose: a just-closed QTemporaryFile
+    // handle still reads as locked (ERROR_SHARING_VIOLATION) to the
+    // immediately following exclusive open in the same process, so no Qt
+    // handle may ever exist on the staged path.
+    m_stagedTempPath.clear();
+    {
         QFile src(path);
-        if (!staged->open() || !src.open(QIODevice::ReadOnly)) {
-            qWarning() << "ChmEngine: failed to stage Unicode-named CHM:" << path;
+        if (!src.open(QIODevice::ReadOnly)) {
+            qWarning() << "ChmEngine: failed to read CHM for staging:" << path;
             return false;
         }
-        staged->write(src.readAll());
-        staged->flush();
-        nameBytes = staged->fileName().toLocal8Bit();
-        m_stagedFile = std::move(staged);
-        qDebug() << "ChmEngine: staged" << path << "->" << m_stagedFile->fileName();
+        const QByteArray data = src.readAll();
+        src.close();
+
+        wchar_t tempDir[MAX_PATH];
+        wchar_t tempPath[MAX_PATH];
+        if (!GetTempPathW(MAX_PATH, tempDir) ||
+            !GetTempFileNameW(tempDir, L"wlx", 0, tempPath)) {
+            qWarning() << "ChmEngine: failed to allocate CHM temp name:" << path;
+            return false;
+        }
+        HANDLE h = CreateFileW(tempPath, GENERIC_WRITE, 0, nullptr,
+                               TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        BOOL ok = h != INVALID_HANDLE_VALUE;
+        for (qint64 done = 0; ok && done < data.size();) {
+            // WriteFile takes a DWORD count: loop so arbitrarily large
+            // archives are not truncated at 4 GB.
+            const DWORD chunk = static_cast<DWORD>(
+                std::min<qint64>(data.size() - done, MAXDWORD));
+            DWORD written = 0;
+            ok = WriteFile(h, data.constData() + done, chunk, &written, nullptr) &&
+                 written == chunk;
+            done += written;
+        }
+        if (h != INVALID_HANDLE_VALUE)
+            CloseHandle(h);
+        if (!ok) {
+            DeleteFileW(tempPath);
+            qWarning() << "ChmEngine: failed to stage CHM:" << path;
+            return false;
+        }
+        m_stagedTempPath = QString::fromWCharArray(tempPath);
     }
+    const QByteArray nameBytes = m_stagedTempPath.toLocal8Bit();
+    qDebug() << "ChmEngine: staged" << path << "->" << m_stagedTempPath;
 #else
     const QByteArray nameBytes = QFile::encodeName(path);
 #endif
@@ -878,17 +911,13 @@ bool ChmEngine::open(const QString& path) {
 
     ::chm_enumerate(m_chm, CHM_ENUMERATE_ALL, enumCallback, &m_htmlPages);
 
-    m_fzCtx = fz_new_context(nullptr, nullptr, FZ_STORE_UNLIMITED);
-    if (m_fzCtx) {
-        fz_register_document_handlers(m_fzCtx);
-        // CHM bodies are reflowable HTML: theme them from the active palette,
-        // then apply the CHM layout overrides (built-in or user stylesheet).
-        const std::string css = chmStylesheet();
-        fz_try(m_fzCtx) { fz_set_user_css(m_fzCtx, css.c_str()); }
-        fz_catch(m_fzCtx) { /* keep MuPDF's default stylesheet */ }
-    } else {
-        qWarning() << "ChmEngine: failed to create MuPDF context for" << path;
-    }
+    // Attach to the process-wide context: stock lcms2 refuses a second live
+    // fz_context per process, so engines must share one (see mupdfcontext.h).
+    // Styling is applied per topic document in openTopicDoc(), never as
+    // context-wide state, so nothing leaks into other windows' documents.
+    m_fzCtx = sharedMuPdfContext();
+    if (!m_fzCtx)
+        qWarning() << "ChmEngine: shared MuPDF context unavailable for" << path;
 
     parseSystemData();
     buildResourceArchive();
@@ -908,15 +937,19 @@ void ChmEngine::dropArchive() {
         m_archive = nullptr;
     }
 #endif
-    if (m_fzCtx) {
-        fz_drop_context(m_fzCtx);
-        m_fzCtx = nullptr;
-    }
+    // The context is process-lifetime and shared: detach, never drop.
+    m_fzCtx = nullptr;
     if (m_chm) {
         ::chm_close(m_chm);
         m_chm = nullptr;
     }
-    m_stagedFile.reset();
+#ifdef _WIN32
+    // Remove this window's private temp copy (each open stages its own).
+    if (!m_stagedTempPath.isEmpty()) {
+        DeleteFileW(reinterpret_cast<const wchar_t*>(m_stagedTempPath.utf16()));
+        m_stagedTempPath.clear();
+    }
+#endif
     m_htmlPages.clear();
     m_outline.clear();
     m_dimCache.clear();
@@ -933,17 +966,17 @@ void ChmEngine::dropArchive() {
 }
 
 void ChmEngine::close() {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     dropArchive();
 }
 
 bool ChmEngine::isOpen() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     return m_chm != nullptr;
 }
 
 int ChmEngine::pageCount() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     return m_pageCount;
 }
 
@@ -1115,6 +1148,28 @@ ChmEngine::OpenedHtmlPage ChmEngine::openTopicDoc(int topic) const {
     if (!opened.doc)
         return opened;
 
+    // Theme this topic from the active palette plus the CHM layout overrides
+    // (built-in or user stylesheet), scoped to this document only: the
+    // context is shared process-wide, so context-level user CSS would leak
+    // into reflowable documents opened by other windows.
+#ifdef MUPDF_HAVE_STYLE_DOCUMENT
+    fz_try(ctx) {
+        const std::string& css = chmStylesheet();
+        fz_style_document(ctx, opened.doc, 0, css.c_str());
+    }
+    fz_catch(ctx) { /* keep MuPDF's default stylesheet */ }
+#else
+    // No per-document styling on this MuPDF: stage the CHM stylesheet as the
+    // context user CSS immediately before this topic is parsed/laid out. The
+    // global lock is held, and every parse/layout site (MuPDF finishOpen, here)
+    // sets its own CSS first, so no stale stylesheet is ever live at a parse.
+    fz_try(ctx) {
+        const std::string& css = chmStylesheet();
+        fz_set_user_css(ctx, css.c_str());
+    }
+    fz_catch(ctx) { /* keep MuPDF's default stylesheet */ }
+#endif
+
     // Paginate the reflow into the same A5 box MuPdfEngine uses for reflowable
     // documents, so a long topic becomes several viewport-sized pages instead of
     // one unbounded page. The default layout is kept if this fails (older
@@ -1184,7 +1239,7 @@ int ChmEngine::firstPageOfTopic(int topic) const {
 }
 
 QImage ChmEngine::renderPage(int page, float zoom, float dpiScale, int rotation) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     return renderPageLocked(page, zoom, dpiScale, rotation);
 }
 
@@ -1231,7 +1286,7 @@ QImage ChmEngine::renderPageLocked(int page, float zoom, float dpiScale, int rot
 }
 
 PageText ChmEngine::pageText(int page) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     PageText result;
     OpenedHtmlPage h = openHtmlPage(page);
     if (!h.doc || !h.page)
@@ -1300,7 +1355,7 @@ PageText ChmEngine::pageText(int page) {
 }
 
 QString ChmEngine::extractText(int page) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     QString result;
     OpenedHtmlPage h = openHtmlPage(page);
     if (!h.doc || !h.page)
@@ -1340,7 +1395,7 @@ QString ChmEngine::extractText(int page) {
 }
 
 QVector<LinkItem> ChmEngine::pageLinks(int page) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     QVector<LinkItem> result;
     if (!m_chm || !m_fzCtx || page < 1 || page > m_pageCount)
         return result;
@@ -1421,7 +1476,7 @@ QVector<LinkItem> ChmEngine::pageLinks(int page) {
 }
 
 QVector<TextMatch> ChmEngine::searchText(int page, const QString& needle, bool matchCase) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     QVector<TextMatch> results;
     if (needle.isEmpty())
         return results;
@@ -1536,7 +1591,7 @@ QVector<TextMatch> ChmEngine::searchText(int page, const QString& needle, bool m
 }
 
 QString ChmEngine::metadata(const QString& key) const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     const QString k = key.toLower();
     if (k == QLatin1String("title"))
         return m_title;
@@ -1546,12 +1601,12 @@ QString ChmEngine::metadata(const QString& key) const {
 }
 
 QVector<OutlineItem> ChmEngine::outline() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     return m_outline;
 }
 
 PageInfo ChmEngine::pageDimensions(int page) const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::lock_guard<std::mutex> lock(sharedMuPdfMutex());
     if (!m_chm || page < 1 || page > m_pageCount)
         return {};
 
