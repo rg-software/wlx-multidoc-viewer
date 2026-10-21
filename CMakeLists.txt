@@ -737,4 +737,30 @@ if(WLX_BUILD_HARNESS AND WIN32)
         Qt6::Core
         Qt6::Gui
     )
+
+    # Headless find-box/search-sync harness (fix-find-box-search-sync,
+    # issue #12): real ToolbarPresenter + fake ToolbarBackend + real
+    # ViewerController over a fake searchable engine. Verifies find-control
+    # enablement follows box contents, Prev/Next initiate a search when no
+    # query is active (and only navigate when one is), edits invalidate
+    # highlights/count, zero-match terms do not re-scan, and the match-case /
+    # document-load semantics.
+    add_executable(harness-findbox
+        tests/harness_findbox.cpp
+        src/pluginconfig.cpp
+        src/viewercontroller.cpp
+        src/favorites.cpp
+        src/imagefolder.cpp
+        src/naturalsort.cpp
+        src/searchcontroller.cpp
+        src/textselection.cpp
+        src/toolbar.cpp
+    )
+    target_include_directories(harness-findbox PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
+    target_link_libraries(harness-findbox
+        Qt6::Core
+        Qt6::Gui
+    )
 endif()
