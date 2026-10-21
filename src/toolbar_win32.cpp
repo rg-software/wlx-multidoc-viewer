@@ -378,9 +378,14 @@ void ToolbarWin32::setIcon(toolbar::Control c, toolbar::Icon icon) {
         tbLog("setIcon ctrl=%d ic against already-set bitmap (no rebuild)", (int)c);
         return; // icon unchanged; nothing to repaint
     }
-    // The bitmap changed: invalidate the WHOLE strip so every owner-drawn
-    // child repaints with the new bitmap (some children don't redraw when
-    // only they are invalidated).
+    // The bitmap changed: repaint the button itself (its WM_DRAWITEM fires on
+    // its own invalidation) plus the strip behind it. Never from WM_PAINT (see
+    // the note there): paint-time invalidation self-perpetuates under a
+    // composited ancestor.
+    if (HWND h = m_controls.value(id)) {
+        if (IsWindow(h))
+            InvalidateRect(h, nullptr, TRUE);
+    }
     InvalidateRect(m_hwnd, nullptr, FALSE);
     tbLog("setIcon ctrl=%d DID rebuild + invalidate strip", (int)c);
 }
@@ -398,6 +403,8 @@ void ToolbarWin32::setEnabled(toolbar::Control c, bool on) {
         return;
     m_btnEnabled[id] = on;
     EnableWindow(h, on);
+    if (IsWindow(h))
+        InvalidateRect(h, nullptr, TRUE);
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -406,8 +413,13 @@ void ToolbarWin32::setChecked(toolbar::Control c, bool on) {
     if (!id)
         return;
     // Track our own checked state (buttons are push-button style now; the
-    // presenter owns the true on/off for toggle buttons).
+    // presenter owns the true on/off for toggle buttons). Repaint the button
+    // itself too (see setIcon: never invalidate from WM_PAINT).
     m_manualCheck[id] = on;
+    if (HWND h = m_controls.value(id)) {
+        if (IsWindow(h))
+            InvalidateRect(h, nullptr, TRUE);
+    }
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -793,9 +805,13 @@ LRESULT ToolbarWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
         return TRUE;
     }
     case WM_PAINT: {
-        // Repainting the strip must also redraw the owner-drawn child buttons,
-        // otherwise invalidating just the parent leaves them stale. Invalidate
-        // all children so their WM_DRAWITEM fires.
+        // NOTE: this must NOT invalidate the children (it used to force all
+        // children to redraw here). A paint handler that dirties other windows
+        // re-arms the update region on every frame: with a composited ancestor
+        // the resulting invalidate<->paint ping-pong never idles (~120Hz storm
+        // that starves idle-queued work in a host modal loop). Children repaint
+        // on their own invalidation, which setIcon/setEnabled/setChecked now
+        // request explicitly for the affected child.
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(m_hwnd, &ps);
         // paint our own background
@@ -803,12 +819,6 @@ LRESULT ToolbarWin32::handleMsg(UINT msg, WPARAM wp, LPARAM lp) {
         GetClientRect(m_hwnd, &rc);
         FillRect(hdc, &rc, toolbarBackgroundBrush());
         EndPaint(m_hwnd, &ps);
-        // force children to redraw
-        const auto handles = m_controls.values();
-        for (HWND h : handles) {
-            if (h && IsWindow(h))
-                InvalidateRect(h, nullptr, TRUE);
-        }
         return 0;
     }
     case WM_CTLCOLORSTATIC:
