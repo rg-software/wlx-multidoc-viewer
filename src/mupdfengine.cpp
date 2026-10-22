@@ -718,9 +718,10 @@ QVector<OutlineItem> MuPdfEngine::outline() const {
             while (node) {
                 OutlineItem item;
                 item.title = QString::fromUtf8(node->title);
-                // MuPDF pages are 1-based; shift by the synthetic cover if
-                // any so outline targets materialize on the same public page.
-                item.pageNo = node->page.page + 1 + (m_bodyHasCover ? 1 : 0);
+                // MuPDF resolves the destination into fz_outline::page for
+                // most formats, but not for EPUB (see resolveOutlineTarget).
+                item.resolved = resolveOutlineTarget(node, item.pageNo,
+                                                      item.anchorY);
                 if (node->down)
                     walk(node->down, item.children);
                 out.append(item);
@@ -732,6 +733,74 @@ QVector<OutlineItem> MuPdfEngine::outline() const {
     fz_drop_outline(m_ctx, root);
 
     return items;
+}
+
+// Resolves an outline entry's destination.
+//
+// MuPDF resolves the destination into fz_outline::page for most formats:
+// PDF via the generic loader (source/fitz/outline.c), XPS via
+// source/xps/xps-outline.c, HTML/MOBI via htdoc_update_outline
+// (source/html/html-doc.c). The EPUB loader is the exception: it leaves
+// page at fz_make_location(-1, -1) and carries the raw target only in
+// fz_outline::uri (source/html/epub-doc.c, both the NCX and the nav
+// parser). Without resolving that URI the EPUB table of contents renders
+// but every entry points at page 0, which the controller clamps to page 1.
+//
+// The URI is resolved through the same public API pageLinks() already uses
+// for in-page links (fz_resolve_link_dest), so a TOC entry and the
+// equivalent link inside the page always land on the same spot.
+bool MuPdfEngine::resolveOutlineTarget(const fz_outline* node, int& pageNo,
+                                        float& anchorY) const {
+    pageNo = 0;
+    anchorY = 0.0f;
+    if (!node)
+        return false;
+
+    // Fast path: MuPDF already resolved the destination into the node.
+    if (node->page.chapter >= 0 && node->page.page >= 0) {
+        // MuPDF pages are 1-based; shift by the synthetic cover if any so
+        // outline targets materialize on the same public page.
+        pageNo = node->page.page + 1 + (m_bodyHasCover ? 1 : 0);
+        return true;
+    }
+
+    if (!node->uri)
+        return false;
+
+    // Slow path: the format's outline loader left the destination in the URI
+    // only (EPUB). Resolve it the same way pageLinks() resolves in-page links.
+    //
+    // The result is written straight into the caller's storage: MuPDF's error
+    // handling is setjmp/longjmp based, so no local of this frame may be
+    // relied on across the fz_try block.
+    fz_try(m_ctx) {
+        const fz_link_dest dest = fz_resolve_link_dest(m_ctx, m_doc, node->uri);
+        if (dest.loc.chapter >= 0) {
+            const int bodyPage = fz_page_number_from_location(m_ctx, m_doc, dest.loc);
+            if (bodyPage >= 0) {
+                // bodyPage is 0-based within the body; shift to the public
+                // 1-based page numbering (with the synthetic cover if any).
+                pageNo = bodyPage + 1 + (m_bodyHasCover ? 1 : 0);
+                // XYZ destinations carry the viewport-top coordinate; the
+                // other fit modes have no meaningful anchor (use page top).
+                // Reflowable formats paginate into A5 slices, so a fragment
+                // target lands mid-page.
+                if (dest.type == FZ_LINK_DEST_XYZ && dest.y > 0.0f) {
+                    const PageInfo target = pageDimensionsRaw(bodyPage + 1);
+                    if (target.height > 0) {
+                        const float frac = dest.y / static_cast<float>(target.height);
+                        anchorY = (std::clamp)(frac, 0.0f, 1.0f);
+                    }
+                }
+            }
+        }
+    }
+    fz_catch(m_ctx) {
+        pageNo = 0;
+        anchorY = 0.0f;
+    }
+
+    return pageNo > 0;
 }
 
 // Assumes the caller holds the shared MuPDF lock.

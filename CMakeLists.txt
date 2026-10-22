@@ -704,6 +704,39 @@ if(WLX_BUILD_HARNESS AND WIN32)
         chmlib::chmlib
     )
 
+    # Headless outline-destination harness (fix-epub-outline-navigation):
+    # verifies that EPUB table-of-contents entries (nav document and NCX)
+    # resolve to real pages, that a fragment target carries an in-page anchor,
+    # and that the sidebar hands the destination to the controller.
+    add_executable(harness-epub-toc
+        tests/harness_epub_toc.cpp
+        src/mupdfengine.cpp
+        src/pluginconfig.cpp
+        src/viewercontroller.cpp
+        src/favorites.cpp
+        src/imagefolder.cpp
+        src/naturalsort.cpp
+        src/searchcontroller.cpp
+        src/textselection.cpp
+        src/formatdispatcher.cpp
+        src/djvuengine.cpp
+        src/chmengine.cpp
+        src/comicengine.cpp
+        src/fb2zipengine.cpp
+        src/imageengine.cpp
+    )
+    target_include_directories(harness-epub-toc PRIVATE src
+        "${CMAKE_CURRENT_BINARY_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
+    target_link_libraries(harness-epub-toc
+        Qt6::Core
+        Qt6::Gui
+        ${MUPDF_TARGET}
+        ${DJVU_TARGET}
+        LibArchive::LibArchive
+        chmlib::chmlib
+    )
+
     # Headless favorites-store harness (add-favorites): toggle semantics,
     # per-document independence, disk round-trip, write debouncing.
     add_executable(harness-favorites

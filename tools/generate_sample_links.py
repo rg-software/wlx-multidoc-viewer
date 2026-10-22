@@ -66,6 +66,11 @@ def generate_pdf():
     page2.insert_text((72, 72), "Second page", fontsize=14)
     page2.insert_text((72, ANCHOR_Y), "Anchor target", fontsize=14)
 
+    # A two-entry outline. MuPDF resolves these destinations into the outline
+    # node itself (the fast path in MuPdfEngine::resolveOutlineTarget), so the
+    # harness can check that the EPUB URI path did not regress it.
+    doc.set_toc([[1, "First page", 1], [1, "Second page", 2]])
+
     doc.save(PDF_PATH)
     doc.close()
     print("wrote", PDF_PATH)

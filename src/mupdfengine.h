@@ -103,6 +103,13 @@ private:
     // Unshifted page dimensions of body page (1-based body number); used by the
     // cover renderer to size page 1. Caller must hold the shared MuPDF lock.
     PageInfo pageDimensionsRaw(int bodyPage) const;
+
+    // Resolves an outline entry's destination to a public page number and an
+    // optional normalized in-page anchor. Returns false when the destination
+    // cannot be resolved (a pure container or a dangling link).
+    // Caller must hold the shared MuPDF lock.
+    bool resolveOutlineTarget(const fz_outline* node, int& pageNo,
+                               float& anchorY) const;
 };
 
 #endif // MUPDFENGINE_H
