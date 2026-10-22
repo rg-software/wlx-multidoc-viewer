@@ -1,6 +1,6 @@
-# Viewer Rendering — delta (share-mupdf-context)
+# Spec Delta
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Open MuPDF-backed documents in concurrent windows
 
@@ -25,9 +25,10 @@ profile requirement above) SHALL keep applying in every window.
   CHM stylesheet never restyles a reflowable document in another window and
   vice versa
 
-#### Scenario: CHM second window stages its own copy
+#### Scenario: CHM already open in another window
 
-- **WHEN** a second window opens a CHM file that is already open (libchm
-  holds the first copy with an exclusive lock)
-- **THEN** the engine stages a second private temp copy, both windows render
-  independently, and closing a window deletes only its own copy
+- **WHEN** a second window opens a CHM file that is already open in another
+  window
+- **THEN** the second window opens successfully, both windows render the
+  archive independently, and closing either window leaves the other fully
+  functional

@@ -117,3 +117,19 @@ MuPDF-backed pages SHALL be converted to the display RGB space honoring any embe
 #### Scenario: JPEG without embedded profile
 - **WHEN** the viewer renders a JPEG that carries no ICC profile
 - **THEN** the image converts with the engine default and shows no color shift compared to prior renders
+
+### Requirement: Open MuPDF-backed documents in concurrent windows
+
+MuPDF-backed documents (PDF, XPS, EPUB, MOBI, FB2, CHM, CBZ, TIFF) SHALL open in any number of concurrently open viewer windows, whether on the same file or on different files. Opening a second such document while a first is still open MUST NOT fail the open and MUST NOT disturb the already-open document's rendering, text, search, or theming. ICC color management (see the embedded profile requirement above) SHALL keep applying in every window.
+
+#### Scenario: Same file in two windows
+- **WHEN** the host loads the same PDF (or EPUB/MOBI/CHM/CBZ) file in two Lister windows at the same time
+- **THEN** both windows display the document with identical page counts, text, and colors, and closing either window leaves the other fully functional
+
+#### Scenario: Two different MuPDF documents at once
+- **WHEN** two different MuPDF-backed files are open concurrently
+- **THEN** each window renders, searches, and themes its own document; the CHM stylesheet never restyles a reflowable document in another window and vice versa
+
+#### Scenario: CHM already open in another window
+- **WHEN** a second window opens a CHM file that is already open in another window
+- **THEN** the second window opens successfully, both windows render the archive independently, and closing either window leaves the other fully functional
